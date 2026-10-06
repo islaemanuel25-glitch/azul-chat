@@ -1,0 +1,84 @@
+// La base PROPIA de Azul Chat. No es la del ERP y nunca se conecta a ella.
+//
+// Hoy guarda solo lo que hace falta para tener una sesión propia sobre la
+// identidad que delega el ERP: la instalación, el vínculo de cada persona y
+// sus sesiones. Conversaciones, mensajes, eventos y push vendrán en tablas
+// propias cuando existan.
+//
+// Lo que NO se guarda, a propósito: el código de canje que la persona copió,
+// su contraseña o cookie o JWT del ERP, y su rol, permisos, locales o grupo.
+// Eso es del ERP y se le pregunta en el momento (`mi_alcance`).
+//
+// Varias reglas viven solo en SQL (migración inicial): una sola instalación,
+// la forma del token cifrado y del hash de sesión, y la coherencia de fechas.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// La instalación del ERP a la que pertenece ESTE despliegue. Una sola fila:
+/// Azul Chat no es multi-empresa. `id` es el valor de AZUL_CHAT_INSTALACION_ID;
+/// si la base ya pertenece a otra instalación, el servidor no arranca la
+/// sesión (fail closed).
+model Instalacion {
+  id       String    @id
+  /// Siempre true: el índice único y un CHECK hacen que haya una sola fila.
+  unica    Boolean   @unique @default(true)
+  creadaEn DateTime  @default(now())
+  vinculos Vinculo[]
+}
+
+/// Por qué se invalidó un vínculo.
+enum MotivoInvalidacion {
+  /// El ERP rechazó el token (VINCULO_NO_VALIDO): revocado, reautorizado o inexistente.
+  TOKEN_RECHAZADO_POR_ERP
+}
+
+/// La delegación vigente de UNA persona del ERP en esta instalación. Una fila
+/// por persona: al volver a vincularse (otro dispositivo, o después de una
+/// revocación) se reemplazan el `erpVinculoId` y el token, y las sesiones de
+/// los otros dispositivos siguen andando con el token nuevo.
+///
+/// Vigente = `invalidadoEn` en NULL.
+model Vinculo {
+  id                 String              @id @default(uuid())
+  instalacionId      String
+  erpUsuarioId       Int
+  /// El id del VinculoIntegracion del ERP del que salió el token. Crece con
+  /// cada autorización: un canje viejo que llega tarde no pisa uno nuevo.
+  erpVinculoId       Int
+  /// "v1.<iv>.<ciphertext>.<tag>", AES-256-GCM, base64url. Nunca el token claro.
+  tokenCifrado       String
+  vinculadoEn        DateTime            @default(now())
+  /// Cuándo se canjeó en el ERP el código del token actual (lo informa el ERP).
+  erpCanjeadoEn      DateTime
+  invalidadoEn       DateTime?
+  motivoInvalidacion MotivoInvalidacion?
+
+  instalacion Instalacion @relation(fields: [instalacionId], references: [id], onDelete: Restrict)
+  sesiones    Sesion[]
+
+  @@unique([instalacionId, erpUsuarioId])
+  @@unique([instalacionId, erpVinculoId])
+}
+
+/// Una sesión de un dispositivo. La cookie lleva un identificador opaco; acá
+/// se guarda solo su SHA-256.
+model Sesion {
+  id         String    @id @default(uuid())
+  /// SHA-256 (hex) del identificador de la cookie. El identificador no se guarda.
+  idHash     String    @unique
+  vinculoId  String
+  creadaEn   DateTime  @default(now())
+  expiraEn   DateTime
+  revocadaEn DateTime?
+
+  vinculo Vinculo @relation(fields: [vinculoId], references: [id], onDelete: Restrict)
+
+  @@index([vinculoId])
+}
