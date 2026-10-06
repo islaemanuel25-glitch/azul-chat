@@ -69,3 +69,48 @@ jobs:
 
       - name: Build y verificación del bundle (secretos canario)
         run: npm run verificar:bundle
+
+  # La imagen de producción se construye en cada PR, SIN publicarla: un
+  # Dockerfile roto se ve acá y no recién al publicar desde main.
+  imagen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: El compose de producción es válido
+        # Con app.env y db.env VACÍOS en un directorio aparte: el Compose del
+        # runner no respeta --no-env-resolution y exige que existan.
+        run: |
+          set -euo pipefail
+          docker compose version
+          DIR="$(mktemp -d)"
+          cp docker-compose.prod.yml "$DIR/"
+          : > "$DIR/app.env"
+          : > "$DIR/db.env"
+          AZUL_CHAT_IMAGE=azul-chat:ci docker compose --project-directory "$DIR" -f "$DIR/docker-compose.prod.yml" config --quiet
+
+      - name: Construir la imagen (sin publicar)
+        run: docker build --build-arg APP_BUILD_ID="${{ github.sha }}" -t azul-chat:ci .
+
+      - name: Verificar la imagen
+        run: |
+          set -euo pipefail
+          USUARIO=$(docker image inspect azul-chat:ci --format '{{.Config.User}}')
+          BUILD_ID=$(docker image inspect azul-chat:ci --format '{{range .Config.Env}}{{println .}}{{end}}' | sed -n 's/^APP_BUILD_ID=//p')
+          [ "$USUARIO" = "node" ] || { echo "la imagen no corre como node: ${USUARIO}"; exit 1; }
+          [ "$BUILD_ID" = "${{ github.sha }}" ] || { echo "APP_BUILD_ID=${BUILD_ID} no es el commit"; exit 1; }
+          docker run --rm --entrypoint sh azul-chat:ci -c '
+            set -e
+            id -u | grep -qx 1000
+            prisma --version >/dev/null
+            test -f /app/server.js
+            test -d /app/prisma/migrations
+            # `set -e` no corta con `!`: estos dos van con if explícito.
+            if find / -xdev \( -name ".env" -o -name ".env.*" -o -name "app.env" -o -name "db.env" \) -print 2>/dev/null | grep -q .; then
+              echo "hay un archivo de entorno dentro de la imagen"; exit 1
+            fi
+            if touch /app/server.js 2>/dev/null; then
+              echo "el código de la app es escribible por el proceso"; exit 1
+            fi
+          '

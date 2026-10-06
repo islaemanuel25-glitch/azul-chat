@@ -1,10 +1,17 @@
-// GET /api/salud — el proceso está vivo. Nada más.
+// GET /api/salud — ¿esta instancia puede atender? (src/server/salud.ts)
 //
-// No dice si el ERP está configurado ni si responde: eso es información sobre
-// la integración y esta ruta no tiene autenticación.
+// 200 si la configuración es válida, la base contesta y está migrada; 503 si
+// no, diciendo qué comprobación falló y nunca por qué. No llama al ERP y no
+// escribe nada. Es el healthcheck del contenedor y del despliegue.
+
+import { obtenerDb } from "../../../server/db.ts";
+import { json } from "../../../server/http/respuestas.ts";
+import { comprobarSalud } from "../../../server/salud.ts";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
-export function GET() {
-  return Response.json({ ok: true, servicio: "azul-chat" }, { headers: { "Cache-Control": "no-store" } });
+export async function GET() {
+  const salud = await comprobarSalud({ db: obtenerDb() });
+  return json(salud, { status: salud.ok ? 200 : 503 });
 }
