@@ -1,0 +1,39 @@
+{
+  "name": "azul-chat",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "node --conditions=react-server --test --test-reporter=spec \"test/erp/**/*.test.ts\" \"test/frontera/**/*.test.ts\" \"test/unidad/**/*.test.ts\"",
+    "test:db": "node --conditions=react-server --test --test-concurrency=1 --test-reporter=spec \"test/db/**/*.test.ts\"",
+    "verificar:bundle": "node scripts/verificar-bundle-cliente.mjs",
+    "db:generar": "prisma generate",
+    "db:migrar:dev": "prisma migrate dev",
+    "postinstall": "prisma generate",
+    "check": "npm run typecheck && npm run lint && npm run test && npm run test:db"
+  },
+  "dependencies": {
+    "@prisma/client": "6.19.3",
+    "next": "16.3.8",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "server-only": "0.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "eslint": "9.39.5",
+    "eslint-config-next": "16.3.8",
+    "prisma": "6.19.3",
+    "typescript": "6.0.3"
+  }
+}

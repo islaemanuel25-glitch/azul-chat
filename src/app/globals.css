@@ -1,0 +1,218 @@
+/*
+ * Tokens de Azul Chat. Identidad turquesa/verde (Figma "Azul Chat — Mobile V1",
+ * DpxKeDtugjdB8IfuGnHZcz). Los valores son provisorios hasta que se tomen de
+ * las variables del archivo de Figma; los componentes leen SOLO estos tokens,
+ * así que ajustarlos no toca ningún componente.
+ */
+:root {
+  --ac-color-marca: #0fa3a3;
+  --ac-color-marca-fuerte: #0b7f7f;
+  --ac-color-acento: #2bb673;
+  --ac-color-fondo: #f4fbfa;
+  --ac-color-superficie: #ffffff;
+  --ac-color-texto: #10302f;
+  --ac-color-texto-suave: #4f6b69;
+  --ac-color-borde: #d5e8e6;
+  --ac-color-sobre-marca: #ffffff;
+
+  --ac-radio-tarjeta: 16px;
+  --ac-radio-pastilla: 999px;
+  --ac-espacio-1: 4px;
+  --ac-espacio-2: 8px;
+  --ac-espacio-3: 12px;
+  --ac-espacio-4: 16px;
+  --ac-espacio-6: 24px;
+  --ac-ancho-movil: 480px;
+  --ac-alto-toque: 44px;
+
+  --ac-letra-chica: 13px;
+  --ac-letra-base: 15px;
+  --ac-letra-titulo: 20px;
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ac-color-fondo: #0c1716;
+    --ac-color-superficie: #13211f;
+    --ac-color-texto: #e6f4f2;
+    --ac-color-texto-suave: #9bb7b4;
+    --ac-color-borde: #23413e;
+    color-scheme: dark;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--ac-color-fondo);
+  color: var(--ac-color-texto);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: var(--ac-letra-base);
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+}
+
+.ac-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  max-width: var(--ac-ancho-movil);
+  margin: 0 auto;
+  background: var(--ac-color-fondo);
+}
+
+.ac-encabezado {
+  display: flex;
+  align-items: center;
+  gap: var(--ac-espacio-3);
+  min-height: calc(var(--ac-alto-toque) + var(--ac-espacio-4));
+  padding: var(--ac-espacio-3) var(--ac-espacio-4);
+  padding-top: max(var(--ac-espacio-3), env(safe-area-inset-top));
+  background: linear-gradient(135deg, var(--ac-color-marca), var(--ac-color-acento));
+  color: var(--ac-color-sobre-marca);
+}
+
+.ac-encabezado__marca {
+  margin: 0;
+  font-size: var(--ac-letra-titulo);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.ac-contenido {
+  flex: 1;
+  padding: var(--ac-espacio-4);
+  padding-bottom: max(var(--ac-espacio-4), env(safe-area-inset-bottom));
+}
+
+.ac-tarjeta {
+  background: var(--ac-color-superficie);
+  border: 1px solid var(--ac-color-borde);
+  border-radius: var(--ac-radio-tarjeta);
+  padding: var(--ac-espacio-4);
+}
+
+.ac-tarjeta__titulo {
+  margin: 0 0 var(--ac-espacio-2);
+  font-size: var(--ac-letra-base);
+  font-weight: 600;
+}
+
+.ac-tarjeta__texto {
+  margin: 0;
+  color: var(--ac-color-texto-suave);
+  font-size: var(--ac-letra-chica);
+}
+
+.ac-pastilla {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ac-espacio-2);
+  margin-bottom: var(--ac-espacio-3);
+  padding: var(--ac-espacio-1) var(--ac-espacio-3);
+  border: 1px solid var(--ac-color-borde);
+  border-radius: var(--ac-radio-pastilla);
+  color: var(--ac-color-texto-suave);
+  font-size: var(--ac-letra-chica);
+}
+
+.ac-pastilla__punto {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ac-color-texto-suave);
+}
+
+.ac-pastilla__punto--activo {
+  background: var(--ac-color-acento);
+}
+
+.ac-formulario {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ac-espacio-3);
+  margin-top: var(--ac-espacio-4);
+}
+
+.ac-campo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ac-espacio-1);
+}
+
+.ac-campo__rotulo {
+  font-size: var(--ac-letra-chica);
+  font-weight: 600;
+}
+
+.ac-campo__entrada {
+  min-height: var(--ac-alto-toque);
+  padding: 0 var(--ac-espacio-3);
+  border: 1px solid var(--ac-color-borde);
+  border-radius: var(--ac-espacio-2);
+  background: var(--ac-color-fondo);
+  color: var(--ac-color-texto);
+  font: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.ac-boton {
+  min-height: var(--ac-alto-toque);
+  padding: 0 var(--ac-espacio-4);
+  border: none;
+  border-radius: var(--ac-radio-pastilla);
+  background: var(--ac-color-marca);
+  color: var(--ac-color-sobre-marca);
+  font: inherit;
+  font-weight: 600;
+}
+
+.ac-boton:disabled {
+  opacity: 0.5;
+}
+
+.ac-boton--secundario {
+  margin-top: var(--ac-espacio-4);
+  border: 1px solid var(--ac-color-borde);
+  background: transparent;
+  color: var(--ac-color-texto);
+}
+
+.ac-acciones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ac-espacio-2);
+  align-items: flex-end;
+}
+
+.ac-lista {
+  margin: var(--ac-espacio-3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ac-lista__item {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--ac-espacio-3);
+  padding: var(--ac-espacio-2) 0;
+  border-bottom: 1px solid var(--ac-color-borde);
+}
+
+.ac-mensaje {
+  margin: var(--ac-espacio-3) 0 0;
+  color: var(--ac-color-texto);
+  font-size: var(--ac-letra-chica);
+}
