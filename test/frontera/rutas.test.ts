@@ -17,7 +17,11 @@ const rel = (f: string) => path.relative(RAIZ, f).split(path.sep).join("/");
 
 /** Las rutas permitidas, con los métodos que exporta cada una y su único manejador. */
 const RUTAS = {
-  "src/app/api/salud/route.ts": { metodos: ["GET"], importa: [] as string[] },
+  "src/app/api/salud/route.ts": {
+    metodos: ["GET"],
+    importa: ["../../../server/db.ts", "../../../server/http/respuestas.ts", "../../../server/salud.ts"],
+  },
+  "src/app/api/version/route.ts": { metodos: ["GET"], importa: ["../../../server/http/respuestas.ts", "../../../server/version.ts"] },
   "src/app/api/sesion/route.ts": {
     metodos: ["DELETE", "GET"],
     importa: ["../../../server/sesion/cerrar.ts", "../../../server/sesion/dependencias.ts", "../../../server/sesion/estado.ts"],
