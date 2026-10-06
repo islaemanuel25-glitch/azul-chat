@@ -1,0 +1,19 @@
+# Lista BLANCA: se ignora todo y se deja pasar solo lo que el build necesita.
+# Así un .env, una base local, un clon de prueba o cualquier archivo nuevo no
+# entran al contexto de Docker por accidente. Algo que falte en el build se ve
+# como error; algo que sobre en la imagen no se vería nunca.
+*
+
+!package.json
+!package-lock.json
+!next.config.ts
+!tsconfig.json
+!src/**
+!prisma/schema.prisma
+!prisma/migrations/**
+!ops/prisma-cli/package.json
+!ops/prisma-cli/package-lock.json
+
+# Aun dentro de lo permitido, ningún archivo de entorno.
+**/.env
+**/.env.*

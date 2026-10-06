@@ -1,0 +1,8 @@
+{
+  "name": "azul-chat-prisma-cli",
+  "private": true,
+  "description": "CLI de Prisma de la imagen de producción, para `prisma migrate deploy`. Misma versión que @prisma/client (lo exige test/frontera/produccion.test.ts).",
+  "dependencies": {
+    "prisma": "6.19.3"
+  }
+}
