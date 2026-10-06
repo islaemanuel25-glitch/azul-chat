@@ -2,7 +2,9 @@
 // como llegó por la red (cabeceras, método, ruta y BYTES del cuerpo) y contesta
 // lo que el test le diga. Ningún test llama al ERP real.
 
+import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import path from "node:path";
 import type { AddressInfo } from "node:net";
 
 export type SolicitudRecibida = {
@@ -55,11 +57,14 @@ export async function levantarServidorErp(manejador: Manejador): Promise<Servido
 /** Un secreto de prueba, largo y obviamente falso. */
 export const SECRETO_PRUEBA = "secreto-de-prueba-que-no-es-real-0123456789";
 
-/** Un vínculo con la forma real, inventado para los tests. */
-export const VINCULO_PRUEBA = "vin1_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq";
+/** Un código de canje con la forma real (vin1_ + 43), inventado para los tests. */
+export const CODIGO_PRUEBA = "vin1_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq";
 
+/** Un token de delegación con la forma real (del1_ + 43), inventado para los tests. */
+export const TOKEN_PRUEBA = "del1_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq";
+
+/** La entrada de `ventas_resumen` desde el resto de Azul Chat: qué local y qué período. */
 export const ENTRADA_HOY = Object.freeze({
-  delegacion: { usuarioId: 7, vinculo: VINCULO_PRUEBA },
   alcance: { grupoId: 1, localId: 3 },
   periodo: { tipo: "hoy" },
 });
@@ -67,7 +72,8 @@ export const ENTRADA_HOY = Object.freeze({
 /**
  * `datos` tal como los arma el ERP. NO está escrito a mano: es la salida de
  * `armarVentasResumen` de erpmanual (lib/integraciones/azul-chat/ventasResumen.js,
- * commit 06cc951), ejecutada con dos ventas de ejemplo, copiada sin tocar.
+ * commit 06cc951; el archivo no cambió hasta 8920516), ejecutada con dos ventas
+ * de ejemplo, copiada sin tocar.
  */
 export const DATOS_ERP = Object.freeze({
   capacidad: "ventas_resumen",
@@ -88,3 +94,30 @@ export const DATOS_ERP = Object.freeze({
     },
   ],
 });
+
+/**
+ * Respuestas del ERP desplegado (8920516), generadas EJECUTANDO su código:
+ * el éxito del canje (atenderCanje + aRespuestaPublica), `mi_alcance`
+ * (armarMiAlcance) y el cuerpo de cada código público (rechazoPublico). Ver
+ * el campo `_origen` del archivo. No se editan a mano: se regeneran.
+ */
+export const FIXTURES_ERP = JSON.parse(
+  readFileSync(path.join(import.meta.dirname, "../fixtures/erp-8920516.json"), "utf8"),
+) as {
+  canje: { status: number; cuerpo: { ok: true; datos: Record<string, unknown> } };
+  miAlcance: { ok: true; datos: Record<string, unknown> };
+  miAlcanceGrupo: { ok: true; datos: Record<string, unknown> };
+  errores: Record<string, { status: number; cuerpo: Record<string, unknown> }>;
+};
+
+/** El cuerpo de éxito de un canje, con un token dado (el fixture lo trae enmascarado). */
+export function cuerpoCanjeExitoso(token: string, extra: { usuarioId?: number; vinculoId?: number } = {}) {
+  return { ok: true, datos: { ...FIXTURES_ERP.canje.cuerpo.datos, tokenDelegacion: token, ...extra } };
+}
+
+/** Responde con el cuerpo y el status exactos de un código público del ERP. */
+export function responderErrorErp(res: ServerResponse, codigo: string): void {
+  const e = FIXTURES_ERP.errores[codigo];
+  if (!e) throw new Error(`el fixture no tiene ${codigo}`);
+  responderJson(res, e.status, e.cuerpo);
+}

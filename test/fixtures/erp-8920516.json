@@ -1,0 +1,192 @@
+{
+  "_origen": "Generado ejecutando el código de erpmanual en 8920516f00178faae36a2634139404d309823bb6 (atenderCanje + aRespuestaPublica, armarMiAlcance, rechazoPublico). No editar a mano: regenerar.",
+  "canje": {
+    "status": 200,
+    "cuerpo": {
+      "ok": true,
+      "datos": {
+        "usuarioId": 7,
+        "vinculoId": 41,
+        "tokenDelegacion": "<token>",
+        "autorizadoEn": "2026-10-06T15:00:00.000Z",
+        "canjeadoEn": "2026-10-06T15:01:00.000Z"
+      }
+    }
+  },
+  "miAlcance": {
+    "ok": true,
+    "datos": {
+      "capacidad": "mi_alcance",
+      "version": 1,
+      "usuario": {
+        "id": 7,
+        "nombre": "Emanuel"
+      },
+      "alcance": {
+        "modo": "GLOBAL"
+      },
+      "locales": [
+        {
+          "id": 5,
+          "nombre": "Belgrano",
+          "grupoId": 1,
+          "esDeposito": false,
+          "activo": false
+        },
+        {
+          "id": 3,
+          "nombre": "Casiano",
+          "grupoId": 1,
+          "esDeposito": false,
+          "activo": true
+        },
+        {
+          "id": 9,
+          "nombre": "Depósito Central",
+          "grupoId": 1,
+          "esDeposito": true,
+          "activo": true
+        },
+        {
+          "id": 20,
+          "nombre": "Centro",
+          "grupoId": 2,
+          "esDeposito": false,
+          "activo": true
+        }
+      ]
+    }
+  },
+  "miAlcanceGrupo": {
+    "ok": true,
+    "datos": {
+      "capacidad": "mi_alcance",
+      "version": 1,
+      "usuario": {
+        "id": 8,
+        "nombre": "Encargada"
+      },
+      "alcance": {
+        "modo": "GRUPO",
+        "grupoId": 2
+      },
+      "locales": [
+        {
+          "id": 20,
+          "nombre": "Centro",
+          "grupoId": 2,
+          "esDeposito": false,
+          "activo": true
+        }
+      ]
+    }
+  },
+  "errores": {
+    "SOLICITUD_NO_AUTENTICADA": {
+      "status": 401,
+      "cuerpo": {
+        "ok": false,
+        "codigo": "SOLICITUD_NO_AUTENTICADA",
+        "error": "La solicitud no está autenticada."
+      }
+    },
+    "INTEGRACION_NO_DISPONIBLE": {
+      "status": 503,
+      "cuerpo": {
+        "ok": false,
+        "codigo": "INTEGRACION_NO_DISPONIBLE",
+        "error": "La integración no está disponible."
+      }
+    },
+    "SOLICITUD_INVALIDA": {
+      "status": 400,
+      "cuerpo": {
+        "ok": false,
+        "codigo": "SOLICITUD_INVALIDA",
+        "error": "La solicitud no tiene la forma esperada."
+      }
+    },
+    "PERIODO_INVALIDO": {
+      "status": 400,
+      "cuerpo": {
+        "ok": false,
+        "codigo": "PERIODO_INVALIDO",
+        "error": "texto del período"
+      }
+    },
+    "PERIODO_DEMASIADO_LARGO": {
+      "status": 400,
+      "cuerpo": {
+        "ok": false,
+        "codigo": "PERIODO_DEMASIADO_LARGO",
+        "error": "texto del período"
+      }
+    },
+    "CAPACIDAD_NO_DISPONIBLE": {
+      "status": 403,
+      "cuerpo": {
+        "ok": false,
+        "codigo": "CAPACIDAD_NO_DISPONIBLE",
+        "error": "La capacidad pedida no está disponible."
+      }
+    },
+    "VINCULO_NO_VALIDO": {
+      "status": 403,
+      "cuerpo": {
+        "ok": false,
+        "codigo": "VINCULO_NO_VALIDO",
+        "error": "El usuario no tiene un vínculo válido con esta aplicación."
+      }
+    },
+    "CODIGO_NO_VALIDO": {
+      "status": 403,
+      "cuerpo": {
+        "ok": false,
+        "codigo": "CODIGO_NO_VALIDO",
+        "error": "El código no es válido o ya no se puede usar. Generá uno nuevo desde el ERP."
+      }
+    },
+    "NO_AUTORIZADO": {
+      "status": 403,
+      "cuerpo": {
+        "ok": false,
+        "codigo": "NO_AUTORIZADO",
+        "error": "El usuario no está autorizado para esta consulta."
+      }
+    },
+    "LIMITE_EXCEDIDO": {
+      "status": 429,
+      "cuerpo": {
+        "ok": false,
+        "codigo": "LIMITE_EXCEDIDO",
+        "error": "Demasiadas consultas en poco tiempo.",
+        "reintentarEnSegundos": 30
+      }
+    },
+    "ERROR_AL_CALCULAR": {
+      "status": 500,
+      "cuerpo": {
+        "ok": false,
+        "codigo": "ERROR_AL_CALCULAR",
+        "error": "No se pudo calcular la consulta. Reintentá más tarde.",
+        "referencia": "00000000-0000-4000-8000-000000000000"
+      }
+    },
+    "TIPO_DE_CONTENIDO_INVALIDO": {
+      "status": 415,
+      "cuerpo": {
+        "ok": false,
+        "codigo": "TIPO_DE_CONTENIDO_INVALIDO",
+        "error": "El cuerpo tiene que ser application/json."
+      }
+    },
+    "CUERPO_DEMASIADO_GRANDE": {
+      "status": 413,
+      "cuerpo": {
+        "ok": false,
+        "codigo": "CUERPO_DEMASIADO_GRANDE",
+        "error": "El cuerpo es demasiado grande."
+      }
+    }
+  }
+}

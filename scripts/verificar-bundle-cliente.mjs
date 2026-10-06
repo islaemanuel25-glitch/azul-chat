@@ -1,15 +1,18 @@
 // scripts/verificar-bundle-cliente.mjs
 //
-// ¿EL SECRETO LLEGA AL NAVEGADOR? Se compila con un secreto CANARIO y se lo
-// busca en todo lo que el navegador puede bajar: `.next/static` (JS y CSS) y
-// las páginas prerenderizadas (`.html`, `.rsc`) de `.next/server/app`.
+// ¿ALGÚN SECRETO LLEGA AL NAVEGADOR? Se compila con valores CANARIO para cada
+// variable sensible —el secreto de la integración, la clave de cifrado del
+// token y la URL de la base— y se los busca en todo lo que el navegador puede
+// bajar: `.next/static` (JS y CSS) y las páginas prerenderizadas (`.html`,
+// `.rsc`) de `.next/server/app`.
 //
-// También se busca el NOMBRE de la variable: que aparezca en el bundle de
+// También se busca el NOMBRE de cada variable: que aparezca en el bundle de
 // cliente significaría que algún código de cliente intenta leerla.
 //
 // Uso: npm run verificar:bundle   (sale con 1 si encuentra algo)
 //
-// El canario se genera al azar en cada corrida y no es un secreto real.
+// Los canarios se generan al azar en cada corrida y no son secretos reales.
+// La URL canario apunta a un host .invalid: el build no se conecta a la base.
 
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -17,7 +20,12 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 
 const RAIZ = path.resolve(import.meta.dirname, "..");
-const CANARIO = `canario-${randomBytes(24).toString("hex")}`;
+const canario = () => `canario-${randomBytes(24).toString("hex")}`;
+const CANARIOS = {
+  AZUL_CHAT_INTEGRACION_SECRET: canario(),
+  AZUL_CHAT_TOKEN_ENCRYPTION_KEY: randomBytes(32).toString("base64url"),
+  DATABASE_URL: `postgresql://canario:${canario()}@base.ejemplo.invalid:5432/azulchat`,
+};
 
 const build = spawnSync("npx", ["next", "build"], {
   cwd: RAIZ,
@@ -25,7 +33,9 @@ const build = spawnSync("npx", ["next", "build"], {
   env: {
     ...process.env,
     ERP_BASE_URL: "https://erp.ejemplo.invalid",
-    AZUL_CHAT_INTEGRACION_SECRET: CANARIO,
+    AZUL_CHAT_INSTALACION_ID: "instalacion-canario",
+    AZUL_CHAT_ORIGEN_PUBLICO: "https://chat.ejemplo.invalid",
+    ...CANARIOS,
     NEXT_TELEMETRY_DISABLED: "1",
   },
 });
@@ -55,12 +65,14 @@ if (archivos.length === 0) {
 const hallazgos = [];
 for (const f of archivos) {
   const contenido = readFileSync(f, "latin1");
-  if (contenido.includes(CANARIO)) hallazgos.push(`${path.relative(RAIZ, f)}: contiene el valor del secreto`);
-  if (contenido.includes("AZUL_CHAT_INTEGRACION_SECRET")) hallazgos.push(`${path.relative(RAIZ, f)}: nombra la variable del secreto`);
+  for (const [variable, valor] of Object.entries(CANARIOS)) {
+    if (contenido.includes(valor)) hallazgos.push(`${path.relative(RAIZ, f)}: contiene el valor de ${variable}`);
+    if (contenido.includes(variable)) hallazgos.push(`${path.relative(RAIZ, f)}: nombra la variable ${variable}`);
+  }
 }
 
 if (hallazgos.length) {
-  console.error("verificar:bundle: el secreto llega al navegador:\n" + hallazgos.join("\n"));
+  console.error("verificar:bundle: un secreto llega al navegador:\n" + hallazgos.join("\n"));
   process.exit(1);
 }
-console.log(`verificar:bundle: ${archivos.length} archivos de cliente revisados; el secreto no aparece en ninguno.`);
+console.log(`verificar:bundle: ${archivos.length} archivos de cliente revisados; ninguno de los ${Object.keys(CANARIOS).length} secretos canario aparece.`);

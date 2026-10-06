@@ -62,7 +62,7 @@ export type Entorno = Readonly<Record<string, string | undefined>>;
  * ruta sería dejar que la configuración elija a qué endpoint se le manda la
  * firma.
  */
-function origenAceptable(valor: string): string | null {
+export function origenAceptable(valor: string): string | null {
   let url: URL;
   try {
     url = new URL(valor);
@@ -98,4 +98,14 @@ export function leerConfigErp(entorno: Entorno = process.env): ResultadoConfig {
 
   const firmar: Firmante = ({ aplicacion, marca, cuerpo }) => firmarSolicitud({ secreto, aplicacion, marca, cuerpo });
   return { ok: true, config: Object.freeze({ origen, firmar }) };
+}
+
+/**
+ * ¿Ese valor es el secreto de la integración? Para que otro secreto —la clave
+ * de cifrado del token— pueda negarse a ser el mismo sin leer esta variable en
+ * otro archivo: el secreto HMAC se lee solo acá.
+ */
+export function esElSecretoDeIntegracion(valor: string, entorno: Entorno = process.env): boolean {
+  const secreto = entorno[VARIABLE_SECRETO];
+  return Boolean(secreto) && secreto === valor;
 }

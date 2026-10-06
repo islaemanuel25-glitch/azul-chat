@@ -2,12 +2,17 @@
 //
 // EL CLIENTE DE AZUL CHAT HACIA EL ERP. Server-side, y NO genérico.
 //
-// Conoce UNA ruta —`POST /api/integraciones/azul-chat/consultar`— y UNA
-// capacidad —`ventas_resumen`—. No recibe URLs, rutas, métodos ni cabeceras de
-// quien lo usa: no hay forma de pedirle que llame otra cosa. Una capacidad
-// nueva es un método nuevo acá, con su propio constructor de cuerpo.
+// Conoce DOS rutas del ERP, fijas, y TRES operaciones:
 //
-// ── EL CAMINO DE UNA CONSULTA ──────────────────────────────────────────────
+//   · canjear(codigo)                → POST /api/integraciones/azul-chat/vinculo/canjear
+//   · miAlcance(token)               → POST /api/integraciones/azul-chat/consultar
+//   · ventasResumen(token, entrada)  → POST /api/integraciones/azul-chat/consultar
+//
+// No recibe URLs, rutas, métodos, cabeceras ni nombres de capacidad de quien lo
+// usa: no hay forma de pedirle que llame otra cosa. Una capacidad nueva es un
+// método nuevo acá, con su propio constructor de cuerpo.
+//
+// ── EL CAMINO DE UNA LLAMADA ───────────────────────────────────────────────
 //
 //   1. configuración: sin secreto válido, no se llama (FAIL CLOSED);
 //   2. cuerpo: se valida la entrada y se serializa UNA vez con JSON.stringify;
@@ -18,15 +23,16 @@
 //
 // ── SIN REINTENTOS ─────────────────────────────────────────────────────────
 //
-// Una consulta que falla devuelve el fallo y termina. No hay retry, ni
+// Una llamada que falla devuelve el fallo y termina. No hay retry, ni
 // inmediato ni diferido: si "ventas de hoy" falló, volver a pedirla minutos
-// después contestaría otra pregunta que nadie hizo. Reintentar lo decide la
-// persona. El ERP además limita por usuario: reintentar solo gastaría su cupo.
+// después contestaría otra pregunta que nadie hizo; y un canje reintentado no
+// puede funcionar nunca, porque el ERP gasta el código en el primer intento.
+// Reintentar lo decide la persona.
 //
 // ── LOGS ───────────────────────────────────────────────────────────────────
 //
-// Un renglón por consulta, con el tipo cerrado de `../log.ts`. Ni secreto, ni
-// firma, ni vínculo, ni cuerpo, ni el texto de la respuesta.
+// Un renglón por llamada, con el tipo cerrado de `../log.ts`. Ni secreto, ni
+// firma, ni código de canje, ni token, ni cuerpo, ni el texto de la respuesta.
 
 import "server-only";
 
@@ -34,25 +40,30 @@ import { randomUUID } from "node:crypto";
 
 import {
   esCodigoErrorErp,
+  esDatosMiAlcance,
   esDatosVentasResumen,
   type CodigoErrorLocal,
+  type DatosMiAlcance,
   type DatosVentasResumen,
   type FalloErp,
   type FalloLocal,
   type ResultadoConsulta,
 } from "../../shared/erp/contrato.ts";
-import { registrarEnConsola, type Registrador } from "../log.ts";
+import { registrarEnConsola, type Registrador, type RegistroConsultaErp } from "../log.ts";
+import { construirCuerpoCanje, esDatosCanje, type DatosCanje } from "./canje.ts";
 import { leerConfigErp, type Entorno } from "./config.ts";
 import { APLICACION, CABECERAS, marcaDeTiempo } from "./firma.ts";
-import { CAPACIDAD_VENTAS_RESUMEN, construirCuerpoVentasResumen } from "./ventasResumen.ts";
+import { construirCuerpoMiAlcance } from "./miAlcance.ts";
+import { construirCuerpoVentasResumen } from "./ventasResumen.ts";
 
-/** La única ruta del ERP que este cliente sabe llamar. */
+/** Las únicas dos rutas del ERP que este cliente sabe llamar. */
 export const RUTA_CONSULTAR = "/api/integraciones/azul-chat/consultar";
+export const RUTA_CANJEAR = "/api/integraciones/azul-chat/vinculo/canjear";
 
 /** Lo que el ERP acepta como máximo (erpmanual: atender.js, MAX_BYTES_CUERPO). */
 export const MAX_BYTES_CUERPO = 4096;
 
-/** Una respuesta de `ventas_resumen` mide unos cientos de bytes. Esto es holgura, no un número del contrato. */
+/** Una respuesta de estas operaciones mide a lo sumo unos KB. Esto es holgura, no un número del contrato. */
 export const MAX_BYTES_RESPUESTA = 64 * 1024;
 
 /** Lo que se espera al ERP antes de abortar, incluyendo leer la respuesta. */
@@ -69,10 +80,13 @@ export type DependenciasCliente = {
 };
 
 export type ClienteErp = {
-  ventasResumen(entrada: unknown): Promise<ResultadoConsulta<DatosVentasResumen>>;
+  /** Cambia el código humano por un token. Una sola vez: el ERP gasta el código. */
+  canjear(codigo: unknown): Promise<ResultadoConsulta<DatosCanje>>;
+  /** Quién es la persona del token y qué locales puede consultar HOY. */
+  miAlcance(token: string): Promise<ResultadoConsulta<DatosMiAlcance>>;
+  /** Cuánto se vendió en un local y un período. `entrada` = `{ alcance, periodo }`. */
+  ventasResumen(token: string, entrada: unknown): Promise<ResultadoConsulta<DatosVentasResumen>>;
 };
-
-class LecturaExcedida extends Error {}
 
 /** Lee el cuerpo de la respuesta sin pasarse de `max` bytes, en UTF-8 estricto. */
 async function leerTextoAcotado(respuesta: Response, max: number): Promise<string> {
@@ -86,7 +100,7 @@ async function leerTextoAcotado(respuesta: Response, max: number): Promise<strin
     total += value.byteLength;
     if (total > max) {
       await lector.cancel().catch(() => {});
-      throw new LecturaExcedida();
+      throw new Error("respuesta demasiado grande");
     }
     partes.push(value);
   }
@@ -94,6 +108,11 @@ async function leerTextoAcotado(respuesta: Response, max: number): Promise<strin
 }
 
 const esObjeto = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === "object" && !Array.isArray(v);
+
+type Operacion = RegistroConsultaErp["operacion"];
+
+/** El cuerpo ya validado, o el código local con el que se rechaza sin llamar. */
+type CuerpoArmado = { ok: true; cuerpo: object } | { ok: false; codigo: CodigoErrorLocal };
 
 export function crearClienteErp(deps: DependenciasCliente = {}): ClienteErp {
   const entorno = deps.entorno ?? process.env;
@@ -103,20 +122,24 @@ export function crearClienteErp(deps: DependenciasCliente = {}): ClienteErp {
   const registrar = deps.registrar ?? registrarEnConsola;
   const generarRequestId = deps.generarRequestId ?? randomUUID;
 
-  async function ventasResumen(entrada: unknown): Promise<ResultadoConsulta<DatosVentasResumen>> {
-    const capacidad = CAPACIDAD_VENTAS_RESUMEN;
+  /**
+   * Una llamada firmada a UNA de las dos rutas fijas. Privada: no se exporta y
+   * nadie de afuera elige `ruta`.
+   */
+  async function llamar<T>(
+    operacion: Operacion,
+    ruta: typeof RUTA_CONSULTAR | typeof RUTA_CANJEAR,
+    armar: () => CuerpoArmado,
+    esDatos: (v: unknown) => v is T,
+  ): Promise<ResultadoConsulta<T>> {
     const requestId = generarRequestId();
     const inicio = ahora();
 
-    const terminar = <R extends ResultadoConsulta<DatosVentasResumen>>(
-      resultado: R,
-      status: number | null,
-      motivo?: string,
-    ): R => {
+    const terminar = <R extends ResultadoConsulta<T>>(resultado: R, status: number | null, motivo?: string): R => {
       registrar({
         evento: "erp.consulta",
         requestId,
-        capacidad,
+        operacion,
         duracionMs: Math.max(0, ahora() - inicio),
         status,
         codigo: resultado.ok ? "OK" : resultado.codigo,
@@ -125,11 +148,7 @@ export function crearClienteErp(deps: DependenciasCliente = {}): ClienteErp {
       return resultado;
     };
     const falloLocal = (codigo: CodigoErrorLocal, status: number | null, motivo?: string): FalloLocal =>
-      terminar(
-        { ok: false, origen: "local", codigo, requestId, ...(status === null ? {} : { status }) },
-        status,
-        motivo,
-      );
+      terminar({ ok: false, origen: "local", codigo, requestId, ...(status === null ? {} : { status }) }, status, motivo);
 
     // 1. Configuración. Sin ella no se arma ni se firma nada.
     const leida = leerConfigErp(entorno);
@@ -137,9 +156,9 @@ export function crearClienteErp(deps: DependenciasCliente = {}): ClienteErp {
     const { origen, firmar } = leida.config;
 
     // 2. Cuerpo: se serializa UNA vez. Este string es el que se firma y el que viaja.
-    const construido = construirCuerpoVentasResumen(entrada);
-    if (!construido.ok) return falloLocal(construido.codigo, null);
-    const cuerpo = JSON.stringify(construido.cuerpo);
+    const armado = armar();
+    if (!armado.ok) return falloLocal(armado.codigo, null);
+    const cuerpo = JSON.stringify(armado.cuerpo);
     if (Buffer.byteLength(cuerpo, "utf8") > MAX_BYTES_CUERPO) return falloLocal("SOLICITUD_INVALIDA", null);
 
     // 3. Firma.
@@ -152,7 +171,7 @@ export function crearClienteErp(deps: DependenciasCliente = {}): ClienteErp {
     let status: number;
     let texto: string;
     try {
-      const respuesta = await hacerFetch(new URL(RUTA_CONSULTAR, origen), {
+      const respuesta = await hacerFetch(new URL(ruta, origen), {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -163,7 +182,7 @@ export function crearClienteErp(deps: DependenciasCliente = {}): ClienteErp {
         },
         body: cuerpo,
         signal: controlador.signal,
-        // Una redirección mandaría la firma y el vínculo a otro lugar. El ERP no redirige esta ruta.
+        // Una redirección mandaría la firma, el código o el token a otro lugar. El ERP no redirige estas rutas.
         redirect: "error",
         cache: "no-store",
       });
@@ -192,7 +211,7 @@ export function crearClienteErp(deps: DependenciasCliente = {}): ClienteErp {
     if (!esObjeto(json)) return falloLocal("RESPUESTA_INVALIDA", status);
 
     if (json.ok === true) {
-      if (status !== 200 || !esDatosVentasResumen(json.datos)) return falloLocal("RESPUESTA_INVALIDA", status);
+      if (status !== 200 || !esDatos(json.datos)) return falloLocal("RESPUESTA_INVALIDA", status);
       return terminar({ ok: true, datos: json.datos, requestId }, status);
     }
 
@@ -216,5 +235,23 @@ export function crearClienteErp(deps: DependenciasCliente = {}): ClienteErp {
     return falloLocal("RESPUESTA_INVALIDA", status);
   }
 
-  return Object.freeze({ ventasResumen });
+  return Object.freeze({
+    canjear: (codigo: unknown) =>
+      llamar("canjear", RUTA_CANJEAR, (): CuerpoArmado => {
+        const cuerpo = construirCuerpoCanje(codigo);
+        return cuerpo ? { ok: true, cuerpo } : { ok: false, codigo: "SOLICITUD_INVALIDA" };
+      }, esDatosCanje),
+
+    miAlcance: (token: string) =>
+      llamar("mi_alcance", RUTA_CONSULTAR, (): CuerpoArmado => {
+        const cuerpo = construirCuerpoMiAlcance(token);
+        return cuerpo ? { ok: true, cuerpo } : { ok: false, codigo: "SOLICITUD_INVALIDA" };
+      }, esDatosMiAlcance),
+
+    ventasResumen: (token: string, entrada: unknown) =>
+      llamar("ventas_resumen", RUTA_CONSULTAR, (): CuerpoArmado => {
+        const construido = construirCuerpoVentasResumen(token, entrada);
+        return construido.ok ? { ok: true, cuerpo: construido.cuerpo } : { ok: false, codigo: construido.codigo };
+      }, esDatosVentasResumen),
+  });
 }

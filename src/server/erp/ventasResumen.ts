@@ -2,20 +2,24 @@
 //
 // LA SOLICITUD DE `ventas_resumen`: SE CONSTRUYE ACÁ Y EN NINGÚN OTRO LADO.
 //
-// Recibe la entrada como `unknown` porque va a venir de afuera (una ruta, un
-// mensaje del chat) y la valida contra la forma exacta del ERP
-// (erpmanual: lib/integraciones/azul-chat/atender.js y ventasResumen.js):
+// Forma exacta del ERP desplegado (erpmanual 8920516,
+// lib/integraciones/azul-chat/atender.js y ventasResumen.js):
 //
 //   {
 //     "capacidad":  "ventas_resumen",
-//     "delegacion": { "usuarioId": 12, "vinculo": "vin1_…" },
+//     "delegacion": { "token": "del1_…" },
 //     "alcance":    { "grupoId": 1, "localId": 3 },
 //     "parametros": { "periodo": { "tipo": "hoy" } }
 //   }
 //
-// Una clave de más en cualquier nivel se rechaza, igual que en el ERP. El
-// objeto de salida se arma de cero con las claves en orden fijo, así que nada
-// de la entrada se copia sin pasar por una validación.
+// El `usuarioId` NO viaja: el ERP lo deriva del token, y si viniera en el
+// cuerpo lo rechazaría como clave de más. El token no lo elige quien pregunta:
+// sale del vínculo de la sesión, descifrado en el servidor.
+//
+// La entrada (`alcance` y `periodo`) llega como `unknown` porque va a venir de
+// afuera y se valida contra la forma exacta. Una clave de más en cualquier
+// nivel se rechaza, igual que en el ERP. El objeto de salida se arma de cero
+// con las claves en orden fijo.
 //
 // ── LO QUE SE VALIDA ACÁ Y LO QUE NO ───────────────────────────────────────
 //
@@ -24,32 +28,28 @@
 // rechazarlo acá ahorra una llamada que el ERP rechazaría igual.
 //
 // NO se valida "el rango termina en el futuro": depende de qué día es HOY EN
-// ARGENTINA, y esa cuenta es del ERP. Tampoco se valida la forma del código de
-// vínculo más allá de ser un texto: si el ERP cambia el formato, no hay que
-// cambiar Azul Chat. Si el ERP decide que algo está mal, lo dice con su código.
+// ARGENTINA, y esa cuenta es del ERP. Tampoco si el local está en el alcance:
+// eso lo decide el ERP en cada pregunta, aunque `mi_alcance` lo haya listado.
 
 import "server-only";
 
 import type { Periodo } from "../../shared/erp/contrato.ts";
+import { esTokenDelegacion } from "./credenciales.ts";
 
 export const CAPACIDAD_VENTAS_RESUMEN = "ventas_resumen";
 
 /** El rango más largo que acepta el ERP, contando los dos extremos. */
 export const MAX_DIAS_RANGO = 31;
 
-/** Un vínculo real mide 48 caracteres; esto solo frena basura enorme. */
-const MAX_LARGO_VINCULO = 256;
-
 export type CuerpoVentasResumen = {
   readonly capacidad: typeof CAPACIDAD_VENTAS_RESUMEN;
-  readonly delegacion: { readonly usuarioId: number; readonly vinculo: string };
+  readonly delegacion: { readonly token: string };
   readonly alcance: { readonly grupoId: number; readonly localId: number };
   readonly parametros: { readonly periodo: Periodo };
 };
 
-/** Lo que el resto de Azul Chat le pasa al cliente. Sin `capacidad`: la pone el cliente. */
+/** Lo que el resto de Azul Chat le pasa al cliente: qué local y qué período. */
 export type EntradaVentasResumen = {
-  readonly delegacion: { readonly usuarioId: number; readonly vinculo: string };
   readonly alcance: { readonly grupoId: number; readonly localId: number };
   readonly periodo: Periodo;
 };
@@ -57,7 +57,7 @@ export type EntradaVentasResumen = {
 export type RechazoEntrada = {
   readonly ok: false;
   readonly codigo: "SOLICITUD_INVALIDA" | "PERIODO_INVALIDO" | "PERIODO_DEMASIADO_LARGO";
-  /** Para el desarrollador y los tests. No se loguea si puede contener datos de la persona. */
+  /** Para el desarrollador y los tests. No se loguea. */
   readonly detalle: string;
 };
 
@@ -116,24 +116,19 @@ function validarPeriodo(periodo: unknown): { ok: true; periodo: Periodo } | Rech
 
 /**
  * Valida la entrada y arma el cuerpo exacto que se firma y se manda.
+ *
+ * @param token el token de delegación, descifrado en el servidor desde el vínculo de la sesión.
+ * @param entrada `{ alcance: { grupoId, localId }, periodo }`.
  */
-export function construirCuerpoVentasResumen(entrada: unknown): ResultadoEntrada {
+export function construirCuerpoVentasResumen(token: string, entrada: unknown): ResultadoEntrada {
+  if (!esTokenDelegacion(token)) return invalida("El token de delegación no tiene la forma del ERP.");
   if (!esObjetoPlano(entrada)) return invalida("La entrada tiene que ser un objeto.");
-  const CLAVES = ["delegacion", "alcance", "periodo"] as const;
+  const CLAVES = ["alcance", "periodo"] as const;
   if (!soloEstas(entrada, CLAVES) || !tieneTodas(entrada, CLAVES)) {
-    return invalida("La entrada lleva exactamente delegacion, alcance y periodo.");
+    return invalida("La entrada lleva exactamente alcance y periodo.");
   }
 
-  const { delegacion, alcance } = entrada;
-  if (!esObjetoPlano(delegacion) || !soloEstas(delegacion, ["usuarioId", "vinculo"])) {
-    return invalida("La delegación solo acepta usuarioId y vinculo.");
-  }
-  if (!esEnteroPositivo(delegacion.usuarioId)) return invalida("usuarioId tiene que ser un entero positivo.");
-  const { vinculo } = delegacion;
-  if (typeof vinculo !== "string" || vinculo.length === 0 || vinculo.length > MAX_LARGO_VINCULO) {
-    return invalida("vinculo tiene que ser un texto no vacío.");
-  }
-
+  const { alcance } = entrada;
   if (!esObjetoPlano(alcance) || !soloEstas(alcance, ["grupoId", "localId"])) {
     return invalida("El alcance solo acepta grupoId y localId.");
   }
@@ -147,7 +142,7 @@ export function construirCuerpoVentasResumen(entrada: unknown): ResultadoEntrada
     ok: true,
     cuerpo: {
       capacidad: CAPACIDAD_VENTAS_RESUMEN,
-      delegacion: { usuarioId: delegacion.usuarioId, vinculo },
+      delegacion: { token },
       alcance: { grupoId: alcance.grupoId, localId: alcance.localId },
       parametros: { periodo: periodo.periodo },
     },

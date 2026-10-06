@@ -4,8 +4,10 @@
 // es lo único del contrato ERP que la interfaz puede importar para presentar
 // una respuesta.
 //
-// Fuente del contrato: erpmanual, `lib/integraciones/azul-chat/respuestaPublica.js`
-// (códigos públicos) y `lib/integraciones/azul-chat/ventasResumen.js` (datos).
+// Fuente del contrato: erpmanual en 8920516 (producción), archivos
+// `lib/integraciones/azul-chat/respuestaPublica.js` (códigos públicos),
+// `ventasResumen.js` y `miAlcance.js` (datos). Los fixtures de
+// `test/fixtures/erp-8920516.json` salen de ejecutar ese código.
 // Acá no se calcula nada: el ERP calcula y Azul Chat presenta.
 
 /** Los códigos PÚBLICOS de error del ERP. La lógica decide por estos, nunca por el texto. */
@@ -16,6 +18,8 @@ export const CODIGOS_ERROR_ERP = Object.freeze([
   "SOLICITUD_NO_AUTENTICADA",
   "CAPACIDAD_NO_DISPONIBLE",
   "VINCULO_NO_VALIDO",
+  /** Solo en el canje: código inexistente, vencido, usado, revocado o de alguien inactivo. */
+  "CODIGO_NO_VALIDO",
   "NO_AUTORIZADO",
   "CUERPO_DEMASIADO_GRANDE",
   "TIPO_DE_CONTENIDO_INVALIDO",
@@ -78,6 +82,34 @@ export type DatosVentasResumen = {
   readonly totalVendido: string;
   readonly mediosDePago: readonly MedioDePago[];
   readonly advertencias: readonly Advertencia[];
+};
+
+/** El alcance territorial que el ERP le reconoce HOY a la persona. */
+export type AlcanceErp =
+  | { readonly modo: "LOCAL" }
+  | { readonly modo: "GRUPO"; readonly grupoId: number }
+  | { readonly modo: "GLOBAL" }
+  | { readonly modo: "NINGUNO" };
+
+export type LocalEnAlcance = {
+  readonly id: number;
+  readonly nombre: string;
+  /** El grupo que el ERP acepta para este local en una capacidad sobre un local. */
+  readonly grupoId: number;
+  readonly esDeposito: boolean;
+  readonly activo: boolean;
+};
+
+/**
+ * `datos` de `mi_alcance`, versión 1. Sirve para armar la interfaz; NO es una
+ * autorización: cada capacidad sobre un local la vuelve a decidir el ERP.
+ */
+export type DatosMiAlcance = {
+  readonly capacidad: "mi_alcance";
+  readonly version: 1;
+  readonly usuario: { readonly id: number; readonly nombre: string };
+  readonly alcance: AlcanceErp;
+  readonly locales: readonly LocalEnAlcance[];
 };
 
 export type Exito<T> = { readonly ok: true; readonly datos: T; readonly requestId: string };
@@ -157,4 +189,33 @@ export function esDatosVentasResumen(v: unknown): v is DatosVentasResumen {
   if (!Array.isArray(v.mediosDePago) || !v.mediosDePago.every(esMedioDePago)) return false;
   if (!Array.isArray(v.advertencias) || !v.advertencias.every(esAdvertencia)) return false;
   return true;
+}
+
+const soloClaves = (obj: Record<string, unknown>, claves: readonly string[]): boolean =>
+  Object.keys(obj).length === claves.length && claves.every((k) => Object.prototype.hasOwnProperty.call(obj, k));
+
+function esAlcanceErp(v: unknown): v is AlcanceErp {
+  if (!esObjeto(v)) return false;
+  if (v.modo === "GRUPO") return soloClaves(v, ["modo", "grupoId"]) && esEnteroPositivo(v.grupoId);
+  return (v.modo === "LOCAL" || v.modo === "GLOBAL" || v.modo === "NINGUNO") && soloClaves(v, ["modo"]);
+}
+
+function esLocalEnAlcance(v: unknown): v is LocalEnAlcance {
+  return (
+    esObjeto(v) &&
+    esEnteroPositivo(v.id) &&
+    esTexto(v.nombre) &&
+    esEnteroPositivo(v.grupoId) &&
+    typeof v.esDeposito === "boolean" &&
+    typeof v.activo === "boolean"
+  );
+}
+
+export function esDatosMiAlcance(v: unknown): v is DatosMiAlcance {
+  if (!esObjeto(v)) return false;
+  if (v.capacidad !== "mi_alcance" || v.version !== 1) return false;
+  const { usuario } = v;
+  if (!esObjeto(usuario) || !esEnteroPositivo(usuario.id) || !esTexto(usuario.nombre)) return false;
+  if (!esAlcanceErp(v.alcance)) return false;
+  return Array.isArray(v.locales) && v.locales.every(esLocalEnAlcance);
 }
