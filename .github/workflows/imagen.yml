@@ -1,0 +1,127 @@
+# Construye la imagen de producción y la publica en GHCR. NO despliega.
+#
+# CUÁNDO CORRE
+#   · Solo después de que la CI terminó EN VERDE sobre un push a main
+#     (`workflow_run`). Un commit que no pasó la CI no tiene imagen.
+#   · A mano (`workflow_dispatch`), y solo sobre main.
+# Nunca en un PR: un PR no publica nada.
+#
+# LA ETIQUETA ES EL SHA COMPLETO, Y ES LA ÚNICA
+# Sin `latest`: una etiqueta móvil no permite saber qué versión corre ni volver
+# a una anterior. Producción despliega siempre por SHA completo (docs/DEPLOY.md).
+#
+# SIN SECRETOS DE PRODUCCIÓN
+# La imagen no lleva ninguno; entran por variables al arrancar. El único token
+# es GITHUB_TOKEN, con permiso para publicar en el GHCR de este repositorio.
+
+name: Imagen
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: publicar-imagen-main
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGEN: ghcr.io/islaemanuel25-glitch/azul-chat
+
+jobs:
+  publicar:
+    # workflow_run: solo si la CI de un push a main terminó bien.
+    # workflow_dispatch: solo desde main.
+    if: >-
+      (github.event_name == 'workflow_run'
+        && github.event.workflow_run.conclusion == 'success'
+        && github.event.workflow_run.event == 'push'
+        && github.event.workflow_run.head_branch == 'main')
+      || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Fijar el commit a construir
+        id: commit
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            SHA="${{ github.event.workflow_run.head_sha }}"
+          else
+            SHA="${{ github.sha }}"
+          fi
+          if ! printf '%s' "$SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "ABORTA: el commit no es un SHA completo"; exit 1
+          fi
+          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.commit.outputs.sha }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Autenticarse en GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Construir y publicar por SHA
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          # El VPS es x86_64.
+          platforms: linux/amd64
+          push: true
+          # Manifiesto simple, sin índice de attestations: `docker compose pull`
+          # lo baja sin sorpresas.
+          provenance: false
+          tags: ${{ env.IMAGEN }}:${{ steps.commit.outputs.sha }}
+          build-args: |
+            APP_BUILD_ID=${{ steps.commit.outputs.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ steps.commit.outputs.sha }}
+            org.opencontainers.image.title=azul-chat
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verificar la imagen publicada
+        env:
+          SHA: ${{ steps.commit.outputs.sha }}
+        run: |
+          set -euo pipefail
+          REF="${IMAGEN}:${SHA}"
+          docker pull --quiet "$REF"
+          DIGEST=$(docker image inspect "$REF" --format '{{index .RepoDigests 0}}')
+          BUILD_ID=$(docker image inspect "$REF" --format '{{range .Config.Env}}{{println .}}{{end}}' | sed -n 's/^APP_BUILD_ID=//p')
+          REVISION=$(docker image inspect "$REF" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')
+          USUARIO=$(docker image inspect "$REF" --format '{{.Config.User}}')
+          ARCH=$(docker image inspect "$REF" --format '{{.Os}}/{{.Architecture}}')
+          [ "$BUILD_ID" = "$SHA" ] || { echo "ABORTA: APP_BUILD_ID=${BUILD_ID} no es ${SHA}"; exit 1; }
+          [ "$REVISION" = "$SHA" ] || { echo "ABORTA: la etiqueta OCI revision=${REVISION} no es ${SHA}"; exit 1; }
+          [ "$USUARIO" = "node" ] || { echo "ABORTA: la imagen no corre como node (${USUARIO})"; exit 1; }
+          [ "$ARCH" = "linux/amd64" ] || { echo "ABORTA: la imagen es ${ARCH}"; exit 1; }
+          # Ningún archivo de entorno dentro de la imagen.
+          if docker run --rm --entrypoint sh "$REF" -c 'find / -xdev \( -name ".env" -o -name ".env.*" -o -name "app.env" -o -name "db.env" \) -print 2>/dev/null | grep -q .'; then
+            echo "ABORTA: hay un archivo de entorno dentro de la imagen"; exit 1
+          fi
+          {
+            echo "### Imagen publicada"
+            echo ""
+            echo "- **Referencia**: \`${REF}\`"
+            echo "- **Digest**: \`${DIGEST}\`"
+            echo "- **APP_BUILD_ID / revision**: \`${SHA}\`"
+            echo "- **Usuario**: \`${USUARIO}\` · **Plataforma**: \`${ARCH}\`"
+            echo "- **Desplegar con**: \`AZUL_CHAT_IMAGE=${REF}\` (docs/DEPLOY.md)"
+          } >> "$GITHUB_STEP_SUMMARY"
