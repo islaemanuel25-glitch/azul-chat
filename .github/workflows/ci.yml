@@ -78,8 +78,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: El compose de producción es válido (sin archivos de entorno)
-        run: AZUL_CHAT_IMAGE=azul-chat:ci docker compose -f docker-compose.prod.yml config --quiet --no-env-resolution
+      - name: El compose de producción es válido
+        # Con app.env y db.env VACÍOS en un directorio aparte: el Compose del
+        # runner no respeta --no-env-resolution y exige que existan.
+        run: |
+          set -euo pipefail
+          docker compose version
+          DIR="$(mktemp -d)"
+          cp docker-compose.prod.yml "$DIR/"
+          : > "$DIR/app.env"
+          : > "$DIR/db.env"
+          AZUL_CHAT_IMAGE=azul-chat:ci docker compose --project-directory "$DIR" -f "$DIR/docker-compose.prod.yml" config --quiet
 
       - name: Construir la imagen (sin publicar)
         run: docker build --build-arg APP_BUILD_ID="${{ github.sha }}" -t azul-chat:ci .

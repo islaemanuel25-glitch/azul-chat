@@ -10,7 +10,8 @@
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 
@@ -41,15 +42,32 @@ type Compose = {
   volumes?: Record<string, { external?: boolean; name?: string }>;
 };
 
-/** La configuración resuelta, sin leer archivos de entorno (no existen en el repo). */
+/**
+ * La configuración resuelta. Se resuelve en un directorio descartable, con un
+ * app.env y un db.env que traen cada uno un CENTINELA: en la configuración
+ * resuelta, Compose vuelca cada archivo en el `environment` del servicio que lo
+ * lee, así que el centinela dice qué archivo llega a qué contenedor. No depende
+ * de `--no-env-resolution`, que el Compose del runner de GitHub no respeta.
+ */
 function composeResuelto(): Compose {
-  const salida = execFileSync("docker", ["compose", "-f", "docker-compose.prod.yml", "config", "--format", "json", "--no-env-resolution"], {
-    cwd: RAIZ,
-    encoding: "utf8",
-    env: { ...process.env, AZUL_CHAT_IMAGE: "ghcr.io/islaemanuel25-glitch/azul-chat:0123456789abcdef0123456789abcdef01234567" },
-  });
-  return JSON.parse(salida) as Compose;
+  const dir = mkdtempSync(path.join(tmpdir(), "azul-compose-"));
+  try {
+    copyFileSync(path.join(RAIZ, "docker-compose.prod.yml"), path.join(dir, "docker-compose.prod.yml"));
+    writeFileSync(path.join(dir, "app.env"), `${CENTINELA_APP}=1\n`);
+    writeFileSync(path.join(dir, "db.env"), `${CENTINELA_DB}=1\n`);
+    const salida = execFileSync("docker", ["compose", "-f", "docker-compose.prod.yml", "config", "--format", "json"], {
+      cwd: dir,
+      encoding: "utf8",
+      env: { ...process.env, AZUL_CHAT_IMAGE: "ghcr.io/islaemanuel25-glitch/azul-chat:0123456789abcdef0123456789abcdef01234567" },
+    });
+    return JSON.parse(salida) as Compose;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
+
+const CENTINELA_APP = "CENTINELA_DE_APP_ENV";
+const CENTINELA_DB = "CENTINELA_DE_DB_ENV";
 
 const VARIABLES_APP = [
   "DATABASE_URL",
@@ -101,8 +119,11 @@ function violacionesCompose(c: Compose): string[] {
   if (!app.cap_drop?.includes("ALL")) v.push("app con capacidades");
 
   // Entornos separados: la base no recibe nada de la app.
-  if (JSON.stringify(db.env_file?.map((e) => path.basename(e.path))) !== '["db.env"]') v.push("db con otro env_file");
-  if (JSON.stringify(app.env_file?.map((e) => path.basename(e.path))) !== '["app.env"]') v.push("app con otro env_file");
+  const de = (s: Servicio) => Object.keys(s.environment ?? {});
+  if (!de(db).includes(CENTINELA_DB)) v.push("db no lee db.env");
+  if (de(db).includes(CENTINELA_APP)) v.push("db recibe app.env");
+  if (!de(app).includes(CENTINELA_APP)) v.push("app no lee app.env");
+  if (de(app).includes(CENTINELA_DB)) v.push("app recibe db.env");
   for (const k of Object.keys(db.environment ?? {})) if (VARIABLES_APP.includes(k) || /AZUL|ERP/.test(k)) v.push(`db recibe ${k}`);
   // Ni secretos ni APP_BUILD_ID escritos en el compose.
   for (const [k, s] of Object.entries(c.services)) {
@@ -137,8 +158,10 @@ describe("el compose de producción", () => {
       ["app sin imagen por SHA", (x) => (x.services["azul-chat-app"]!.image = "ghcr.io/islaemanuel25-glitch/azul-chat:latest")],
       ["app con build", (x) => (x.services["azul-chat-app"]!.build = { context: "." })],
       ["app redefine el arranque", (x) => (x.services["azul-chat-app"]!.command = ["sh", "-c", "prisma migrate deploy && node server.js"])],
-      ["db con otro env_file", (x) => x.services["azul-chat-db"]!.env_file!.push({ path: "/srv/produccion/azul-chat/app.env" })],
-      ["db recibe AZUL_CHAT_INTEGRACION_SECRET", (x) => (x.services["azul-chat-db"]!.environment = { AZUL_CHAT_INTEGRACION_SECRET: null })],
+      ["db recibe app.env", (x) => (x.services["azul-chat-db"]!.environment![CENTINELA_APP] = "1")],
+      ["db no lee db.env", (x) => delete x.services["azul-chat-db"]!.environment![CENTINELA_DB]],
+      ["app recibe db.env", (x) => (x.services["azul-chat-app"]!.environment![CENTINELA_DB] = "1")],
+      ["db recibe AZUL_CHAT_INTEGRACION_SECRET", (x) => (x.services["azul-chat-db"]!.environment!.AZUL_CHAT_INTEGRACION_SECRET = null)],
       ["azul-chat-app: pisa APP_BUILD_ID", (x) => (x.services["azul-chat-app"]!.environment!.APP_BUILD_ID = "x")],
       ["azul-chat-app: secreto escrito AZUL_CHAT_TOKEN_ENCRYPTION_KEY", (x) => (x.services["azul-chat-app"]!.environment!.AZUL_CHAT_TOKEN_ENCRYPTION_KEY = "abc")],
       ["app sin read_only", (x) => delete x.services["azul-chat-app"]!.read_only],
