@@ -70,8 +70,12 @@ no toca a los demás.
 ## Estructura
 
 - `src/app/` — Next.js App Router. Las rutas `api/` solo delegan:
-  `salud`, `sesion` (GET, DELETE) y `sesion/vincular` (POST). No hay proxy
-  genérico.
+  `salud`, `version`, `sesion` (GET, DELETE) y `sesion/vincular` (POST). No
+  hay proxy genérico.
+  - `GET /api/salud` — healthcheck: 200 si la configuración es válida, la base
+    contesta y está migrada. No llama al ERP ni escribe.
+  - `GET /api/version` — el SHA del commit con que se construyó la imagen
+    (`APP_BUILD_ID`).
 - `src/components/` — interfaz. **No pueden importar `src/server`.**
 - `src/shared/` — tipos y validaciones que puede usar la interfaz. Sin secretos ni red.
 - `src/server/` — solo servidor. Cada archivo importa `server-only`.
@@ -90,6 +94,23 @@ no toca a los demás.
   mentira con estado; ningún test llama al ERP real.
 - `scripts/verificar-bundle-cliente.mjs` — compila con secretos canario y los
   busca en todo lo que baja al navegador.
+
+## Producción
+
+Procedimiento completo, con PRE, DEPLOY, nginx, POST, rollback y backups:
+**`docs/DEPLOY.md`**.
+
+- `Dockerfile` — imagen multi-etapa: Next standalone, usuario `node`,
+  `prisma migrate deploy` disponible pero nunca automático. Exige
+  `--build-arg APP_BUILD_ID=<SHA completo>`.
+- `docker-compose.prod.yml` — `azul-chat-app` (127.0.0.1:3100) y
+  `azul-chat-db` (postgres:16, sin puerto en el host), con redes propias y
+  separadas del ERP, y entornos separados (`app.env`, `db.env`).
+- `ops/produccion/*.env.example` — las variables de producción, sin valores.
+- `ops/prisma-cli/` — el CLI de Prisma de la imagen, con su lockfile.
+- `ops/backup/backup-azul-chat.sh` — `pg_dump` verificado y rotado.
+- `.github/workflows/imagen.yml` — publica la imagen en GHCR por SHA completo,
+  solo después de que la CI pasó en `main`. No despliega.
 
 ## Variables de entorno
 
@@ -126,13 +147,19 @@ sobre bytes UTF-8, con `marca` = Unix timestamp en segundos y `cuerpo` =
   por minuto, por debajo de los 20 canjes por minuto que el ERP da a la
   aplicación). Con varias réplicas cada una cuenta lo suyo. La IP sale de
   `X-Forwarded-For`, que sin un proxy delante se puede inventar.
-- `npm audit` informa `deepmerge-ts` vía el CLI `prisma` 6 (solo herramienta de
-  desarrollo y migración, no se carga en el servidor).
+- `npm audit` informa dos avisos de agotamiento de pila, ninguno alcanzable
+  desde HTTP:
+  - `deepmerge-ts`, a través del CLI `prisma` 6. Está en `/opt/prisma-cli` de
+    la imagen, pero solo corre a mano para `migrate deploy` y el servidor no lo
+    carga. No hay arreglo dentro de Prisma 6.
+  - `braces`, a través de `eslint-config-next`. Es solo de desarrollo y no
+    entra a la imagen.
 
 ## Comandos
 
 - `npm run dev` — servidor de desarrollo.
-- `npm run build` / `npm start` — compilación y servidor de producción.
+- `npm run build` — compilación (standalone); el servidor de producción es la
+  imagen Docker (`docs/DEPLOY.md`).
 - `npm run typecheck` — TypeScript estricto.
 - `npm run lint` — ESLint (config de Next + regla de frontera).
 - `npm test` — tests sin base (Node ≥ 22.18).

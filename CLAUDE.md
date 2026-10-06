@@ -34,6 +34,12 @@ Azul Chat es independiente de ERP Azul (repo `erpmanual`). Desde este repo:
   para que pase: un candado nuevo lleva su contraprueba.
 - Una migración nueva se valida desde una base vacía (`npm run test:db`) y sin
   deriva contra `schema.prisma`.
+- Producción (`docs/DEPLOY.md`): Azul Chat no se conecta a ninguna red,
+  volumen ni base del ERP; la base no publica puerto; la app solo en
+  127.0.0.1:3100; `app.env` y `db.env` separados; imagen por SHA completo,
+  nunca `latest`; las migraciones son un paso explícito, nunca al arrancar.
+  Lo vigila `test/frontera/produccion.test.ts`. Desde una sesión de
+  desarrollo no se despliega ni se toca el VPS.
 - Documentación y comentarios en español. Commits en español con prefijo
   `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`. Se stagea por ruta,
   nunca `git add -A`.
