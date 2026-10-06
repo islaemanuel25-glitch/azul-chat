@@ -1,0 +1,124 @@
+# AZUL CHAT EN PRODUCCIÓN. Procedimiento completo: docs/DEPLOY.md.
+#
+# Vive en /srv/produccion/azul-chat, separado del ERP en todo:
+#
+#   · proyecto propio (`name`), contenedores y redes con nombre propio;
+#   · ninguna red del ERP: Azul Chat no ve `erpazul_default` ni `erpazul_db`.
+#     Habla con el ERP solo por HTTPS público (ERP_BASE_URL=https://operix.cloud);
+#   · base propia, con datos en ./pgdata, SIN puerto publicado;
+#   · la app publicada SOLO en 127.0.0.1:3100, detrás del nginx del host.
+#
+# DOS ARCHIVOS DE ENTORNO, Y NO UNO, A PROPÓSITO:
+#   db.env   → POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB. Nada más.
+#   app.env  → las variables de la aplicación (ops/produccion/app.env.example).
+# El contenedor de PostgreSQL nunca recibe el secreto de la integración ni la
+# clave de cifrado: si se compromete la base, no se lleva los secretos de la app.
+#
+# LA IMAGEN SE ELIGE POR SHA COMPLETO, NUNCA `latest`:
+#   AZUL_CHAT_IMAGE=ghcr.io/islaemanuel25-glitch/azul-chat:<SHA_COMPLETO>
+# en el archivo .env de este directorio (solo esa línea; no es un secreto).
+
+name: azul-chat
+
+services:
+  azul-chat-db:
+    # postgres:16, fijada por digest para que el despliegue sea reproducible.
+    image: postgres:16@sha256:65b16a8b326e0cfbdf33fa7e783f2a0cb352a61448616ccccfd616ef42aa0f65
+    container_name: azul-chat-db
+    restart: unless-stopped
+    env_file:
+      - db.env
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+    # Sin `ports`: PostgreSQL no se publica en el host. Solo lo alcanza la app,
+    # por la red interna.
+    networks:
+      - interna
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    shm_size: 128mb
+    stop_grace_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1g
+        reservations:
+          memory: 512m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  azul-chat-app:
+    image: ${AZUL_CHAT_IMAGE:?definir AZUL_CHAT_IMAGE=ghcr.io/islaemanuel25-glitch/azul-chat:<SHA_COMPLETO> en .env}
+    # `up` descarga, nunca construye: no hay `build` acá. Si la imagen no está
+    # ni en el registry, falla, que es lo correcto.
+    pull_policy: missing
+    container_name: azul-chat-app
+    restart: unless-stopped
+    env_file:
+      - app.env
+    environment:
+      NODE_ENV: production
+    ports:
+      - "127.0.0.1:3100:3000"
+    networks:
+      - interna
+      - salida
+    depends_on:
+      azul-chat-db:
+        condition: service_healthy
+    # tini como PID 1: reenvía SIGTERM a node y recoge procesos huérfanos.
+    init: true
+    # El sistema de archivos de la imagen es de solo lectura. Lo único
+    # escribible es memoria: /tmp y la caché de Next.
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+      - /app/.next/cache:uid=1000,gid=1000,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      # /api/salud: configuración válida, base que contesta y esquema migrado.
+      # No llama al ERP. La imagen no trae curl: se usa node.
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/api/salud').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    # Next deja de aceptar conexiones y termina las que están en curso.
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+networks:
+  # App ↔ base. `internal`: sin salida a internet, así la base no puede hablar
+  # con nadie más que con la app.
+  interna:
+    name: azul-chat-interna
+    internal: true
+  # Solo la app: su salida hacia el ERP por HTTPS y la publicación en 127.0.0.1.
+  salida:
+    name: azul-chat-salida

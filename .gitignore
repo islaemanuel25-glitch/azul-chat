@@ -70,6 +70,14 @@ web_modules/
 .env.*
 !.env.example
 
+# Producción (docker-compose.prod.yml): entornos con secretos, datos y backups.
+# Solo se commitean los *.env.example de ops/produccion/.
+app.env
+db.env
+/pgdata/
+/backups-azul-chat/
+/despliegues.log
+
 # parcel-bundler cache (https://parceljs.org/)
 .cache
 .parcel-cache
