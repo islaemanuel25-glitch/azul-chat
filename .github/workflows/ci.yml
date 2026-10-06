@@ -1,0 +1,71 @@
+# CI de Azul Chat: los mismos controles que se corren a mano antes de empujar.
+#
+# Sin despliegue, sin publicar imágenes y sin credenciales. Los tests de base
+# usan un PostgreSQL descartable del propio runner (service container); la
+# contraseña de abajo es de ese contenedor efímero y no es un secreto.
+# Ningún paso habla con el ERP: los tests usan un ERP de mentira local.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Tests sin base
+        run: npm test
+
+      - name: Tests contra PostgreSQL (migración desde base vacía incluida)
+        run: npm run test:db
+        env:
+          AZUL_CHAT_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+
+      - name: Build y verificación del bundle (secretos canario)
+        run: npm run verificar:bundle
