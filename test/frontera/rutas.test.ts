@@ -1,7 +1,8 @@
 // CANDADO: las rutas del navegador son acciones concretas, no un proxy.
 //
 // Lo que el navegador puede pedir es: ver el estado de su sesión, vincular con
-// un código y cerrar. No hay una ruta que reciba una capacidad, una URL o un
+// un código, cerrar, y —desde la Tanda 2B— ver sus chats (la lista, un local,
+// General) y marcar leído. No hay una ruta que reciba una capacidad, una URL o un
 // camino del ERP y lo reenvíe. Una ruta nueva entra a propósito, con su
 // manejador y sus tests, y ese día se actualiza la lista de abajo.
 
@@ -29,6 +30,24 @@ const RUTAS = {
   "src/app/api/sesion/vincular/route.ts": {
     metodos: ["POST"],
     importa: ["../../../../server/sesion/dependencias.ts", "../../../../server/sesion/vincular.ts"],
+  },
+  // Tanda 2B: los chats. El local va por query (`?localId=`), no por segmento:
+  // la regla de abajo sigue sin admitir segmentos dinámicos.
+  "src/app/api/chats/route.ts": {
+    metodos: ["GET"],
+    importa: ["../../../server/chats/manejadores.ts", "../../../server/sesion/dependencias.ts"],
+  },
+  "src/app/api/chats/local/route.ts": {
+    metodos: ["GET"],
+    importa: ["../../../../server/chats/manejadores.ts", "../../../../server/sesion/dependencias.ts"],
+  },
+  "src/app/api/chats/general/route.ts": {
+    metodos: ["GET"],
+    importa: ["../../../../server/chats/manejadores.ts", "../../../../server/sesion/dependencias.ts"],
+  },
+  "src/app/api/chats/leido/route.ts": {
+    metodos: ["POST"],
+    importa: ["../../../../server/chats/manejadores.ts", "../../../../server/sesion/dependencias.ts"],
   },
 };
 

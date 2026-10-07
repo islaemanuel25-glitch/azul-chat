@@ -17,13 +17,13 @@ import { DURACION_ARRIENDO_MS, guardarEventos, sincronizarTransferenciasLocal, t
 import { aFilaEvento } from "../../src/server/eventos/transferenciaRecibida.ts";
 import { avanzarLectura, contarNoLeidos, inicializarLectura, leerLectura } from "../../src/server/eventos/lectura.ts";
 import {
-  cursorAnterior,
   type CursorTransferencias,
   type DatosTransferenciasEventos,
   type EventoTransferenciaRecibida,
   type ResultadoConsulta,
 } from "../../src/shared/erp/contrato.ts";
 import { crearBaseDescartable, type BaseDescartable } from "../ayuda/baseDescartable.ts";
+import { paginarEventos } from "../ayuda/paginadorErp.ts";
 import { FIXTURES_ERP_25172FE, TOKEN_PRUEBA, pedidoConToken, type Rompible } from "../ayuda/servidorErp.ts";
 
 const TE = FIXTURES_ERP_25172FE.transferenciasEventos;
@@ -50,18 +50,8 @@ function erpDoble(universo: () => readonly EventoTransferenciaRecibida[], hasta 
     pedidos.push(entrada);
     assert.ok(construirCuerpoTransferenciasEventos(TOKEN_PRUEBA, entrada), "la ingesta mandó un pedido que el cliente no armaría");
     if (respuestaForzada) return respuestaForzada(entrada);
-    const limite = entrada.limite ?? 50;
-    const desde = entrada.desde ?? null;
-    const despues = universo().filter((e) => !desde || cursorAnterior(desde, UN_CURSOR(e)));
-    const eventos = despues.slice(0, limite);
-    const ultimo = eventos.at(-1);
-    const datos: DatosTransferenciasEventos = {
-      ...datosDe("sinDesde"),
-      hasta,
-      eventos,
-      siguiente: ultimo ? UN_CURSOR(ultimo) : desde,
-      hayMas: despues.length > limite,
-    };
+    const plantilla = datosDe("sinDesde");
+    const datos = paginarEventos({ universo: universo(), local: plantilla.local, grupoId: plantilla.grupoId, desde: entrada.desde, limite: entrada.limite, hasta });
     return { ok: true, datos, requestId: "doble" };
   };
   return {

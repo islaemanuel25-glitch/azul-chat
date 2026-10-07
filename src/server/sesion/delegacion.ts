@@ -36,7 +36,7 @@ export type ResultadoDelegado<T> =
   /** Azul Chat mismo no puede: configuración, base o clave de cifrado. */
   | { readonly tipo: "SERVICIO_NO_DISPONIBLE" };
 
-type Contexto = { config: ConfigAzulChat; db: Db; sesion: SesionVigente };
+export type Contexto = { config: ConfigAzulChat; db: Db; sesion: SesionVigente };
 
 /** La sesión de la solicitud, ya validada. */
 export async function sesionDeLaSolicitud(
@@ -63,12 +63,15 @@ export async function sesionDeLaSolicitud(
 /**
  * Llama al ERP con el token de la sesión de la solicitud.
  *
- * @param llamar recibe el token CLARO; lo usa para una llamada y lo suelta.
+ * @param llamar recibe el token CLARO; lo usa y lo suelta. Recibe también el
+ *   contexto de la sesión ya validada (configuración, base, vínculo), para no
+ *   tener que leer la sesión dos veces. Puede hacer más de una llamada al ERP:
+ *   el resultado que devuelve es el que decide si el vínculo se invalida.
  */
 export async function conDelegacion<T>(
   headers: Headers,
   deps: DependenciasSesion,
-  llamar: (token: string) => Promise<ResultadoConsulta<T>>,
+  llamar: (token: string, contexto: Contexto) => Promise<ResultadoConsulta<T>>,
 ): Promise<ResultadoDelegado<T>> {
   const leida = await sesionDeLaSolicitud(headers, deps);
   if (leida.tipo === "SIN_SESION") return { tipo: "SIN_SESION", vinculoInvalidado: false };
@@ -86,7 +89,7 @@ export async function conDelegacion<T>(
     return { tipo: "SERVICIO_NO_DISPONIBLE" };
   }
 
-  const resultado = await llamar(token);
+  const resultado = await llamar(token, leida.contexto);
   if (resultado.ok) return { tipo: "OK", datos: resultado.datos };
 
   if (resultado.origen === "erp" && resultado.codigo === "VINCULO_NO_VALIDO") {
