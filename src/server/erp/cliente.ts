@@ -2,11 +2,12 @@
 //
 // EL CLIENTE DE AZUL CHAT HACIA EL ERP. Server-side, y NO genérico.
 //
-// Conoce DOS rutas del ERP, fijas, y TRES operaciones:
+// Conoce DOS rutas del ERP, fijas, y CUATRO operaciones:
 //
-//   · canjear(codigo)                → POST /api/integraciones/azul-chat/vinculo/canjear
-//   · miAlcance(token)               → POST /api/integraciones/azul-chat/consultar
-//   · ventasResumen(token, entrada)  → POST /api/integraciones/azul-chat/consultar
+//   · canjear(codigo)                         → POST /api/integraciones/azul-chat/vinculo/canjear
+//   · miAlcance(token)                        → POST /api/integraciones/azul-chat/consultar
+//   · ventasResumen(token, entrada)           → POST /api/integraciones/azul-chat/consultar
+//   · transferenciasEventos(token, entrada)   → POST /api/integraciones/azul-chat/consultar
 //
 // No recibe URLs, rutas, métodos, cabeceras ni nombres de capacidad de quien lo
 // usa: no hay forma de pedirle que llame otra cosa. Una capacidad nueva es un
@@ -41,9 +42,11 @@ import { randomUUID } from "node:crypto";
 import {
   esCodigoErrorErp,
   esDatosMiAlcance,
+  esDatosTransferenciasEventos,
   esDatosVentasResumen,
   type CodigoErrorLocal,
   type DatosMiAlcance,
+  type DatosTransferenciasEventos,
   type DatosVentasResumen,
   type FalloErp,
   type FalloLocal,
@@ -54,6 +57,7 @@ import { construirCuerpoCanje, esDatosCanje, type DatosCanje } from "./canje.ts"
 import { leerConfigErp, type Entorno } from "./config.ts";
 import { APLICACION, CABECERAS, marcaDeTiempo } from "./firma.ts";
 import { construirCuerpoMiAlcance } from "./miAlcance.ts";
+import { construirCuerpoTransferenciasEventos } from "./transferenciasEventos.ts";
 import { construirCuerpoVentasResumen } from "./ventasResumen.ts";
 
 /** Las únicas dos rutas del ERP que este cliente sabe llamar. */
@@ -86,6 +90,11 @@ export type ClienteErp = {
   miAlcance(token: string): Promise<ResultadoConsulta<DatosMiAlcance>>;
   /** Cuánto se vendió en un local y un período. `entrada` = `{ alcance, periodo }`. */
   ventasResumen(token: string, entrada: unknown): Promise<ResultadoConsulta<DatosVentasResumen>>;
+  /**
+   * Una página de las transferencias que RECIBIÓ un local, como eventos.
+   * `entrada` = `{ alcance, desde?, limite? }`, con `desde` tal como lo devolvió el ERP.
+   */
+  transferenciasEventos(token: string, entrada: unknown): Promise<ResultadoConsulta<DatosTransferenciasEventos>>;
 };
 
 /** Lee el cuerpo de la respuesta sin pasarse de `max` bytes, en UTF-8 estricto. */
@@ -253,5 +262,11 @@ export function crearClienteErp(deps: DependenciasCliente = {}): ClienteErp {
         const construido = construirCuerpoVentasResumen(token, entrada);
         return construido.ok ? { ok: true, cuerpo: construido.cuerpo } : { ok: false, codigo: construido.codigo };
       }, esDatosVentasResumen),
+
+    transferenciasEventos: (token: string, entrada: unknown) =>
+      llamar("transferencias_eventos", RUTA_CONSULTAR, (): CuerpoArmado => {
+        const cuerpo = construirCuerpoTransferenciasEventos(token, entrada);
+        return cuerpo ? { ok: true, cuerpo } : { ok: false, codigo: "SOLICITUD_INVALIDA" };
+      }, esDatosTransferenciasEventos),
   });
 }

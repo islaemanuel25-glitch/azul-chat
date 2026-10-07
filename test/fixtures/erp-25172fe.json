@@ -1,0 +1,571 @@
+{
+  "_origen": "Generado por scripts/generar-fixture-erp.mjs ejecutando el código de erpmanual en 25172fe06babd900344686dafc56c824838ec57a: atenderSolicitud (firma, cuerpo canónico, parámetros, autorización) con los ejecutores reales transferenciasEventos y miAlcance, y aRespuestaPublica. Las filas de la base del ERP tienen la forma de sus select y están en el script. Roles reales: ENCARGADO, CAJERO y admin (*). No editar a mano: regenerar.",
+  "ahora": "2026-10-08T12:00:00.000Z",
+  "transferenciasEventos": {
+    "pagina1": {
+      "pedido": {
+        "capacidad": "transferencias_eventos",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 3
+        },
+        "parametros": {
+          "limite": 2
+        }
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "transferencias_eventos",
+            "version": 1,
+            "local": {
+              "id": 3,
+              "nombre": "Casiano"
+            },
+            "grupoId": 1,
+            "hasta": "2026-10-08T11:59:00.000Z",
+            "eventos": [
+              {
+                "tipo": "TRANSFERENCIA_RECIBIDA",
+                "eventoId": "TRANSFERENCIA_RECIBIDA:180:2026-10-07T12:00:00.000Z",
+                "transferenciaId": 180,
+                "fechaRecepcion": "2026-10-07T12:00:00.000Z",
+                "origen": {
+                  "id": 9,
+                  "nombre": "Depósito Central",
+                  "esDeposito": true
+                },
+                "destino": {
+                  "id": 3,
+                  "nombre": "Casiano"
+                },
+                "tieneDiferencias": false,
+                "lineasConDiferencia": 0
+              },
+              {
+                "tipo": "TRANSFERENCIA_RECIBIDA",
+                "eventoId": "TRANSFERENCIA_RECIBIDA:181:2026-10-07T13:30:15.250Z",
+                "transferenciaId": 181,
+                "fechaRecepcion": "2026-10-07T13:30:15.250Z",
+                "origen": {
+                  "id": 9,
+                  "nombre": "Depósito Central",
+                  "esDeposito": true
+                },
+                "destino": {
+                  "id": 3,
+                  "nombre": "Casiano"
+                },
+                "tieneDiferencias": true,
+                "lineasConDiferencia": 2
+              }
+            ],
+            "siguiente": {
+              "fechaRecepcion": "2026-10-07T13:30:15.250Z",
+              "transferenciaId": 181
+            },
+            "hayMas": true
+          }
+        }
+      }
+    },
+    "pagina2": {
+      "pedido": {
+        "capacidad": "transferencias_eventos",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 3
+        },
+        "parametros": {
+          "desde": {
+            "fechaRecepcion": "2026-10-07T13:30:15.250Z",
+            "transferenciaId": 181
+          },
+          "limite": 2
+        }
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "transferencias_eventos",
+            "version": 1,
+            "local": {
+              "id": 3,
+              "nombre": "Casiano"
+            },
+            "grupoId": 1,
+            "hasta": "2026-10-08T11:59:00.000Z",
+            "eventos": [
+              {
+                "tipo": "TRANSFERENCIA_RECIBIDA",
+                "eventoId": "TRANSFERENCIA_RECIBIDA:182:2026-10-07T13:30:15.250Z",
+                "transferenciaId": 182,
+                "fechaRecepcion": "2026-10-07T13:30:15.250Z",
+                "origen": {
+                  "id": 9,
+                  "nombre": "Depósito Central",
+                  "esDeposito": true
+                },
+                "destino": {
+                  "id": 3,
+                  "nombre": "Casiano"
+                },
+                "tieneDiferencias": true,
+                "lineasConDiferencia": 3
+              },
+              {
+                "tipo": "TRANSFERENCIA_RECIBIDA",
+                "eventoId": "TRANSFERENCIA_RECIBIDA:183:2026-10-07T14:10:00.000Z",
+                "transferenciaId": 183,
+                "fechaRecepcion": "2026-10-07T14:10:00.000Z",
+                "origen": {
+                  "id": 5,
+                  "nombre": "Belgrano",
+                  "esDeposito": false
+                },
+                "destino": {
+                  "id": 3,
+                  "nombre": "Casiano"
+                },
+                "tieneDiferencias": false,
+                "lineasConDiferencia": 0
+              }
+            ],
+            "siguiente": {
+              "fechaRecepcion": "2026-10-07T14:10:00.000Z",
+              "transferenciaId": 183
+            },
+            "hayMas": false
+          }
+        }
+      }
+    },
+    "vacia": {
+      "pedido": {
+        "capacidad": "transferencias_eventos",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 3
+        },
+        "parametros": {
+          "desde": {
+            "fechaRecepcion": "2026-10-07T14:10:00.000Z",
+            "transferenciaId": 183
+          },
+          "limite": 2
+        }
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "transferencias_eventos",
+            "version": 1,
+            "local": {
+              "id": 3,
+              "nombre": "Casiano"
+            },
+            "grupoId": 1,
+            "hasta": "2026-10-08T11:59:00.000Z",
+            "eventos": [],
+            "siguiente": {
+              "fechaRecepcion": "2026-10-07T14:10:00.000Z",
+              "transferenciaId": 183
+            },
+            "hayMas": false
+          }
+        }
+      }
+    },
+    "sinDesde": {
+      "pedido": {
+        "capacidad": "transferencias_eventos",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 3
+        },
+        "parametros": {}
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "transferencias_eventos",
+            "version": 1,
+            "local": {
+              "id": 3,
+              "nombre": "Casiano"
+            },
+            "grupoId": 1,
+            "hasta": "2026-10-08T11:59:00.000Z",
+            "eventos": [
+              {
+                "tipo": "TRANSFERENCIA_RECIBIDA",
+                "eventoId": "TRANSFERENCIA_RECIBIDA:180:2026-10-07T12:00:00.000Z",
+                "transferenciaId": 180,
+                "fechaRecepcion": "2026-10-07T12:00:00.000Z",
+                "origen": {
+                  "id": 9,
+                  "nombre": "Depósito Central",
+                  "esDeposito": true
+                },
+                "destino": {
+                  "id": 3,
+                  "nombre": "Casiano"
+                },
+                "tieneDiferencias": false,
+                "lineasConDiferencia": 0
+              },
+              {
+                "tipo": "TRANSFERENCIA_RECIBIDA",
+                "eventoId": "TRANSFERENCIA_RECIBIDA:181:2026-10-07T13:30:15.250Z",
+                "transferenciaId": 181,
+                "fechaRecepcion": "2026-10-07T13:30:15.250Z",
+                "origen": {
+                  "id": 9,
+                  "nombre": "Depósito Central",
+                  "esDeposito": true
+                },
+                "destino": {
+                  "id": 3,
+                  "nombre": "Casiano"
+                },
+                "tieneDiferencias": true,
+                "lineasConDiferencia": 2
+              },
+              {
+                "tipo": "TRANSFERENCIA_RECIBIDA",
+                "eventoId": "TRANSFERENCIA_RECIBIDA:182:2026-10-07T13:30:15.250Z",
+                "transferenciaId": 182,
+                "fechaRecepcion": "2026-10-07T13:30:15.250Z",
+                "origen": {
+                  "id": 9,
+                  "nombre": "Depósito Central",
+                  "esDeposito": true
+                },
+                "destino": {
+                  "id": 3,
+                  "nombre": "Casiano"
+                },
+                "tieneDiferencias": true,
+                "lineasConDiferencia": 3
+              },
+              {
+                "tipo": "TRANSFERENCIA_RECIBIDA",
+                "eventoId": "TRANSFERENCIA_RECIBIDA:183:2026-10-07T14:10:00.000Z",
+                "transferenciaId": 183,
+                "fechaRecepcion": "2026-10-07T14:10:00.000Z",
+                "origen": {
+                  "id": 5,
+                  "nombre": "Belgrano",
+                  "esDeposito": false
+                },
+                "destino": {
+                  "id": 3,
+                  "nombre": "Casiano"
+                },
+                "tieneDiferencias": false,
+                "lineasConDiferencia": 0
+              }
+            ],
+            "siguiente": {
+              "fechaRecepcion": "2026-10-07T14:10:00.000Z",
+              "transferenciaId": 183
+            },
+            "hayMas": false
+          }
+        }
+      }
+    },
+    "despuesDelReset": {
+      "pedido": {
+        "capacidad": "transferencias_eventos",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 3
+        },
+        "parametros": {
+          "desde": {
+            "fechaRecepcion": "2026-10-07T14:10:00.000Z",
+            "transferenciaId": 183
+          }
+        }
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "transferencias_eventos",
+            "version": 1,
+            "local": {
+              "id": 3,
+              "nombre": "Casiano"
+            },
+            "grupoId": 1,
+            "hasta": "2026-10-08T11:59:00.000Z",
+            "eventos": [
+              {
+                "tipo": "TRANSFERENCIA_RECIBIDA",
+                "eventoId": "TRANSFERENCIA_RECIBIDA:180:2026-10-08T10:00:00.000Z",
+                "transferenciaId": 180,
+                "fechaRecepcion": "2026-10-08T10:00:00.000Z",
+                "origen": {
+                  "id": 9,
+                  "nombre": "Depósito Central",
+                  "esDeposito": true
+                },
+                "destino": {
+                  "id": 3,
+                  "nombre": "Casiano"
+                },
+                "tieneDiferencias": true,
+                "lineasConDiferencia": 1
+              }
+            ],
+            "siguiente": {
+              "fechaRecepcion": "2026-10-08T10:00:00.000Z",
+              "transferenciaId": 180
+            },
+            "hayMas": false
+          }
+        }
+      }
+    },
+    "cajeroSinPermiso": {
+      "pedido": {
+        "capacidad": "transferencias_eventos",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 3
+        },
+        "parametros": {}
+      },
+      "respuesta": {
+        "status": 403,
+        "cuerpo": {
+          "ok": false,
+          "codigo": "NO_AUTORIZADO",
+          "error": "El usuario no está autorizado para esta consulta."
+        }
+      }
+    },
+    "limiteFueraDeRango": {
+      "pedido": {
+        "capacidad": "transferencias_eventos",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 3
+        },
+        "parametros": {
+          "limite": 101
+        }
+      },
+      "respuesta": {
+        "status": 400,
+        "cuerpo": {
+          "ok": false,
+          "codigo": "SOLICITUD_INVALIDA",
+          "error": "La solicitud no tiene la forma esperada."
+        }
+      }
+    },
+    "otroLocalDelGrupo": {
+      "pedido": {
+        "capacidad": "transferencias_eventos",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 5
+        },
+        "parametros": {}
+      },
+      "respuesta": {
+        "status": 403,
+        "cuerpo": {
+          "ok": false,
+          "codigo": "NO_AUTORIZADO",
+          "error": "El usuario no está autorizado para esta consulta."
+        }
+      }
+    }
+  },
+  "miAlcance": {
+    "encargado": {
+      "pedido": {
+        "capacidad": "mi_alcance",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "parametros": {}
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "mi_alcance",
+            "version": 1,
+            "usuario": {
+              "id": 7,
+              "nombre": "Encargada Casiano"
+            },
+            "alcance": {
+              "modo": "LOCAL"
+            },
+            "locales": [
+              {
+                "id": 3,
+                "nombre": "Casiano",
+                "grupoId": 1,
+                "esDeposito": false,
+                "activo": true,
+                "capacidades": [
+                  "ventas_resumen",
+                  "transferencias_eventos"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    "cajero": {
+      "pedido": {
+        "capacidad": "mi_alcance",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "parametros": {}
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "mi_alcance",
+            "version": 1,
+            "usuario": {
+              "id": 8,
+              "nombre": "Cajero Casiano"
+            },
+            "alcance": {
+              "modo": "LOCAL"
+            },
+            "locales": [
+              {
+                "id": 3,
+                "nombre": "Casiano",
+                "grupoId": 1,
+                "esDeposito": false,
+                "activo": true,
+                "capacidades": []
+              }
+            ]
+          }
+        }
+      }
+    },
+    "adminGlobal": {
+      "pedido": {
+        "capacidad": "mi_alcance",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "parametros": {}
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "mi_alcance",
+            "version": 1,
+            "usuario": {
+              "id": 9,
+              "nombre": "Emanuel"
+            },
+            "alcance": {
+              "modo": "GLOBAL"
+            },
+            "locales": [
+              {
+                "id": 5,
+                "nombre": "Belgrano",
+                "grupoId": 1,
+                "esDeposito": false,
+                "activo": false,
+                "capacidades": [
+                  "ventas_resumen",
+                  "transferencias_eventos"
+                ]
+              },
+              {
+                "id": 3,
+                "nombre": "Casiano",
+                "grupoId": 1,
+                "esDeposito": false,
+                "activo": true,
+                "capacidades": [
+                  "ventas_resumen",
+                  "transferencias_eventos"
+                ]
+              },
+              {
+                "id": 9,
+                "nombre": "Depósito Central",
+                "grupoId": 1,
+                "esDeposito": true,
+                "activo": true,
+                "capacidades": [
+                  "ventas_resumen",
+                  "transferencias_eventos"
+                ]
+              },
+              {
+                "id": 20,
+                "nombre": "Centro",
+                "grupoId": 2,
+                "esDeposito": false,
+                "activo": true,
+                "capacidades": [
+                  "ventas_resumen",
+                  "transferencias_eventos"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}
