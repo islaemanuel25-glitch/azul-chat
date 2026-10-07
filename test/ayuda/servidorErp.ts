@@ -121,3 +121,38 @@ export function responderErrorErp(res: ServerResponse, codigo: string): void {
   if (!e) throw new Error(`el fixture no tiene ${codigo}`);
   responderJson(res, e.status, e.cuerpo);
 }
+
+/**
+ * Una copia de una respuesta real para ROMPERLA a propósito en un test: los
+ * mismos tipos del contrato, sin `readonly`. Un valor que el contrato no admite
+ * se asigna con `as never`, para que se lea que es deliberado.
+ */
+export type Rompible<T> = { -readonly [K in keyof T]: Rompible<T[K]> };
+
+/** Un pedido tal como viajó al ERP (token enmascarado) y lo que la ruta del ERP contestó. */
+export type IntercambioErp = {
+  readonly pedido: Record<string, unknown>;
+  readonly respuesta: { readonly status: number; readonly cuerpo: Record<string, unknown> };
+};
+
+/**
+ * `transferencias_eventos` y `mi_alcance` con capacidades, del ERP desplegado
+ * (25172fe), generados por `scripts/generar-fixture-erp.mjs` EJECUTANDO su
+ * `atenderSolicitud` de punta a punta sobre los mismos bytes que manda Azul
+ * Chat. No se editan a mano: se regeneran.
+ */
+export const FIXTURES_ERP_25172FE = JSON.parse(
+  readFileSync(path.join(import.meta.dirname, "../fixtures/erp-25172fe.json"), "utf8"),
+) as {
+  ahora: string;
+  transferenciasEventos: Record<
+    "pagina1" | "pagina2" | "vacia" | "sinDesde" | "despuesDelReset" | "cajeroSinPermiso" | "limiteFueraDeRango" | "otroLocalDelGrupo",
+    IntercambioErp
+  >;
+  miAlcance: Record<"encargado" | "cajero" | "adminGlobal", IntercambioErp>;
+};
+
+/** El cuerpo de un pedido del fixture con un token de verdad en lugar de la máscara, como bytes. */
+export function pedidoConToken(i: IntercambioErp, token: string): string {
+  return JSON.stringify(i.pedido).replace('"<token>"', JSON.stringify(token));
+}

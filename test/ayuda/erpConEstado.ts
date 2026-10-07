@@ -13,7 +13,9 @@
 //     código viejo, cuyo vínculo se revocó al generar otro, no canjea);
 //   · consultar: el token tiene que ser de un vínculo vigente, si no,
 //     VINCULO_NO_VALIDO; `mi_alcance` contesta lo que el test cargó para esa
-//     persona, y sin alcance cargado, NO_AUTORIZADO;
+//     persona, y sin alcance cargado, NO_AUTORIZADO; `transferencias_eventos`
+//     contesta, en orden, las respuestas que el test cargó (del fixture
+//     erp-25172fe.json, generado ejecutando el ERP);
 //   · modos para simular caída (503 del ERP) y cuelgue (no contesta).
 //
 // Los cuerpos de respuesta y de error son los del fixture generado ejecutando
@@ -35,6 +37,8 @@ export type ErpConEstado = ServidorErp & {
   ponerModo(m: ModoErp): void;
   /** Lo que contesta `mi_alcance` por persona. Sin entrada: NO_AUTORIZADO. */
   readonly alcances: Map<number, Record<string, unknown>>;
+  /** Lo que contesta `transferencias_eventos`, en orden, a un token vigente. Vacía: CAPACIDAD_NO_DISPONIBLE. */
+  readonly respuestasEventos: { status: number; cuerpo: unknown }[];
   /** Lo que la persona hace en el ERP: generar un código. */
   emitirCodigo(usuarioId: number): string;
   /** Lo que la persona (o un admin) hace en el ERP: desvincular. */
@@ -67,6 +71,7 @@ export async function levantarErpConEstado(): Promise<ErpConEstado> {
   let siguienteVinculo = 41;
   let invalidas = 0;
   const alcances = new Map<number, Record<string, unknown>>();
+  const respuestasEventos: { status: number; cuerpo: unknown }[] = [];
 
   const estado = { modo: "normal" as ModoErp };
 
@@ -108,6 +113,12 @@ export async function levantarErpConEstado(): Promise<ErpConEstado> {
         return responderJson(res, 200, { ok: true, datos });
       }
       if (cuerpo.capacidad === "ventas_resumen") return responderJson(res, 200, { ok: true, datos: DATOS_ERP });
+      if (cuerpo.capacidad === "transferencias_eventos") {
+        // Las páginas las carga el test, salidas del fixture generado con el ERP (erp-25172fe.json).
+        const r = respuestasEventos.shift();
+        if (!r) return responderErrorErp(res, "CAPACIDAD_NO_DISPONIBLE");
+        return responderJson(res, r.status, r.cuerpo);
+      }
       return responderErrorErp(res, "CAPACIDAD_NO_DISPONIBLE");
     }
 
@@ -119,6 +130,7 @@ export async function levantarErpConEstado(): Promise<ErpConEstado> {
       estado.modo = m;
     },
     alcances,
+    respuestasEventos,
     emitirCodigo(usuarioId: number) {
       // Como autorizarVinculo: revoca el vigente y crea otro, en el mismo paso.
       for (const x of vinculos) if (x.usuarioId === usuarioId) x.revocado = true;

@@ -28,7 +28,13 @@ Azul Chat es independiente de ERP Azul (repo `erpmanual`). Desde este repo:
   persona. No se finge atomicidad entre la base del ERP y la de Azul Chat.
 - El contrato del ERP se copia del código del ERP, no de memoria. Los fixtures
   de respuesta salen de ejecutar la función real del ERP (ver
-  `test/ayuda/servidorErp.ts` y `test/fixtures/erp-8920516.json`).
+  `test/ayuda/servidorErp.ts`, `test/fixtures/erp-8920516.json` y
+  `test/fixtures/erp-25172fe.json`, que se regenera con
+  `scripts/generar-fixture-erp.mjs`).
+- Un evento guardado no es un permiso: quién puede ver la historia de un local
+  lo decide el ERP en cada consulta (`mi_alcance` vivo y sus `capacidades`).
+  Sin esa prueba viva, fallo cerrado: no se muestra historial operacional, sin
+  autorización guardada ni ventana de gracia (`docs/EVENTOS.md`).
 - Ningún test llama al ERP real ni toca una base que no sea descartable
   (`test/ayuda/baseDescartable.ts`, servidor local). Ningún candado se afloja
   para que pase: un candado nuevo lleva su contraprueba.

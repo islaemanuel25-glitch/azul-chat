@@ -8,9 +8,12 @@ dos rutas firmadas con HMAC, `POST /api/integraciones/azul-chat/vinculo/canjear`
 y `POST /api/integraciones/azul-chat/consultar`. En V1 esa integración es
 **solo lectura**.
 
-El contrato es el del ERP desplegado en `8920516` (erpmanual), copiado de su
-código y no de memoria. Los fixtures de `test/fixtures/erp-8920516.json` salen
-de ejecutar ese código.
+El contrato es el del ERP desplegado, copiado de su código y no de memoria. Los
+fixtures salen de ejecutar ese código: `test/fixtures/erp-8920516.json` (canje,
+`mi_alcance`, errores) y `test/fixtures/erp-25172fe.json` (`transferencias_eventos`
+y las capacidades por local de `mi_alcance`), este último regenerable con
+`scripts/generar-fixture-erp.mjs`. Los eventos del ERP, su ingesta y la lectura
+están en `docs/EVENTOS.md`.
 
 ## Arquitectura
 

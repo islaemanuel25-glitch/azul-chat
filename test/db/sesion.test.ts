@@ -11,6 +11,7 @@ import type { PrismaClient } from "@prisma/client";
 
 import { leerConfigAzulChat } from "../../src/server/configuracion.ts";
 import { crearClienteErp } from "../../src/server/erp/cliente.ts";
+import { sincronizarTransferenciasDeLaSesion } from "../../src/server/eventos/conSesion.ts";
 import { crearLimitador } from "../../src/server/http/limitador.ts";
 import type { Registro } from "../../src/server/log.ts";
 import { manejarCerrar } from "../../src/server/sesion/cerrar.ts";
@@ -21,7 +22,7 @@ import { manejarVincular } from "../../src/server/sesion/vincular.ts";
 import { ventasResumenDeSesion } from "../../src/server/ventas/ventasResumen.ts";
 import { crearBaseDescartable, type BaseDescartable } from "../ayuda/baseDescartable.ts";
 import { levantarErpConEstado, type ErpConEstado } from "../ayuda/erpConEstado.ts";
-import { DATOS_ERP, ENTRADA_HOY, FIXTURES_ERP, SECRETO_PRUEBA } from "../ayuda/servidorErp.ts";
+import { DATOS_ERP, ENTRADA_HOY, FIXTURES_ERP, FIXTURES_ERP_25172FE, SECRETO_PRUEBA } from "../ayuda/servidorErp.ts";
 
 const ORIGEN = "https://chat.ejemplo.invalid";
 const INSTALACION = "instalacion-prueba";
@@ -45,6 +46,7 @@ after(async () => {
 beforeEach(async () => {
   await base.vaciar();
   erp.recibidas.length = 0;
+  erp.respuestasEventos.length = 0;
   erp.ponerModo("normal");
   erp.alcances.clear();
   erp.alcances.set(7, ALCANCE_EMANUEL);
@@ -509,6 +511,61 @@ describe("ventas_resumen desde una sesión (servicio interno, sin ruta)", () => 
     const r = await ventasResumenDeSesion(conCookie(id), { ...ENTRADA_HOY, usuarioId: 8 }, deps());
     assert.equal(r.tipo, "RECHAZO_ERP");
     assert.equal(erp.recibidas.length, antes);
+  });
+});
+
+describe("la ingesta de transferencias con la delegación de la sesión (servicio interno, sin ruta)", () => {
+  const conCookie = (id: string) => new Headers({ cookie: `${NOMBRE_COOKIE}=${id}` });
+  const CASIANO = { grupoId: 1, localId: 3 };
+  const TE = FIXTURES_ERP_25172FE.transferenciasEventos;
+  const cursor = () => base.db.cursorIngesta.findFirst({ where: { erpLocalId: 3 } });
+
+  it("viaja con el token del vínculo de la sesión y guarda los eventos que contestó el ERP", async () => {
+    const id = await vincular(7);
+    erp.respuestasEventos.push(TE.sinDesde.respuesta);
+    const r = await sincronizarTransferenciasDeLaSesion(conCookie(id), deps(), CASIANO);
+    assert.ok(r.tipo === "OK" && r.datos.tipo === "SINCRONIZADO", JSON.stringify(r));
+    assert.equal(r.datos.eventosNuevos, 4);
+    const [cuerpo] = erp.cuerposA("consultar");
+    assert.deepEqual(cuerpo, { capacidad: "transferencias_eventos", delegacion: { token: erp.tokenVigente(7) }, alcance: CASIANO, parametros: { limite: 100 } });
+    assert.equal(await base.db.evento.count(), 4);
+  });
+
+  it("VINCULO_NO_VALIDO durante la ingesta sigue el flujo de siempre: invalida el vínculo y revoca sus sesiones; el cursor no se mueve", async () => {
+    const id = await vincular(7);
+    erp.respuestasEventos.push(TE.sinDesde.respuesta);
+    await sincronizarTransferenciasDeLaSesion(conCookie(id), deps(), CASIANO);
+    const antes = await cursor();
+    erp.revocar(7);
+    const r = await sincronizarTransferenciasDeLaSesion(conCookie(id), deps(), CASIANO);
+    assert.deepEqual(r, { tipo: "SIN_SESION", vinculoInvalidado: true });
+    const v = await base.db.vinculo.findFirstOrThrow({ where: { erpUsuarioId: 7 } });
+    assert.equal(v.motivoInvalidacion, "TOKEN_RECHAZADO_POR_ERP");
+    assert.equal(await base.db.sesion.count({ where: { vinculoId: v.id, revocadaEn: null } }), 0);
+    const despues = await cursor();
+    assert.deepEqual([despues?.cursor, despues?.ultimoErrorCodigo], [antes?.cursor, "VINCULO_NO_VALIDO"]);
+  });
+
+  it("NO_AUTORIZADO no invalida el vínculo; un ERP caído tampoco, y no se reintenta", async () => {
+    const id = await vincular(7);
+    erp.respuestasEventos.push(TE.cajeroSinPermiso.respuesta);
+    const r = await sincronizarTransferenciasDeLaSesion(conCookie(id), deps(), CASIANO);
+    assert.ok(r.tipo === "RECHAZO_ERP" && r.resultado.codigo === "NO_AUTORIZADO");
+    erp.ponerModo("caido");
+    const antes = erp.recibidas.length;
+    const r2 = await sincronizarTransferenciasDeLaSesion(conCookie(id), deps(), CASIANO);
+    assert.ok(r2.tipo === "RECHAZO_ERP" && r2.resultado.codigo === "INTEGRACION_NO_DISPONIBLE");
+    assert.equal(erp.recibidas.length, antes + 1, "una sola llamada");
+    const v = await base.db.vinculo.findFirstOrThrow({ where: { erpUsuarioId: 7 } });
+    assert.equal(v.invalidadoEn, null);
+    assert.equal((await cursor())?.ultimoErrorCodigo, "INTEGRACION_NO_DISPONIBLE");
+  });
+
+  it("sin sesión no se llama al ERP ni se toca el cursor", async () => {
+    const r = await sincronizarTransferenciasDeLaSesion(new Headers(), deps(), CASIANO);
+    assert.equal(r.tipo, "SIN_SESION");
+    assert.equal(erp.recibidas.length, 0);
+    assert.equal(await cursor(), null);
   });
 });
 
