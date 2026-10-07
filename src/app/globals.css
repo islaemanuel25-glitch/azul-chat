@@ -519,3 +519,9 @@ body {
   color: var(--ac-color-texto-suave);
   font-size: var(--ac-letra-mini);
 }
+
+.ac-anteriores__mas {
+  margin: 0 0 var(--ac-espacio-2);
+  color: var(--ac-color-marca-fuerte);
+  font-weight: 600;
+}

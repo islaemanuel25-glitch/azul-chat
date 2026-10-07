@@ -25,12 +25,10 @@ import { marcarLeido, pedirChats, pedirGeneral, pedirLocal, RUTAS_DEL_CLIENTE } 
 import { CuerpoConversacion, ListaDeEventos } from "../../src/components/chats/Conversacion.tsx";
 import { detalleDeDiferencias, etiquetaDeDia, formatearHora, formatearMomento, iniciales, resumenDeEvento } from "../../src/components/chats/formato.ts";
 import {
+  decidirLecturaLocal,
   destinoDeFalla,
   filasDeChats,
   leerVista,
-  marcaDeLocal,
-  marcasDeEstado,
-  marcasDeGeneral,
   ordenCronologico,
   reducirConversacion,
   unirPaginas,
@@ -102,10 +100,11 @@ const lista = (eventos: readonly EventoPublico[], extra: Partial<Extract<EstLoca
   info: INFO_LOCAL,
   ...extra,
 });
-const cuerpoLocal = (estado: EstLocal) =>
+const cuerpoLocal = (estado: EstLocal, masSinLeer = false) =>
   dibujar(
     createElement(CuerpoConversacion<EventoPublico, InfoLocal>, {
       estado,
+      masSinLeer,
       vacio: "Todavía no hay eventos.",
       alReintentar: nada,
       alVolver: nada,
@@ -250,51 +249,93 @@ describe("una conversación", () => {
   });
 });
 
-describe("marcar leído", () => {
-  it("K. sin la conversación mostrada no se marca nada", () => {
-    const calcular = (e: Extract<EstLocal, { fase: "LISTA" }>) => {
-      const m = marcaDeLocal(3, e.eventos, e.info.leidoHasta);
-      return m ? [m] : [];
-    };
-    assert.deepEqual(marcasDeEstado<EventoPublico, InfoLocal>({ fase: "CARGANDO" }, calcular), []);
-    assert.deepEqual(marcasDeEstado<EventoPublico, InfoLocal>({ fase: "FALLA", falla: { estado: "RED" } }, calcular), []);
-    assert.deepEqual(marcasDeEstado(lista([]), calcular), []);
-    assert.deepEqual(marcasDeEstado(lista(PAGINA_API), calcular), [{ localId: 3, hastaEventoId: "4" }]);
+describe("marcar leído: un Local solo marca lo que puede demostrar que mostró", () => {
+  /** Eventos de Casiano con ids `desde`..`hasta`, un minuto entre cada uno: el id crece con la fecha, como en la ingesta real. */
+  const serie = (desde: number, hasta: number) =>
+    Array.from({ length: hasta - desde + 1 }, (_, k) => evento(String(desde + k), 1000 + desde + k, new Date(Date.parse("2026-10-08T00:00:00.000Z") + (desde + k) * 60_000).toISOString()));
+  /** Como los devuelve la API: del más reciente al más antiguo. */
+  const pagina = (desde: number, hasta: number) => serie(desde, hasta).reverse();
+  const info = (leidoHasta: string, noLeidos: number): InfoLocal => ({ ...INFO_LOCAL, leidoHasta, noLeidos });
+  const conInfo = (eventos: readonly EventoPublico[], i: InfoLocal, extra: Partial<Extract<EstLocal, { fase: "LISTA" }>> = {}) => lista(eventos, { info: i, ...extra });
+
+  it("K. sin la conversación mostrada no se decide nada", () => {
+    assert.deepEqual(decidirLecturaLocal<EventoPublico>({ fase: "CARGANDO" }), { tipo: "NADA" });
+    assert.deepEqual(decidirLecturaLocal<EventoPublico>({ fase: "FALLA", falla: { estado: "RED" } }), { tipo: "NADA" });
+    assert.deepEqual(decidirLecturaLocal(conInfo([], info("4", 0))), { tipo: "NADA" });
   });
 
-  it("L/W. un Local se marca hasta el mayor Evento.id MOSTRADO, comparado como BigInt y enviado como texto", () => {
-    assert.deepEqual(marcaDeLocal(3, PAGINA_API, "0"), { localId: 3, hastaEventoId: "4" });
-    // Ya leído hasta ahí (o más): nada que pedir.
-    assert.equal(marcaDeLocal(3, PAGINA_API, "4"), null);
-    assert.equal(marcaDeLocal(3, [], "0"), null);
-    // Más allá de Number.MAX_SAFE_INTEGER: 9007199254740993 > 9007199254740992, que como Number son iguales.
-    const grandes = [evento("9007199254740992", 1, "2026-10-07T12:00:00.000Z"), evento("9007199254740993", 2, "2026-10-07T11:00:00.000Z")];
-    assert.deepEqual(marcaDeLocal(3, grandes, "9007199254740992"), { localId: 3, hastaEventoId: "9007199254740993" });
-    assert.equal(typeof marcaDeLocal(3, grandes, "0")!.hastaEventoId, "string");
+  it("AL/AC/AM. el caso real: leidoHasta 4, 40 nuevos (6..45), la primera página trae 16..45 → NO marca", () => {
+    const primera = conInfo(pagina(16, 45), info("4", 40), { siguiente: "c1" });
+    assert.deepEqual(decidirLecturaLocal(primera), { tipo: "FALTAN", nuevosMostrados: 30, noLeidos: 40 });
+    // Y la pantalla lo dice, junto a "Cargar anteriores".
+    const t = texto(cuerpoLocal(primera, true));
+    assert.match(t, /^Hay más eventos sin leer Cargar anteriores/);
   });
 
-  it("M/N. General: una marca por local, cada una con SU mayor id, nunca un máximo común; local sin eventos mostrados no se marca", () => {
-    const mostrados = [
-      enLocal(evento("10", 1, "2026-10-07T12:00:00.000Z"), 3, "Casiano"),
-      enLocal(evento("40", 2, "2026-10-07T12:01:00.000Z"), 9, "Depósito Central"),
-      enLocal(evento("25", 3, "2026-10-07T12:02:00.000Z"), 3, "Casiano"),
-      enLocal(evento("31", 4, "2026-10-07T12:03:00.000Z"), 9, "Depósito Central"),
-    ];
-    assert.deepEqual(marcasDeGeneral(mostrados), [
-      { localId: 3, hastaEventoId: "25" },
-      { localId: 9, hastaEventoId: "40" },
-    ]);
-    assert.ok(!marcasDeGeneral(mostrados).some((m) => m.localId === 20));
-    assert.deepEqual(marcasDeGeneral([]), []);
+  it("AD/AE. cargadas las anteriores (6..15), los 40 están a la vista: recién ahí marca, hasta 45", () => {
+    let e = conInfo(pagina(16, 45), info("4", 40), { siguiente: "c1" });
+    e = reducirConversacion(e, { tipo: "PIDIENDO_ANTERIORES" });
+    e = reducirConversacion(e, { tipo: "ANTERIORES", eventos: pagina(1, 15), siguiente: null });
+    assert.deepEqual(decidirLecturaLocal(e), { tipo: "MARCAR", marca: { localId: 3, hastaEventoId: "45" } });
+    assert.doesNotMatch(cuerpoLocal(e, false), /Hay más eventos sin leer/);
   });
 
-  it("O. si el POST falla, la lectura no cambia; solo una respuesta buena la mueve", () => {
-    const e = lista(PAGINA_API);
-    // Una falla del POST no despacha nada (Conversacion.tsx); el estado es el mismo.
-    assert.equal(e.fase === "LISTA" && e.info.noLeidos, 2);
-    const leido = reducirConversacion(e, { tipo: "LEIDO", localId: 3, leidoHasta: "4", noLeidos: 0 });
+  it("AF. con 30 o menos no leídos, todos en la primera página, marca como siempre", () => {
+    // 12 no leídos (99..110) dentro de una página de 30 (81..110).
+    assert.deepEqual(decidirLecturaLocal(conInfo(pagina(81, 110), info("98", 12))), { tipo: "MARCAR", marca: { localId: 3, hastaEventoId: "110" } });
+    // Y los cuatro reales de Casiano con 2 no leídos (3 y 4).
+    assert.deepEqual(decidirLecturaLocal(lista(PAGINA_API)), { tipo: "MARCAR", marca: { localId: 3, hastaEventoId: "4" } });
+  });
+
+  it("AG/AH. la historia ya leída en pantalla no cuenta: 71..100 leídos + 101..110 nuevos, 10 no leídos → marca hasta 110", () => {
+    const e = conInfo(pagina(81, 110), info("100", 10));
+    assert.deepEqual(decidirLecturaLocal(e), { tipo: "MARCAR", marca: { localId: 3, hastaEventoId: "110" } });
+    // Con la misma pantalla de 30 eventos y 25 no leídos, la cantidad total (30 ≥ 25) NO alcanza: solo 10 están por encima de lo leído.
+    assert.deepEqual(decidirLecturaLocal(conInfo(pagina(81, 110), info("100", 25))), { tipo: "FALTAN", nuevosMostrados: 10, noLeidos: 25 });
+  });
+
+  it("AN. ya leído hasta el mayor mostrado: nada que pedir (no se repite el POST)", () => {
+    let e = conInfo(pagina(16, 45), info("4", 30));
+    assert.equal(decidirLecturaLocal(e).tipo, "MARCAR");
+    e = reducirConversacion(e, { tipo: "LEIDO", localId: 3, leidoHasta: "45", noLeidos: 0 });
+    assert.deepEqual(decidirLecturaLocal(e), { tipo: "NADA" });
+  });
+
+  it("AO/W. ids más allá de Number.MAX_SAFE_INTEGER: compara con BigInt y manda texto", () => {
+    // 9007199254740993 y 9007199254740992 son el mismo Number: con Number, el nuevo no contaría.
+    const grandes = [evento("9007199254740993", 2, "2026-10-07T12:00:00.000Z"), evento("9007199254740992", 1, "2026-10-07T11:00:00.000Z")];
+    const d = decidirLecturaLocal(conInfo(grandes, info("9007199254740992", 1)));
+    assert.deepEqual(d, { tipo: "MARCAR", marca: { localId: 3, hastaEventoId: "9007199254740993" } });
+    assert.equal(d.tipo === "MARCAR" && typeof d.marca.hastaEventoId, "string");
+  });
+
+  it("AP. un evento nuevo que llegó después de abrir y no se mostró no queda cubierto", () => {
+    // La respuesta que abrió decía 40 no leídos (6..45). Mientras se cargan las anteriores llega el 46:
+    // tiene un id mayor y no está a la vista. La marca es hasta el mayor MOSTRADO (45), no 46.
+    let e = conInfo(pagina(16, 45), info("4", 40), { siguiente: "c1" });
+    e = reducirConversacion(e, { tipo: "ANTERIORES", eventos: pagina(1, 15), siguiente: null });
+    const d = decidirLecturaLocal(e);
+    assert.deepEqual(d, { tipo: "MARCAR", marca: { localId: 3, hastaEventoId: "45" } });
+    // Después del POST, el servidor dice que queda 1 sin leer (el 46): no se marca nada más y se avisa.
+    e = reducirConversacion(e, { tipo: "LEIDO", localId: 3, leidoHasta: "45", noLeidos: 1 });
+    assert.deepEqual(decidirLecturaLocal(e), { tipo: "FALTAN", nuevosMostrados: 0, noLeidos: 1 });
+  });
+
+  it("evento tardío: si está a la vista cuenta como nuevo por id; si no está, la marca no lo alcanza", () => {
+    // 101..110 nuevos y además el 111, con fecha VIEJA (antes que todo lo de la página): no vino en la primera página.
+    const primera = conInfo(pagina(81, 110), info("100", 11), { siguiente: "c1" });
+    assert.deepEqual(decidirLecturaLocal(primera), { tipo: "FALTAN", nuevosMostrados: 10, noLeidos: 11 });
+    const tardio = evento("111", 9999, "2026-10-01T00:00:00.000Z");
+    const con = reducirConversacion(primera, { tipo: "ANTERIORES", eventos: [tardio], siguiente: null });
+    assert.deepEqual(decidirLecturaLocal(con), { tipo: "MARCAR", marca: { localId: 3, hastaEventoId: "111" } });
+  });
+
+  it("AQ/O. si el POST falla, la lectura no cambia; solo una respuesta buena la mueve", () => {
+    const e = conInfo(pagina(16, 45), info("4", 30));
+    // Una falla del POST no despacha nada (Conversacion.tsx): el estado, y por lo tanto el "30 sin leer", quedan iguales.
+    assert.equal(e.fase === "LISTA" && e.info.noLeidos, 30);
+    const leido = reducirConversacion(e, { tipo: "LEIDO", localId: 3, leidoHasta: "45", noLeidos: 0 });
     assert.equal(leido.fase === "LISTA" && leido.info.noLeidos, 0);
-    assert.equal(leido.fase === "LISTA" && leido.info.leidoHasta, "4");
     // Una lectura de OTRO local no toca este.
     assert.equal(reducirConversacion(e, { tipo: "LEIDO", localId: 9, leidoHasta: "40", noLeidos: 0 }), e);
   });

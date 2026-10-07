@@ -33,6 +33,7 @@ import type { DatosMiAlcance, EventoTransferenciaRecibida } from "../../src/shar
 import { crearBaseDescartable, type BaseDescartable } from "../ayuda/baseDescartable.ts";
 import { levantarErpConEstado, type ErpConEstado } from "../ayuda/erpConEstado.ts";
 import { recepcion } from "../ayuda/paginadorErp.ts";
+import { decidirLecturaLocal, reducirConversacion, type EstadoConversacion, type InfoLocal } from "../../src/components/chats/logica.ts";
 import { FIXTURES_ERP, FIXTURES_ERP_25172FE, SECRETO_PRUEBA, type Rompible } from "../ayuda/servidorErp.ts";
 
 const ORIGEN = "https://chat.ejemplo.invalid";
@@ -818,5 +819,62 @@ describe("lo que ve el navegador", () => {
     }
     // Y los logs tampoco llevan el token.
     assert.ok(!JSON.stringify(registros).includes(token));
+  });
+});
+
+describe("la lectura que decide la interfaz, contra el servidor (Tanda 2C)", () => {
+  /** El estado de la conversación como lo arma la interfaz con la primera respuesta del Local. */
+  const estadoDe = (r: Extract<RespuestaLocal, { estado: "OK" }>): EstadoConversacion<EventoPublico, InfoLocal> => ({
+    fase: "LISTA",
+    eventos: r.eventos,
+    siguiente: r.siguiente,
+    anteriores: "QUIETO",
+    info: { tipo: "LOCAL", localId: r.local.localId, nombre: r.local.nombre, sincronizacion: r.sincronizacion, leidoHasta: r.leidoHasta, noLeidos: r.noLeidos },
+  });
+
+  it("AL/AC/AD/AP. 40 nuevos y 30 en la primera página: no marca; con las anteriores cargadas marca hasta el mayor mostrado; lo que llegó después sigue sin leer", async () => {
+    const adm = await vincular(ADMIN);
+    await chats(adm); // backfill y línea de base
+    vencer();
+    for (let i = 0; i < 40; i++) recibir(CASIANO, 1000 + i, new Date(Date.parse("2026-10-08T00:00:00.000Z") + i * 60_000).toISOString());
+    const p1 = await local(adm, CASIANO.id);
+    assert.equal(p1.cuerpo.noLeidos, 40);
+    assert.equal(p1.cuerpo.eventos.length, 30);
+    let e = estadoDe(p1.cuerpo);
+    const decision = decidirLecturaLocal(e);
+    assert.equal(decision.tipo, "FALTAN", "con 10 nuevos sin cargar, la interfaz no manda nada");
+    const nuevos = await base.db.evento.findMany({ where: { erpLocalId: CASIANO.id, historico: false }, select: { id: true }, orderBy: { id: "asc" } });
+    assert.equal(nuevos.length, 40);
+
+    // Mientras tanto llega otra recepción (más nueva que todo).
+    vencer();
+    recibir(CASIANO, 2000, "2026-10-08T11:00:00.000Z");
+    const p2 = await local(adm, CASIANO.id, p1.cuerpo.siguiente!);
+    e = reducirConversacion(e, { tipo: "ANTERIORES", eventos: p2.cuerpo.eventos, siguiente: p2.cuerpo.siguiente });
+    const mostrados = new Set(e.fase === "LISTA" ? e.eventos.map((x) => x.id) : []);
+    for (const n of nuevos) assert.ok(mostrados.has(n.id.toString()), `el ${n.id} está a la vista antes de marcar`);
+    const d = decidirLecturaLocal(e);
+    assert.equal(d.tipo, "MARCAR");
+    if (d.tipo !== "MARCAR") return;
+    assert.equal(d.marca.hastaEventoId, nuevos.at(-1)!.id.toString());
+
+    const r = await leido(adm, { marcas: [d.marca] });
+    assert.equal(r.status, 200, r.texto);
+    // Los 40 que se vieron, leídos; el que llegó después, no.
+    assert.equal(r.cuerpo.lecturas[0]!.noLeidos, 1);
+    const ultimo = await base.db.evento.findFirstOrThrow({ where: { erpLocalId: CASIANO.id, erpReferenciaId: 2000 }, select: { id: true } });
+    assert.ok(ultimo.id > BigInt(d.marca.hastaEventoId));
+    assert.ok(!mostrados.has(ultimo.id.toString()));
+  });
+
+  it("CONTRA: la marca de antes (mayor id de la primera página) habría dejado leídos 10 que no se vieron", async () => {
+    const adm = await vincular(ADMIN);
+    await chats(adm);
+    vencer();
+    for (let i = 0; i < 40; i++) recibir(CASIANO, 1000 + i, new Date(Date.parse("2026-10-08T00:00:00.000Z") + i * 60_000).toISOString());
+    const p1 = await local(adm, CASIANO.id);
+    const mayor = p1.cuerpo.eventos.map((x) => BigInt(x.id)).reduce((a, b) => (a > b ? a : b));
+    const r = await leido(adm, { marcas: [{ localId: CASIANO.id, hastaEventoId: mayor.toString() }] });
+    assert.equal(r.cuerpo.lecturas[0]!.noLeidos, 0, "así quedaba: 0 no leídos con 10 nunca mostrados (lo que la regla nueva impide)");
   });
 });

@@ -9,10 +9,14 @@
 //     separador por día;
 //   · "Cargar anteriores" pide la página siguiente con el cursor opaco de la
 //     API, la agrega sin repetir y deja la vista donde estaba;
-//   · DESPUÉS de mostrar los eventos (un efecto corre después de dibujar), se
-//     marca leído con POST /api/chats/leido: un Local, hasta el mayor id
-//     mostrado; General, una marca por local con su propio mayor id. Si el POST
-//     falla, la vista sigue y no se cuenta como leído;
+//   · un Local marca leído con POST /api/chats/leido DESPUÉS de mostrar los
+//     eventos (un efecto corre después de dibujar), y solo cuando puede
+//     demostrar que todos sus no leídos están a la vista (logica.ts,
+//     decidirLecturaLocal). Si faltan, avisa "Hay más eventos sin leer" y no
+//     marca. Si el POST falla, la vista sigue y no se cuenta como leído;
+//   · General NO marca leído: su respuesta no dice cuántos no leídos tiene cada
+//     local, así que no puede demostrar que los mostró todos. Es solo lectura
+//     visual (docs/INTERFAZ.md);
 //   · cualquier falla de la API al cargar reemplaza la vista: con
 //     ERP_NO_DISPONIBLE no queda historial detrás (P1).
 //
@@ -25,16 +29,14 @@ import { ShellMovil } from "../shell/ShellMovil.tsx";
 import { marcarLeido, pedirGeneral, pedirLocal, type FallaCliente, type Resultado } from "./clienteChats.ts";
 import { diaDe, etiquetaDeDia } from "./formato.ts";
 import {
+  decidirLecturaLocal,
   destinoDeFalla,
-  marcaDeLocal,
-  marcasDeEstado,
-  marcasDeGeneral,
   ordenCronologico,
   reducirConversacion,
+  type AccionConversacion,
   type EstadoConversacion,
   type InfoGeneral,
   type InfoLocal,
-  type Marca,
 } from "./logica.ts";
 import { AvisoDemorada, EstadoChat, EstadoErpNoDisponible, TarjetaEvento } from "./Piezas.tsx";
 
@@ -44,15 +46,10 @@ type AlPerderSesion = (motivo?: "VINCULO_INVALIDO") => void;
 
 const raizDelScroll = () => document.scrollingElement ?? document.documentElement;
 
-/** El estado de una conversación con su red: primera página, anteriores y marcar leído. */
-function useConversacion<E extends EventoPublico, I extends InfoLocal | InfoGeneral>(
-  pedirPagina: PedirPagina<E, I>,
-  marcas: (e: Extract<EstadoConversacion<E, I>, { fase: "LISTA" }>) => Marca[],
-  alPerderSesion: AlPerderSesion,
-) {
+/** El estado de una conversación con su red: primera página y anteriores. No marca leído. */
+function useConversacion<E extends EventoPublico, I extends InfoLocal | InfoGeneral>(pedirPagina: PedirPagina<E, I>, alPerderSesion: AlPerderSesion) {
   const [estado, despachar] = useReducer(reducirConversacion<E, I>, { fase: "CARGANDO" });
   const [intento, setIntento] = useState(0);
-  const enviada = useRef<string | null>(null);
   const distanciaAlFinal = useRef<number | null>(null);
   const primeraVista = useRef(true);
 
@@ -90,23 +87,6 @@ function useConversacion<E extends EventoPublico, I extends InfoLocal | InfoGene
     }
   }, [cantidad]);
 
-  // Marcar leído: después de dibujar, lo que se mostró, una vez por marca.
-  useEffect(() => {
-    const lista = marcasDeEstado(estado, marcas);
-    if (lista.length === 0) return;
-    const clave = JSON.stringify(lista);
-    if (enviada.current === clave) return;
-    enviada.current = clave;
-    void marcarLeido({ marcas: lista }).then((r) => {
-      if (r.ok) {
-        for (const l of r.datos.lecturas) despachar({ tipo: "LEIDO", localId: l.localId, leidoHasta: l.leidoHasta, noLeidos: l.noLeidos });
-      } else if (r.falla.estado === "SIN_SESION") {
-        alPerderSesion(r.falla.motivo);
-      }
-      // Cualquier otra falla: no se finge que se leyó. La vista sigue como está.
-    });
-  }, [estado, marcas, alPerderSesion]);
-
   const cargarAnteriores = () => {
     if (estado.fase !== "LISTA" || !estado.siguiente || estado.anteriores === "CARGANDO") return;
     const raiz = raizDelScroll();
@@ -118,7 +98,41 @@ function useConversacion<E extends EventoPublico, I extends InfoLocal | InfoGene
     });
   };
 
-  return { estado, reintentar: () => setIntento((n) => n + 1), cargarAnteriores };
+  return { estado, despachar, reintentar: () => setIntento((n) => n + 1), cargarAnteriores };
+}
+
+/**
+ * La lectura de un Local: después de dibujar, si `decidirLecturaLocal` puede
+ * demostrar que todos los no leídos están a la vista, un POST hasta el mayor id
+ * nuevo mostrado; una vez por avance. Se vuelve a evaluar con cada cambio del
+ * estado, así que cargar anteriores puede completar lo que faltaba. Devuelve la
+ * decisión para que la pantalla avise si faltan.
+ */
+function useLecturaLocal<E extends EventoPublico>(
+  estado: EstadoConversacion<E, InfoLocal>,
+  despachar: (a: AccionConversacion<E, InfoLocal>) => void,
+  alPerderSesion: AlPerderSesion,
+) {
+  const decision = decidirLecturaLocal(estado);
+  const enviada = useRef<string | null>(null);
+  const clave = decision.tipo === "MARCAR" ? `${decision.marca.localId}:${decision.marca.hastaEventoId}` : null;
+  useEffect(() => {
+    if (decision.tipo !== "MARCAR" || clave === null || enviada.current === clave) return;
+    enviada.current = clave;
+    const { marca } = decision;
+    void marcarLeido({ marcas: [marca] }).then((r) => {
+      if (r.ok) {
+        const l = r.datos.lecturas.find((x) => x.localId === marca.localId);
+        if (l) despachar({ tipo: "LEIDO", localId: l.localId, leidoHasta: l.leidoHasta, noLeidos: l.noLeidos });
+      } else if (r.falla.estado === "SIN_SESION") {
+        alPerderSesion(r.falla.motivo);
+      }
+      // Cualquier otra falla: no se finge que se leyó. La vista sigue como está.
+    });
+    // `decision` se deriva del estado; `clave` resume lo que importa de ella.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clave, despachar, alPerderSesion]);
+  return decision;
 }
 
 /** Los eventos como chat: del más viejo al más nuevo, con un separador por día. Sin red. */
@@ -160,6 +174,7 @@ export function CuerpoConversacion<E extends EventoPublico, I extends InfoLocal 
   estado,
   vacio,
   aviso,
+  masSinLeer = false,
   local,
   alReintentar,
   alVolver,
@@ -170,6 +185,8 @@ export function CuerpoConversacion<E extends EventoPublico, I extends InfoLocal 
   estado: EstadoConversacion<E, I>;
   vacio: string;
   aviso?: ReactNode;
+  /** Hay no leídos que todavía no están cargados (solo un Local lo sabe). */
+  masSinLeer?: boolean;
   local?: (e: E) => string;
   alReintentar: () => void;
   alVolver: () => void;
@@ -193,8 +210,14 @@ export function CuerpoConversacion<E extends EventoPublico, I extends InfoLocal 
   return (
     <>
       {aviso}
-      {estado.siguiente && (
+      {(estado.siguiente || masSinLeer) && (
         <div className="ac-anteriores">
+          {masSinLeer && (
+            <p className="ac-mensaje ac-anteriores__mas" role="status">
+              Hay más eventos sin leer
+            </p>
+          )}
+          {estado.siguiente && (
           <button
             type="button"
             className="ac-boton ac-boton--secundario"
@@ -204,6 +227,7 @@ export function CuerpoConversacion<E extends EventoPublico, I extends InfoLocal 
           >
             {estado.anteriores === "CARGANDO" ? "Cargando anteriores…" : "Cargar anteriores"}
           </button>
+          )}
           {estado.anteriores === "SIN_RED" && <p className="ac-mensaje">No se pudieron cargar. Probá de nuevo.</p>}
         </div>
       )}
@@ -235,14 +259,8 @@ export function PantallaLocal({ localId, alVolver, alPerderSesion }: { localId: 
     },
     [localId],
   );
-  const marcas = useCallback(
-    (e: Extract<EstadoConversacion<EventoPublico, InfoLocal>, { fase: "LISTA" }>) => {
-      const m = marcaDeLocal(e.info.localId, e.eventos, e.info.leidoHasta);
-      return m ? [m] : [];
-    },
-    [],
-  );
-  const { estado, reintentar, cargarAnteriores } = useConversacion(pedirPagina, marcas, alPerderSesion);
+  const { estado, despachar, reintentar, cargarAnteriores } = useConversacion(pedirPagina, alPerderSesion);
+  const lectura = useLecturaLocal(estado, despachar, alPerderSesion);
   const info = estado.fase === "LISTA" ? estado.info : null;
 
   return (
@@ -255,6 +273,7 @@ export function PantallaLocal({ localId, alVolver, alPerderSesion }: { localId: 
         estado={estado}
         vacio="Todavía no hay eventos."
         aviso={info?.sincronizacion === "DEMORADA" ? <AvisoDemorada /> : undefined}
+        masSinLeer={lectura.tipo === "FALTAN"}
         alReintentar={reintentar}
         alVolver={alVolver}
         alCargarAnteriores={cargarAnteriores}
@@ -270,14 +289,10 @@ export function PantallaGeneral({ alVolver, alPerderSesion }: { alVolver: () => 
     const r = await pedirGeneral(cursor, signal);
     if (!r.ok) return r;
     const d = r.datos;
-    return { ok: true, datos: { eventos: d.eventos, siguiente: d.siguiente, info: { tipo: "GENERAL", localesDemorados: d.localesDemorados, noLeidos: d.noLeidos } } };
+    return { ok: true, datos: { eventos: d.eventos, siguiente: d.siguiente, info: { tipo: "GENERAL", localesDemorados: d.localesDemorados } } };
   }, []);
-  // Sin no leídos en General, no hay nada que marcar.
-  const marcas = useCallback(
-    (e: Extract<EstadoConversacion<EventoGeneral, InfoGeneral>, { fase: "LISTA" }>) => (e.info.noLeidos > 0 ? marcasDeGeneral(e.eventos) : []),
-    [],
-  );
-  const { estado, reintentar, cargarAnteriores } = useConversacion(pedirPagina, marcas, alPerderSesion);
+  // General no marca leído (Tanda 2C): no puede demostrar que mostró todos los no leídos de cada local.
+  const { estado, reintentar, cargarAnteriores } = useConversacion(pedirPagina, alPerderSesion);
   const demorados = estado.fase === "LISTA" ? estado.info.localesDemorados.length : 0;
 
   return (

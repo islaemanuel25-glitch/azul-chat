@@ -88,3 +88,72 @@ describe("alcance de la interfaz de chats", () => {
     assert.deepEqual(problemas({ ...arbol, "src/components/chats/Conversacion.tsx": conComentario }), []);
   });
 });
+
+// ── General no marca leído (Tanda 2C) ────────────────────────────────────────
+//
+// GET /api/chats/general no dice cuántos no leídos tiene cada local, así que
+// General no puede demostrar que mostró todos los de un local: no marca nunca,
+// ni al abrir, ni al cargar anteriores, ni al salir. Sin navegador no se pueden
+// correr los efectos de React, así que el candado mira el código: hay UN solo
+// lugar que llama a POST /api/chats/leido, el hook de lectura del Local, y
+// General no lo usa. Si alguien agrega una marca en General (o una función que
+// calcule marcas por local desde eventos de General), se pone rojo.
+
+const CONVERSACION = "src/components/chats/Conversacion.tsx";
+const LOGICA = "src/components/chats/logica.ts";
+
+/** El texto de una función de primer nivel (exportada o no), hasta la siguiente. */
+function cuerpoDe(codigo: string, nombre: string): string {
+  const i = codigo.search(new RegExp(`\\nfunction ${nombre}[<(]|\\nexport function ${nombre}[<(]`));
+  if (i < 0) return "";
+  const resto = codigo.slice(i + 1);
+  const fin = resto.search(/\n(export )?function /);
+  return fin < 0 ? codigo.slice(i) : codigo.slice(i, i + 1 + fin);
+}
+
+function problemasDeLectura(archivos: Record<string, string>): string[] {
+  const p: string[] = [];
+  // Llamadas, no la declaración del cliente (`export function marcarLeido(`).
+  const llamadas = Object.entries(archivos).flatMap(([a, c]) => [...c.matchAll(/(?<!function )\bmarcarLeido\s*\(/g)].map(() => a));
+  if (JSON.stringify(llamadas) !== JSON.stringify([CONVERSACION])) p.push(`marcarLeido se llama desde: ${llamadas.join(", ") || "ningún lado"}`);
+  const conversacion = archivos[CONVERSACION] ?? "";
+  const hook = cuerpoDe(conversacion, "useLecturaLocal");
+  if (!/\bmarcarLeido\s*\(/.test(hook)) p.push("la única llamada no está en useLecturaLocal");
+  const general = cuerpoDe(conversacion, "PantallaGeneral");
+  if (!general) p.push("no se encontró PantallaGeneral");
+  if (/useLecturaLocal|marcarLeido|decidirLectura|LEIDO/.test(general)) p.push("PantallaGeneral marca leído");
+  if (!/useLecturaLocal\(/.test(cuerpoDe(conversacion, "PantallaLocal"))) p.push("PantallaLocal no usa useLecturaLocal");
+  // La decisión se recalcula en cada render (con los eventos que haya, también
+  // después de cargar anteriores) y el efecto corre cuando cambia la marca.
+  if (!/const decision = decidirLecturaLocal\(estado\);/.test(hook)) p.push("useLecturaLocal no recalcula la decisión con el estado actual");
+  if (!/\}, \[clave,/.test(hook)) p.push("el efecto de lectura no depende de la marca calculada");
+  const logica = archivos[LOGICA] ?? "";
+  if (/marcasDeGeneral|EventoGeneral[^\n]*\)\s*:\s*Marca/.test(logica)) p.push("logica.ts calcula marcas para General");
+  return p;
+}
+
+describe("General no marca leído", () => {
+  const arbol = codigoDeLaInterfaz();
+
+  it("AI/AJ/AK. una sola llamada a POST leído, en la lectura del Local; General (al abrir, al cargar anteriores o al salir) no la alcanza", () => {
+    assert.deepEqual(problemasDeLectura(arbol), []);
+  });
+
+  it("CONTRAPRUEBA: atrapa una marca en General, una llamada suelta y una función de marcas para General", () => {
+    const conv = arbol[CONVERSACION]!;
+    const general = cuerpoDe(conv, "PantallaGeneral");
+    const casos: Record<string, Record<string, string>> = {
+      generalConHook: { [CONVERSACION]: conv.replace(general, general.replace("useConversacion(pedirPagina, alPerderSesion);", "useConversacion(pedirPagina, alPerderSesion);\n  useLecturaLocal(estado as never, (() => {}) as never, alPerderSesion);")) },
+      generalConPost: { [CONVERSACION]: conv.replace(general, general.replace("useConversacion(pedirPagina, alPerderSesion);", "useConversacion(pedirPagina, alPerderSesion);\n  void marcarLeido({ marcas: [] });")) },
+      otraLlamada: { "src/components/chats/AzulChat.tsx": `${arbol["src/components/chats/AzulChat.tsx"]}\nvoid marcarLeido({ marcas: [] });\n` },
+      sinRecalcular: { [CONVERSACION]: conv.replace("}, [clave, despachar, alPerderSesion]);", "}, []);") },
+      decisionFija: { [CONVERSACION]: conv.replace("const decision = decidirLecturaLocal(estado);", "const decision = useRef(decidirLecturaLocal(estado)).current;") },
+      funcionGeneral: { [LOGICA]: `${arbol[LOGICA]}\nexport function marcasDeGeneral(e: readonly EventoGeneral[]): Marca[] { return []; }\n` },
+    };
+    for (const [nombre, cambio] of Object.entries(casos)) {
+      const c = Object.values(cambio)[0]!;
+      assert.notEqual(c, arbol[Object.keys(cambio)[0]!], `el reemplazo ${nombre} no se aplicó`);
+      assert.notDeepEqual(problemasDeLectura({ ...arbol, ...cambio }), [], nombre);
+    }
+  });
+});

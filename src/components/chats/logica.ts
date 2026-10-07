@@ -1,7 +1,7 @@
 // LO QUE DECIDEN LAS PANTALLAS DE CHATS, SIN REACT.
 //
 // Qué filas tiene la lista, en qué orden se ve una conversación, cómo se juntan
-// las páginas, hasta dónde se marca leído y qué se hace con cada falla. Las
+// las páginas, si se puede marcar leído y qué se hace con cada falla. Las
 // pantallas solo llaman a esto y dibujan; los tests (test/ui/) lo ejercen sin
 // navegador.
 //
@@ -57,26 +57,41 @@ export function mayorId(eventos: readonly EventoPublico[]): string | null {
 export type Marca = { readonly localId: number; readonly hastaEventoId: string };
 
 /**
- * La marca de leído de un Local: hasta el mayor Evento.id que la pantalla
- * MOSTRÓ. Sin eventos mostrados, ninguna. Si ya estaba leído hasta ahí, ninguna
- * (no hace falta pedir nada).
+ * Qué hacer con la lectura de un Local, según lo que ESTA respuesta permite
+ * demostrar. La lectura del servidor es una marca de agua: marcar hasta un id
+ * deja leídos todos los ids menores de ese local. Por eso solo se marca cuando
+ * todos los no leídos que informó la respuesta están a la vista:
+ *
+ *   · `nuevosMostrados` = eventos mostrados con Evento.id > leidoHasta,
+ *     comparados como BigInt (nunca la cantidad total de eventos: en pantalla
+ *     puede haber historia ya leída);
+ *   · si son menos que `noLeidos`, quedan no leídos sin cargar: NO se marca y
+ *     la pantalla avisa que hay más;
+ *   · si alcanzan, se marca hasta el mayor de ellos.
+ *
+ * Por qué alcanzar el número basta: dentro de un local los eventos se ingieren
+ * en el orden del cursor del ERP (fecha de recepción y transferencia,
+ * estrictamente creciente), así que los ids crecen con el orden en que se ven,
+ * y la historia del backfill tiene ids menores que cualquier evento nuevo. Los
+ * no leídos son entonces los N más recientes del local; si hay N mostrados por
+ * encima de lo leído, son esos. `noLeidos` y `leidoHasta` son los de la
+ * respuesta que abrió la conversación: lo que llegue después tiene ids mayores,
+ * no está a la vista y no queda cubierto. test/db/chats.test.ts lo ejerce
+ * contra el servidor.
  */
-export function marcaDeLocal(localId: number, mostrados: readonly EventoPublico[], leidoHasta: string): Marca | null {
-  const hasta = mayorId(mostrados);
-  if (hasta === null || compararIds(hasta, leidoHasta) <= 0) return null;
-  return { localId, hastaEventoId: hasta };
-}
+export type DecisionDeLectura =
+  /** No hay nada sin leer en esta respuesta (o ya se marcó). */
+  | { readonly tipo: "NADA" }
+  /** Hay no leídos que todavía no están cargados: no se marca. */
+  | { readonly tipo: "FALTAN"; readonly nuevosMostrados: number; readonly noLeidos: number }
+  | { readonly tipo: "MARCAR"; readonly marca: Marca };
 
-/**
- * Las marcas de General: UNA POR LOCAL, cada una hasta el mayor Evento.id de
- * ESE local entre los mostrados. Nunca un máximo común: los ids son de una
- * sola secuencia y el de un local no dice nada de otro. Un local sin eventos
- * mostrados no se marca.
- */
-export function marcasDeGeneral(mostrados: readonly EventoGeneral[]): Marca[] {
-  const porLocal = new Map<number, EventoGeneral[]>();
-  for (const e of mostrados) porLocal.set(e.local.localId, [...(porLocal.get(e.local.localId) ?? []), e]);
-  return [...porLocal.entries()].sort(([a], [b]) => a - b).map(([localId, eventos]) => ({ localId, hastaEventoId: mayorId(eventos)! }));
+export function decidirLecturaLocal<E extends EventoPublico>(estado: EstadoConversacion<E, InfoLocal>): DecisionDeLectura {
+  if (estado.fase !== "LISTA" || estado.info.noLeidos <= 0) return { tipo: "NADA" };
+  const leido = BigInt(estado.info.leidoHasta);
+  const nuevos = estado.eventos.filter((e) => BigInt(e.id) > leido);
+  if (nuevos.length < estado.info.noLeidos) return { tipo: "FALTAN", nuevosMostrados: nuevos.length, noLeidos: estado.info.noLeidos };
+  return { tipo: "MARCAR", marca: { localId: estado.info.localId, hastaEventoId: mayorId(nuevos)! } };
 }
 
 // ── El estado de una conversación (Local o General) ─────────────────────────
@@ -90,7 +105,8 @@ export type InfoLocal = {
   readonly leidoHasta: string;
   readonly noLeidos: number;
 };
-export type InfoGeneral = { readonly tipo: "GENERAL"; readonly localesDemorados: readonly number[]; readonly noLeidos: number };
+/** General no lleva lectura: en la Tanda 2C no marca leído (docs/INTERFAZ.md). */
+export type InfoGeneral = { readonly tipo: "GENERAL"; readonly localesDemorados: readonly number[] };
 
 export type EstadoConversacion<E extends EventoPublico, I extends InfoLocal | InfoGeneral> =
   | { readonly fase: "CARGANDO" }
@@ -139,18 +155,6 @@ export function reducirConversacion<E extends EventoPublico, I extends InfoLocal
       if (estado.fase !== "LISTA" || estado.info.tipo !== "LOCAL" || estado.info.localId !== accion.localId) return estado;
       return { ...estado, info: { ...estado.info, leidoHasta: accion.leidoHasta, noLeidos: accion.noLeidos } };
   }
-}
-
-/**
- * Qué marcar AHORA: solo con la conversación ya mostrada (fase LISTA). Cargando,
- * o con una falla en pantalla, nada. Las pantallas lo llaman desde un efecto,
- * que corre después de dibujar.
- */
-export function marcasDeEstado<E extends EventoPublico, I extends InfoLocal | InfoGeneral>(
-  estado: EstadoConversacion<E, I>,
-  calcular: (lista: Extract<EstadoConversacion<E, I>, { fase: "LISTA" }>) => Marca[],
-): Marca[] {
-  return estado.fase === "LISTA" ? calcular(estado) : [];
 }
 
 // ── Qué hacer con una falla ─────────────────────────────────────────────────
