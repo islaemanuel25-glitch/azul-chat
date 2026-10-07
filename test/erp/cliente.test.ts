@@ -96,8 +96,9 @@ describe("cliente ERP: lo que viaja", () => {
     assert.equal(c.authorization, undefined);
   });
 
-  it("expone exactamente tres operaciones: no hay forma de pedir otra ruta o capacidad", () => {
-    assert.deepEqual(Object.keys(cliente()).sort(), ["canjear", "miAlcance", "ventasResumen"]);
+  it("expone exactamente cuatro operaciones: no hay forma de pedir otra ruta o capacidad", () => {
+    // `transferenciasEventos` entró en la Tanda 2 (fundación): un método específico, no un cliente genérico.
+    assert.deepEqual(Object.keys(cliente()).sort(), ["canjear", "miAlcance", "transferenciasEventos", "ventasResumen"]);
     assert.ok(Object.isFrozen(cliente()));
   });
 
