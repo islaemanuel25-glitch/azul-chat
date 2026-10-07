@@ -1,0 +1,161 @@
+# La interfaz móvil de chats
+
+Tanda 2C. La primera interfaz real de Azul Chat: la lista de chats, la
+conversación de un Local y General, con sus estados. Usa la API de chats tal
+como quedó aprobada (`docs/CHATS.md`), sin cambiarla. La referencia visual es
+el Figma "Azul Chat — Mobile V1" (`DpxKeDtugjdB8IfuGnHZcz`), pantallas 1, 2, 3
+y 7, adaptadas a lo que la API de verdad da.
+
+Es para el celular: entre 360 y 430 px de ancho, con una mano. En una pantalla
+grande se centra en una columna de 480 px; no hay un diseño de escritorio.
+
+## Qué hay
+
+- **Chats.** General primero y, debajo, exactamente los locales que devuelve
+  `GET /api/chats`, en su orden. Cada fila tiene el nombre de hoy, el último
+  evento resumido, la hora o fecha, el badge de no leídos (solo si hay) y, si
+  traer lo nuevo de ese local se demoró, "Actualización demorada". Un local sin
+  eventos dice "Sin novedades". Los filtros "Todos" y "No leídos" trabajan
+  sobre lo que ya llegó, sin pedir nada. En el encabezado, "Actualizar" vuelve a
+  pedir la lista y "Tu sesión" abre el panel de sesión.
+- **Un Local.** Encabezado con volver y el nombre de hoy del local. El historial
+  se lee como un chat: lo más viejo arriba y lo más nuevo abajo, con un
+  separador por día. La API manda la página al revés (lo más reciente primero,
+  para paginar); la interfaz la da vuelta sin tocar el cursor.
+- **General.** Encabezado con volver, "General" y "Eventos de todos los
+  locales". Cada evento dice de qué local es. Es la misma proyección de la API:
+  ningún evento se repite.
+- **El evento.** "Transferencia #182 recibida" o "Transferencia #182 recibida
+  con diferencias". Si tiene diferencias, "1 línea con diferencia" o "N líneas
+  con diferencias": el dato cuenta líneas del remito, no productos. Además, de
+  dónde vino y la hora. Sin ids ni datos técnicos.
+
+## Cómo se navega
+
+La vista va en la consulta de la URL: `/`, `/?vista=local&localId=N` y
+`/?vista=general`. No hay segmentos de ruta (`test/frontera/rutas.test.ts` no
+los admite en `src/app`). Abrir un chat agrega una entrada al historial, así el
+"atrás" del teléfono vuelve a la lista. Cada pantalla tiene además su propia
+flecha "Volver a chats", que no depende del historial: si la entrada no es de
+la app, reemplaza la URL y muestra la lista. Una URL que no se entiende muestra
+la lista.
+
+## Marcar leído
+
+Regla: la interfaz nunca marca como leído un evento que no pueda demostrar que
+mostró. Ningún GET marca leído; marcar es `POST /api/chats/leido`, y solo lo
+pide un Local.
+
+La lectura del servidor es una marca de agua: marcar hasta un id deja leídos
+todos los ids menores de ese local. Por eso no alcanza con marcar "hasta el
+mayor id que se ve": si hay más no leídos que los que entraron en pantalla, los
+que faltan quedarían leídos sin haberse visto.
+
+**Un Local.** Después de dibujar (desde un efecto), la interfaz cuenta los
+eventos mostrados con `Evento.id` mayor que `leidoHasta`, comparando como
+BigInt, nunca la cantidad total de eventos en pantalla, que puede incluir
+historia ya leída. Usa el `leidoHasta` y el `noLeidos` de la respuesta que abrió
+la conversación (`decidirLecturaLocal`, en `components/chats/logica.ts`):
+
+- si esa cuenta es menor que `noLeidos`, NO marca. La pantalla dice "Hay más
+  eventos sin leer", junto a "Cargar anteriores";
+- cuando alcanza (de entrada, o después de cargar anteriores), marca hasta el
+  mayor de esos ids, una sola vez por avance;
+- con 30 o menos no leídos todo entra en la primera página y marca enseguida,
+  como siempre.
+
+Por qué alcanzar el número basta: dentro de un local los eventos se ingieren en
+el orden del cursor del ERP (fecha de recepción y transferencia, estrictamente
+creciente), así que los ids crecen en el mismo orden en que se ven, y la
+historia del backfill tiene ids menores que cualquier evento nuevo. Los no
+leídos de la respuesta son los N más recientes del local; si hay N mostrados
+por encima de lo leído, son esos. Lo que llega después de abrir tiene ids
+mayores, no está a la vista y no queda cubierto: sigue sin leer. Lo ejercen
+`test/ui/chats.test.ts` y, contra el servidor, `test/db/chats.test.ts` (40
+nuevos, 30 en la primera página).
+
+Si el POST falla, la conversación sigue a la vista y no se cuenta como leído:
+el "N sin leer" del encabezado cambia solo con una respuesta buena.
+
+**General.** En la Tanda 2C, General es solo lectura visual: no marca leído al
+abrir, al cargar anteriores ni al salir. Su respuesta no dice cuántos no leídos
+tiene cada local, así que no puede demostrar que mostró todos los de un local.
+Usar los números de la lista de chats tampoco sirve, porque son de otro momento.
+Es deliberadamente conservador: los badges de cada local siguen hasta que esa
+conversación se lea desde su Local, bajo la regla de arriba.
+
+Los badges de la lista salen siempre de un `GET /api/chats` nuevo, al volver a
+ella.
+
+## Paginación
+
+La primera página trae 30 eventos. Si la API devuelve `siguiente`, arriba del
+historial aparece "Cargar anteriores", que pide la página siguiente con ese
+cursor opaco, agrega los eventos sin repetir ninguno y deja la vista donde
+estaba. No hay scroll infinito ni refresco automático.
+
+## Estados
+
+- **Cargando:** "Cargando chats…" o "Cargando conversación…".
+- **Vacío:** un Local sin eventos dice "Todavía no hay eventos."; General,
+  "Todavía no hay eventos para mostrar."; con el filtro "No leídos" y nada sin
+  leer, "No hay chats sin leer.".
+- **Actualización demorada:** se ve lo guardado (ya autorizado en esa misma
+  solicitud) con un aviso discreto. No es una caída.
+- **ERP Azul no responde (P1):** si la API contesta `ERP_NO_DISPONIBLE`, la
+  vista entera se reemplaza: "ERP Azul no responde", "Para ver el historial
+  hace falta verificar tu acceso." y "Reintentar". No queda historial detrás ni
+  una lista vieja a la vista, y no hay caché en el navegador.
+- **Sin acceso:** un local que no está entre los de hoy (o que no existe: la API
+  no lo distingue) dice "Este chat no está entre los que podés ver hoy." y
+  ofrece volver.
+- **Sin conexión / no disponible:** con "Reintentar". Si se corta la red al
+  cargar anteriores, lo que ya se ve sigue y se avisa debajo del botón.
+- **Sin sesión o vínculo inválido:** cualquier `SIN_SESION` vuelve al panel de
+  sesión de siempre para vincular de nuevo; si el ERP invalidó el vínculo, el
+  panel lo dice. No hay otra autenticación ni se guarda nada en el navegador.
+
+## Cómo está armada
+
+- `src/components/chats/clienteChats.ts`: el único lugar desde donde la
+  interfaz llama a las rutas de chats. Devuelve la respuesta buena o la falla
+  pública por su código; no sabe nada del ERP ni de tokens.
+- `logica.ts`: lo que deciden las pantallas, sin React (filas, orden, páginas,
+  cuándo se puede marcar leído, fallas, navegación). `formato.ts`: todos los
+  textos de eventos y fechas, en un solo lugar, con `Intl` y la zona del
+  teléfono.
+- `Piezas.tsx` (badge, avatar, aviso, estados, tarjeta del evento),
+  `PantallaChats.tsx`, `Conversacion.tsx` (Local y General) y `AzulChat.tsx`
+  (qué pantalla se ve, navegación y sesión). El encabezado es el de
+  `ShellMovil`, y la sesión, el `PanelSesion` existente.
+- Sin dependencias nuevas ni estado global: `useState`, `useReducer` y efectos.
+- Colores, radios, espacios y letras salen de los tokens `--ac-*` de
+  `src/app/globals.css`, que se redefinen para el modo oscuro. Los tokens nuevos
+  (alerta, marca suave, foco) se agregaron ahí. Las acciones son botones de
+  verdad, con etiqueta accesible ("Volver a chats", "Actualizar chats", "Tu
+  sesión", "Cargar eventos anteriores"); el badge lleva texto para lectores de
+  pantalla y el foco se ve con el token de foco.
+
+## Candados
+
+- `test/ui/chats.test.ts`: la lógica, los componentes dibujados con
+  `react-dom/server` (sin navegador) y el cliente HTTP con un `fetch` de prueba.
+- `test/frontera/alcanceUi.test.ts`: la interfaz no muestra "Ver diferencias",
+  "Abrir en ERP", "Ventas de hoy" ni "Última transferencia"; no tiene refresco
+  automático ni almacenamiento del navegador; hace HTTP solo desde sus dos
+  clientes; no sabe nada de la delegación ni del ERP; y POST leído se llama
+  desde un solo lugar, la lectura del Local, que General no usa.
+- `test/db/chats.test.ts`: el caso real de 40 no leídos con 30 en la primera
+  página, contra el servidor: no se marca hasta tenerlos a la vista, y lo que
+  llega después sigue sin leer.
+- `test/frontera/secretoSoloServidor.test.ts`: el navegador solo llama a rutas
+  propias (`/api/sesion…`, `/api/chats…`), con una consulta solo detrás de una
+  constante que vale una ruta propia.
+
+## Fuera de alcance
+
+No existen todavía, y la interfaz no los muestra ni los insinúa: Pendientes,
+buscar en el historial, la configuración completa, el compositor y los mensajes
+de personas, la IA, las ventas, las acciones sobre el ERP ("Ver diferencias",
+"Abrir en ERP", acciones rápidas), las notificaciones y cualquier actualización
+en vivo (WebSocket, SSE o refresco periódico).

@@ -14,6 +14,10 @@
   --ac-color-texto-suave: #4f6b69;
   --ac-color-borde: #d5e8e6;
   --ac-color-sobre-marca: #ffffff;
+  --ac-color-marca-suave: #dff3f1;
+  --ac-color-alerta: #a15c07;
+  --ac-color-alerta-fondo: #fff4e0;
+  --ac-color-foco: #0b7f7f;
 
   --ac-radio-tarjeta: 16px;
   --ac-radio-pastilla: 999px;
@@ -25,6 +29,7 @@
   --ac-ancho-movil: 480px;
   --ac-alto-toque: 44px;
 
+  --ac-letra-mini: 12px;
   --ac-letra-chica: 13px;
   --ac-letra-base: 15px;
   --ac-letra-titulo: 20px;
@@ -39,6 +44,11 @@
     --ac-color-texto: #e6f4f2;
     --ac-color-texto-suave: #9bb7b4;
     --ac-color-borde: #23413e;
+    --ac-color-marca-fuerte: #5fd3cf;
+    --ac-color-marca-suave: #173b39;
+    --ac-color-alerta: #f2b45a;
+    --ac-color-alerta-fondo: #33260f;
+    --ac-color-foco: #5fd3cf;
     color-scheme: dark;
   }
 }
@@ -74,6 +84,9 @@ body {
 }
 
 .ac-encabezado {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   display: flex;
   align-items: center;
   gap: var(--ac-espacio-3);
@@ -215,4 +228,300 @@ body {
   margin: var(--ac-espacio-3) 0 0;
   color: var(--ac-color-texto);
   font-size: var(--ac-letra-chica);
+}
+
+/* ── Tanda 2C: chats ─────────────────────────────────────────────────────── */
+
+:focus-visible {
+  outline: 2px solid var(--ac-color-foco);
+  outline-offset: 2px;
+}
+
+.ac-oculto {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.ac-encabezado__titulos {
+  flex: 1;
+  min-width: 0;
+}
+
+.ac-encabezado__titulos .ac-encabezado__marca {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ac-encabezado__subtitulo {
+  margin: 0;
+  font-size: var(--ac-letra-mini);
+  opacity: 0.9;
+}
+
+.ac-encabezado__acciones {
+  display: flex;
+  gap: var(--ac-espacio-1);
+}
+
+.ac-boton-icono {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--ac-alto-toque);
+  min-height: var(--ac-alto-toque);
+  padding: 0;
+  border: none;
+  border-radius: var(--ac-radio-pastilla);
+  background: transparent;
+  color: var(--ac-color-texto);
+  font: inherit;
+  font-size: var(--ac-letra-titulo);
+}
+
+.ac-boton-icono--sobre-marca {
+  color: var(--ac-color-sobre-marca);
+}
+
+.ac-boton-icono:disabled {
+  opacity: 0.5;
+}
+
+.ac-chips {
+  display: flex;
+  gap: var(--ac-espacio-2);
+  margin-bottom: var(--ac-espacio-3);
+}
+
+.ac-chip {
+  min-height: 36px;
+  padding: 0 var(--ac-espacio-4);
+  border: 1px solid var(--ac-color-borde);
+  border-radius: var(--ac-radio-pastilla);
+  background: var(--ac-color-superficie);
+  color: var(--ac-color-texto);
+  font: inherit;
+  font-size: var(--ac-letra-chica);
+}
+
+.ac-chip[aria-pressed="true"] {
+  border-color: var(--ac-color-marca);
+  background: var(--ac-color-marca);
+  color: var(--ac-color-sobre-marca);
+  font-weight: 600;
+}
+
+.ac-filas {
+  margin: 0 calc(-1 * var(--ac-espacio-4));
+  padding: 0;
+  list-style: none;
+}
+
+.ac-fila {
+  display: flex;
+  align-items: center;
+  gap: var(--ac-espacio-3);
+  width: 100%;
+  min-height: 72px;
+  padding: var(--ac-espacio-3) var(--ac-espacio-4);
+  border: none;
+  border-bottom: 1px solid var(--ac-color-borde);
+  background: transparent;
+  color: var(--ac-color-texto);
+  font: inherit;
+  text-align: left;
+}
+
+.ac-fila__texto {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.ac-fila__nombre {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ac-fila__resumen,
+.ac-fila__demorada {
+  overflow: hidden;
+  color: var(--ac-color-texto-suave);
+  font-size: var(--ac-letra-chica);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ac-fila__demorada {
+  color: var(--ac-color-alerta);
+  font-size: var(--ac-letra-mini);
+}
+
+.ac-fila__meta {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  align-items: flex-end;
+  gap: var(--ac-espacio-1);
+}
+
+.ac-fila__hora {
+  color: var(--ac-color-texto-suave);
+  font-size: var(--ac-letra-mini);
+}
+
+.ac-avatar {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: var(--ac-alto-toque);
+  height: var(--ac-alto-toque);
+  border-radius: 50%;
+  background: var(--ac-color-marca-suave);
+  color: var(--ac-color-marca-fuerte);
+  font-size: var(--ac-letra-chica);
+  font-weight: 700;
+}
+
+.ac-avatar--general {
+  background: var(--ac-color-marca);
+  color: var(--ac-color-sobre-marca);
+}
+
+.ac-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 var(--ac-espacio-2);
+  border-radius: var(--ac-radio-pastilla);
+  background: var(--ac-color-acento);
+  color: var(--ac-color-sobre-marca);
+  font-size: var(--ac-letra-mini);
+  font-weight: 700;
+}
+
+.ac-aviso {
+  display: flex;
+  align-items: center;
+  gap: var(--ac-espacio-2);
+  margin: 0 0 var(--ac-espacio-3);
+  padding: var(--ac-espacio-2) var(--ac-espacio-3);
+  border-radius: var(--ac-espacio-2);
+  background: var(--ac-color-alerta-fondo);
+  color: var(--ac-color-alerta);
+  font-size: var(--ac-letra-chica);
+}
+
+.ac-aviso__punto {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ac-color-alerta);
+}
+
+.ac-estado {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--ac-espacio-3);
+  padding: var(--ac-espacio-6) var(--ac-espacio-2);
+}
+
+.ac-estado__titulo {
+  margin: 0;
+  font-size: var(--ac-letra-base);
+  font-weight: 700;
+}
+
+.ac-estado__texto {
+  margin: 0;
+  color: var(--ac-color-texto-suave);
+  font-size: var(--ac-letra-chica);
+}
+
+.ac-anteriores {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: var(--ac-espacio-3);
+}
+
+.ac-anteriores .ac-boton--secundario {
+  margin-top: 0;
+}
+
+.ac-conversacion {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ac-espacio-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ac-dia {
+  display: flex;
+  justify-content: center;
+}
+
+.ac-dia__etiqueta {
+  padding: var(--ac-espacio-1) var(--ac-espacio-3);
+  border-radius: var(--ac-radio-pastilla);
+  background: var(--ac-color-marca-suave);
+  color: var(--ac-color-texto-suave);
+  font-size: var(--ac-letra-mini);
+  font-weight: 600;
+}
+
+.ac-evento {
+  max-width: 88%;
+  padding: var(--ac-espacio-3);
+  border: 1px solid var(--ac-color-borde);
+  border-radius: var(--ac-radio-tarjeta);
+  border-top-left-radius: var(--ac-espacio-1);
+  background: var(--ac-color-superficie);
+}
+
+.ac-evento--diferencias {
+  border-color: var(--ac-color-alerta);
+}
+
+.ac-evento__local {
+  margin: 0 0 var(--ac-espacio-1);
+  color: var(--ac-color-marca-fuerte);
+  font-size: var(--ac-letra-chica);
+  font-weight: 700;
+}
+
+.ac-evento__titulo {
+  margin: 0;
+  font-weight: 600;
+}
+
+.ac-evento__marca {
+  margin-right: var(--ac-espacio-1);
+  color: var(--ac-color-alerta);
+}
+
+.ac-evento__meta {
+  margin: var(--ac-espacio-1) 0 0;
+  color: var(--ac-color-texto-suave);
+  font-size: var(--ac-letra-mini);
+}
+
+.ac-anteriores__mas {
+  margin: 0 0 var(--ac-espacio-2);
+  color: var(--ac-color-marca-fuerte);
+  font-weight: 600;
 }

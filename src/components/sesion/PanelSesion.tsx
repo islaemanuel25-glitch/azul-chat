@@ -12,6 +12,12 @@
 // se manda. No va a la URL, ni al almacenamiento del navegador, ni a la consola.
 // El nombre y los locales que se muestran son los que acaba de devolver el ERP
 // (`mi_alcance`), sin nada inventado.
+//
+// Dentro de la app de chats (components/chats/AzulChat.tsx) es la puerta de
+// entrada: `alVincular` avisa que la vinculación salió bien, `alVerChats` vuelve
+// a los chats con la sesión abierta, y `motivo` trae el aviso de un vínculo que
+// el ERP invalidó mientras se usaban los chats (la cookie ya se borró, así que
+// GET /api/sesion no lo puede decir).
 
 import { useEffect, useState, type FormEvent } from "react";
 
@@ -33,7 +39,11 @@ const TEXTO_ALCANCE: Record<string, string> = {
   NINGUNO: "Ningún local",
 };
 
-export function PanelSesion() {
+export function PanelSesion({
+  alVincular,
+  alVerChats,
+  motivo,
+}: { alVincular?: () => void; alVerChats?: () => void; motivo?: "VINCULO_INVALIDO" } = {}) {
   const [estado, setEstado] = useState<EstadoSesion | null>(null);
   const [codigo, setCodigo] = useState("");
   const [trabajando, setTrabajando] = useState(false);
@@ -76,6 +86,7 @@ export function PanelSesion() {
         return;
       }
       await recargar();
+      alVincular?.();
     } catch {
       setMensaje("No hubo respuesta de Azul Chat.");
     } finally {
@@ -128,9 +139,16 @@ export function PanelSesion() {
             ))}
           </ul>
         )}
-        <button type="button" className="ac-boton ac-boton--secundario" onClick={cerrar} disabled={trabajando}>
-          Cerrar sesión
-        </button>
+        <div className="ac-acciones">
+          {alVerChats && (
+            <button type="button" className="ac-boton" onClick={alVerChats} disabled={trabajando}>
+              Ver chats
+            </button>
+          )}
+          <button type="button" className="ac-boton ac-boton--secundario" onClick={cerrar} disabled={trabajando}>
+            Cerrar sesión
+          </button>
+        </div>
         {mensaje && <p className="ac-mensaje">{mensaje}</p>}
       </section>
     );
@@ -168,7 +186,7 @@ export function PanelSesion() {
       </span>
       <h2 className="ac-tarjeta__titulo">Vinculá Azul Chat con el ERP</h2>
       <p className="ac-tarjeta__texto">
-        {estado.motivo === "VINCULO_INVALIDO"
+        {(estado.motivo ?? motivo) === "VINCULO_INVALIDO"
           ? "Tu vínculo con el ERP ya no es válido. Generá un código nuevo para volver a entrar."
           : "En el ERP, abrí tu menú, tocá «Vincular Azul Chat» y pegá acá el código. Vence en 10 minutos y sirve una sola vez."}
       </p>

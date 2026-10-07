@@ -3,7 +3,7 @@
 Fundación de la Tanda 2. Describe lo que existe hoy en el servidor: el contrato
 con el ERP, cómo se guardan los hechos, cómo se sincronizan y cómo se mide la
 lectura. Las rutas que lo usan (lista de chats, Local, General y marcar
-leído) están en `docs/CHATS.md`; la interfaz de Chats todavía no existe.
+leído) están en `docs/CHATS.md`, y la interfaz que las usa en `docs/INTERFAZ.md`.
 
 ## Cuatro cosas distintas
 
@@ -28,8 +28,8 @@ leído) están en `docs/CHATS.md`; la interfaz de Chats todavía no existe.
 - **ERP no disponible: fallo cerrado (decisión P1).** Si no se puede verificar
   la autorización actual con el ERP, no se muestra historial operacional: ni
   autorización guardada, ni ventana de gracia, ni caída silenciosa a lo que
-  haya en la base. La interfaz dirá "ERP Azul no responde" y algo equivalente a
-  "Para ver el historial hace falta verificar tu acceso".
+  haya en la base. La interfaz dice "ERP Azul no responde" y "Para ver el
+  historial hace falta verificar tu acceso".
 
 ## Contrato con el ERP
 

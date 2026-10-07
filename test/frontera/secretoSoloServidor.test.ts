@@ -96,7 +96,14 @@ describe("el cliente ERP no es genérico", () => {
   // ERP se sale solo desde el cliente firmado. Por eso ahora se separan las
   // dos preguntas: en src/server, HTTP saliente en un único archivo; fuera de
   // src/server, `fetch` solo hacia rutas literales `/api/sesion…`.
-  it("HTTP saliente: al ERP solo desde el cliente firmado; el navegador solo a /api/sesion", () => {
+  //
+  // Tanda 2C: la interfaz de chats llama además a `/api/chats…`, y dos de esas
+  // rutas llevan una consulta (`?localId=…&cursor=…`). Se admite UNA forma más,
+  // y solo esa: `${CONSTANTE}?${identificador}`, con la constante del mismo
+  // archivo valiendo una ruta propia. Después del `?` no se puede cambiar el
+  // camino: el destino sigue siendo una ruta propia. Un camino armado
+  // (`${RUTA}/${x}`) o una constante que no es ruta propia siguen en rojo.
+  it("HTTP saliente: al ERP solo desde el cliente firmado; el navegador solo a /api/sesion y /api/chats", () => {
     assert.deepEqual(violacionesHttp(codigoDeSrc()), []);
   });
 
@@ -106,6 +113,11 @@ describe("el cliente ERP no es genérico", () => {
       "src/components/x/Directo.tsx": '"use client";\nfetch("https://erp.ejemplo.invalid/api/x");\n',
       "src/components/x/PorVariable.tsx": '"use client";\nconst u = "/api/erp/ventas";\nfetch(u);\n',
       "src/components/x/Armado.tsx": '"use client";\nconst id = 1;\nfetch(`/api/sesion/${id}`);\n',
+      "src/components/x/CaminoArmado.tsx": '"use client";\nconst RUTA = "/api/chats/local";\nconst id = "1";\nfetch(`${RUTA}/${id}`);\n',
+      "src/components/x/ConsultaAjena.tsx": '"use client";\nconst RUTA = "https://erp.ejemplo.invalid/api";\nconst q = "a=1";\nfetch(`${RUTA}?${q}`);\n',
+      "src/components/x/ConsultaSinConstante.tsx": '"use client";\nconst q = "a=1";\nfetch(`${destino()}?${q}`);\n',
+      "src/components/x/OtraApi.tsx": '"use client";\nfetch("/api/integraciones/azul-chat/consultar");\n',
+      "src/components/x/Subida.tsx": '"use client";\nfetch("/api/chats/../sesion");\n',
       "src/shared/x/Axios.ts": 'import a from "axios";\nexport const y = a;\n',
       "src/server/otro/cliente2.ts": 'import "server-only";\nexport const z = () => fetch("http://x");\n',
     };
@@ -138,7 +150,9 @@ function codigoDeSrc(): Record<string, string> {
 }
 
 const CLIENTE_ERP = "src/server/erp/cliente.ts";
-const RUTA_PROPIA = /^\/api\/sesion(\/[a-z]+)*$/;
+const RUTA_PROPIA = /^\/api\/(sesion|chats)(\/[a-z]+)*$/;
+/** `${CONSTANTE}?${identificador}`: una ruta propia con una consulta (Tanda 2C). */
+const RUTA_CON_CONSULTA = /^`\$\{([A-Za-z_$][\w$]*)\}\?\$\{[A-Za-z_$][\w$]*\}`$/;
 
 /** Archivos que hacen HTTP saliente fuera de lo permitido. */
 function violacionesHttp(archivos: Record<string, string>): string[] {
@@ -164,7 +178,8 @@ function violacionesHttp(archivos: Record<string, string>): string[] {
     const bien = usos.every((m) => {
       if (!m[1]) return false; // `fetch` sin llamar: pasado como valor, no se sabe adónde va
       const arg = m[2]!.trim();
-      const literal = /^"([^"]*)"$/.exec(arg)?.[1] ?? constantes.get(arg);
+      const conConsulta = RUTA_CON_CONSULTA.exec(arg)?.[1];
+      const literal = /^"([^"]*)"$/.exec(arg)?.[1] ?? constantes.get(conConsulta ?? arg);
       return literal !== undefined && RUTA_PROPIA.test(literal);
     });
     if (!bien) malos.push(archivo);

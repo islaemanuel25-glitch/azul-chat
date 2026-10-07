@@ -81,6 +81,11 @@ no toca a los demás.
   - `GET /api/version` — el SHA del commit con que se construyó la imagen
     (`APP_BUILD_ID`).
 - `src/components/` — interfaz. **No pueden importar `src/server`.**
+  - `chats/` — la app móvil (Tanda 2C): la lista de chats, un Local, General y
+    sus estados, con un único cliente HTTP (`clienteChats.ts`) para las cuatro
+    rutas de chats. Descrita en `docs/INTERFAZ.md`.
+  - `sesion/PanelSesion.tsx` — vincular, ver la sesión y cerrarla.
+  - `shell/ShellMovil.tsx` — el marco: encabezado fijo, volver y acciones.
 - `src/shared/` — tipos y validaciones que puede usar la interfaz. Sin secretos ni red.
 - `src/server/` — solo servidor. Cada archivo importa `server-only`.
   - `erp/` — configuración, firma, constructores de cuerpo (`canje`,
@@ -100,7 +105,9 @@ no toca a los demás.
   conversaciones, mensajes ni auditoría: la conversación de un local y General
   se derivan de los eventos.
 - `test/` — `node:test`. `test/db/` usa una base descartable y un ERP de
-  mentira con estado; ningún test llama al ERP real.
+  mentira con estado; ningún test llama al ERP real. `test/ui/` dibuja los
+  componentes con `react-dom/server`, sin navegador (los `.tsx` se cargan con
+  `test/ayuda/tsx.mjs`).
 - `scripts/verificar-bundle-cliente.mjs` — compila con secretos canario y los
   busca en todo lo que baja al navegador.
 

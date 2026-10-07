@@ -12,7 +12,7 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "node --conditions=react-server --test --test-reporter=spec \"test/erp/**/*.test.ts\" \"test/frontera/**/*.test.ts\" \"test/unidad/**/*.test.ts\"",
+    "test": "node --conditions=react-server --test --test-reporter=spec \"test/erp/**/*.test.ts\" \"test/frontera/**/*.test.ts\" \"test/unidad/**/*.test.ts\" && node --import ./test/ayuda/tsx.mjs --test --test-reporter=spec \"test/ui/**/*.test.ts\"",
     "test:db": "node --conditions=react-server --test --test-concurrency=1 --test-reporter=spec \"test/db/**/*.test.ts\"",
     "verificar:bundle": "node scripts/verificar-bundle-cliente.mjs",
     "db:generar": "prisma generate",
