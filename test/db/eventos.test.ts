@@ -11,7 +11,10 @@ import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, it } from "node:test";
 
 import { construirCuerpoTransferenciasEventos, type EntradaTransferenciasEventos } from "../../src/server/erp/transferenciasEventos.ts";
-import { DURACION_ARRIENDO_MS, sincronizarTransferenciasLocal, type ConsultarPagina } from "../../src/server/eventos/ingesta.ts";
+import type { PrismaClient } from "@prisma/client";
+
+import { DURACION_ARRIENDO_MS, guardarEventos, sincronizarTransferenciasLocal, type ConsultarPagina } from "../../src/server/eventos/ingesta.ts";
+import { aFilaEvento } from "../../src/server/eventos/transferenciaRecibida.ts";
 import { avanzarLectura, contarNoLeidos, inicializarLectura, leerLectura } from "../../src/server/eventos/lectura.ts";
 import {
   cursorAnterior,
@@ -430,6 +433,204 @@ describe("lectura por vínculo", () => {
     assert.equal(await avanzarLectura(base.db, v, 3, evs[0]!.id), evs[2]!.id, "Y. no retrocede");
     assert.equal(await avanzarLectura(base.db, v, 3, evs.at(-1)!.id + 1000n), evs.at(-1)!.id, "Z. se recorta al máximo");
     assert.equal(await avanzarLectura(base.db, v, 20, 999n), 0n, "Z. en un local sin eventos, 0");
+  });
+});
+
+describe("una clave que vuelve: identidad contra foto", () => {
+  const CASIANO_LOCAL = { id: 3, nombre: "Casiano" };
+  /** Una página válida por contrato con esos eventos (después de nada): siguiente = el último, sin más. */
+  const pagina = (eventos: EventoTransferenciaRecibida[], local = CASIANO_LOCAL): DatosTransferenciasEventos => ({
+    ...datosDe("sinDesde"),
+    local,
+    eventos,
+    siguiente: UN_CURSOR(eventos.at(-1)!),
+    hayMas: false,
+  });
+  /** La ingesta, con el ERP contestando SIEMPRE esa página. */
+  const ingerir = (d: DatosTransferenciasEventos, alcance = CASIANO) => {
+    const erp = erpDoble(() => []);
+    erp.forzar(async () => ({ ok: true, datos: structuredClone(d), requestId: "forzada" }));
+    return sincronizar(erp.consultar, { alcance, limitePorPagina: 10 });
+  };
+  const cursorDe = (erpLocalId: number) => base.db.cursorIngesta.findFirst({ where: { instalacionId: INSTALACION, erpLocalId } });
+  const filaDe = (clave: string) => base.db.evento.findUnique({ where: { instalacionId_claveExterna: { instalacionId: INSTALACION, claveExterna: clave } } });
+  /** El ERP vuelve a entregar desde el principio (cursor vacío). */
+  const volverAlPrincipio = () => sql(`UPDATE "CursorIngesta" SET "cursor" = NULL`);
+  const [E180, E181, E182] = HISTORIA as [EventoTransferenciaRecibida, EventoTransferenciaRecibida, EventoTransferenciaRecibida];
+  const conPayload = (e: EventoTransferenciaRecibida, c: (x: Rompible<EventoTransferenciaRecibida>) => void) => {
+    const x = structuredClone(e) as Rompible<EventoTransferenciaRecibida>;
+    c(x);
+    return x as EventoTransferenciaRecibida;
+  };
+
+  it("AG. la misma clave con la misma identidad y la misma foto es un duplicado: sin error ni diagnóstico", async () => {
+    await ingerir(pagina([E180, E181]));
+    await volverAlPrincipio();
+    const r = await ingerir(pagina([E180, E181]));
+    assert.deepEqual([r.tipo, (r as { eventosNuevos: number }).eventosNuevos, (r as { contenidoDiferente?: number }).contenidoDiferente], ["SINCRONIZADO", 0, 0]);
+    const c = await cursorDe(3);
+    assert.deepEqual([c?.ultimoErrorCodigo, c?.ultimaDiferenciaContenidoClave], [null, null]);
+    assert.equal(await base.db.evento.count(), 2);
+  });
+
+  it("AH/AL/AM/AN. la misma clave guardada en el local 3 aparece en una página del local 5: EVENTO_CONTRADICTORIO, nada de la página entra, el cursor del 5 no se mueve y la fila original queda intacta", async () => {
+    await ingerir(pagina([E180]));
+    const original = await filaDe(E180.eventoId);
+    const BELGRANO = { id: 5, nombre: "Belgrano" };
+    const nuevoDel5: EventoTransferenciaRecibida = {
+      ...E181,
+      transferenciaId: 500,
+      fechaRecepcion: "2026-10-07T13:00:00.000Z",
+      eventoId: "TRANSFERENCIA_RECIBIDA:500:2026-10-07T13:00:00.000Z",
+      destino: BELGRANO,
+    };
+    // Válida por contrato para el local 5: misma clave que el 180, destino 5, y un evento nuevo de verdad.
+    const r = await ingerir(pagina([{ ...E180, destino: BELGRANO }, nuevoDel5], BELGRANO), { grupoId: 1, localId: 5 });
+    assert.deepEqual(r, { tipo: "EVENTO_CONTRADICTORIO", claveExterna: E180.eventoId, paginas: 0, eventosNuevos: 0 }, "AH");
+    const c5 = await cursorDe(5);
+    assert.deepEqual([c5?.cursor, c5?.ultimoErrorCodigo, c5?.arrendadoPor], [null, "EVENTO_CONTRADICTORIO", null], "AL: el cursor del 5 quieto, el error anotado, el arriendo suelto");
+    assert.ok(c5?.ultimoErrorEn);
+    assert.equal(await filaDe(nuevoDel5.eventoId), null, "AM: el evento nuevo de la misma página tampoco entró");
+    assert.equal(await base.db.evento.count(), 1);
+    assert.deepEqual(await filaDe(E180.eventoId), original, "AN: la fila original, igual en todo");
+  });
+
+  it("AI/AJ. otra referencia u otra fecha bajo la misma clave no llegan a guardarse: el contrato las rechaza antes, y la base también", async () => {
+    await ingerir(pagina([E180]));
+    await volverAlPrincipio();
+    for (const roto of [{ ...E180, transferenciaId: 999 }, { ...E180, fechaRecepcion: "2026-10-07T12:00:00.001Z" }]) {
+      const r = await ingerir(pagina([roto]));
+      assert.equal(r.tipo, "RESPUESTA_INVALIDA");
+    }
+    // Y si alguien intentara guardarla igual, saltándose el contrato, la base no la acepta ni la confunde con un duplicado.
+    const fila = { ...aFilaEvento(E180), erpReferenciaId: 999 };
+    await assert.rejects(base.db.$transaction((tx) => guardarEventos(tx, INSTALACION, [fila], false)));
+    assert.equal(await base.db.evento.count(), 1);
+  });
+
+  for (const [codigo, titulo, cambio] of [
+    ["AO", "tieneDiferencias distinto", (x: Rompible<EventoTransferenciaRecibida>) => (x.tieneDiferencias = !x.tieneDiferencias)],
+    ["AP", "lineasConDiferencia distinto", (x: Rompible<EventoTransferenciaRecibida>) => (x.lineasConDiferencia += 2)],
+    ["AQ", "nombre del origen distinto (un depósito renombrado)", (x: Rompible<EventoTransferenciaRecibida>) => (x.origen.nombre = "Depósito Norte")],
+    ["AR", "nombre del destino distinto (un local renombrado)", (x: Rompible<EventoTransferenciaRecibida>) => (x.destino.nombre = "Casiano Casas")],
+  ] as const) {
+    it(`${codigo}/AS/AT/AU. misma identidad y ${titulo}: se conserva la primera foto, queda el diagnóstico, el cursor avanza y lo nuevo de la página entra`, async () => {
+      await ingerir(pagina([E180, E181]));
+      const original = await filaDe(E181.eventoId);
+      await volverAlPrincipio();
+      const r = await ingerir(pagina([E180, conPayload(E181, cambio), E182]));
+      assert.deepEqual(
+        [r.tipo, (r as { eventosNuevos: number }).eventosNuevos, (r as { contenidoDiferente?: number }).contenidoDiferente],
+        ["SINCRONIZADO", 1, 1],
+        "no es contradicción: la página se guardó",
+      );
+      assert.deepEqual(await filaDe(E181.eventoId), original, `${codigo}: la primera foto, intacta`);
+      const c = await cursorDe(3);
+      assert.deepEqual([c?.ultimaDiferenciaContenidoClave, c?.ultimoErrorCodigo], [E181.eventoId, null], "AS: diagnóstico sí, error no");
+      assert.ok(c?.ultimaDiferenciaContenidoEn);
+      assert.deepEqual(c?.cursor, UN_CURSOR(E182), "AT: el cursor avanzó");
+      assert.ok(await filaDe(E182.eventoId), "AU: el evento nuevo de la misma página entró");
+    });
+  }
+
+  it("el diagnóstico de contenido no se borra con una sincronización buena posterior (es historia, no un error)", async () => {
+    await ingerir(pagina([E180]));
+    await volverAlPrincipio();
+    await ingerir(pagina([conPayload(E180, (x) => (x.destino.nombre = "Casiano Casas"))]));
+    await volverAlPrincipio();
+    await ingerir(pagina([E180, E181]));
+    const c = await cursorDe(3);
+    assert.deepEqual([c?.ultimaDiferenciaContenidoClave, c?.ultimoErrorCodigo], [E180.eventoId, null]);
+  });
+
+  it("AW. dos transacciones guardan la misma página a la vez: la segunda espera, el índice único decide y no hay error falso", async () => {
+    const filas = [aFilaEvento(E180), aFilaEvento(E181)];
+    let insertoLaPrimera!: () => void;
+    const primeraInserto = new Promise<void>((ok) => (insertoLaPrimera = ok));
+    let soltarPrimera!: () => void;
+    const puedeTerminar = new Promise<void>((ok) => (soltarPrimera = ok));
+    const primera = base.db.$transaction(async (tx) => {
+      const r = await guardarEventos(tx, INSTALACION, filas, false);
+      insertoLaPrimera();
+      await puedeTerminar; // la transacción sigue abierta con las filas sin confirmar
+      return r;
+    });
+    await primeraInserto;
+    // La segunda choca con filas sin confirmar: su INSERT espera a que la primera termine.
+    const segunda = base.db.$transaction((tx) => guardarEventos(tx, INSTALACION, filas, false));
+    await new Promise((r) => setTimeout(r, 100));
+    soltarPrimera();
+    const [a, b] = await Promise.all([primera, segunda]);
+    assert.deepEqual(a, { creados: 2, contenidoDiferente: [] });
+    assert.deepEqual(b, { creados: 0, contenidoDiferente: [] }, "la segunda vio las filas confirmadas y las comparó: duplicado legítimo");
+    assert.equal(await base.db.evento.count(), 2);
+  });
+});
+
+describe("coberturas de la revisión", () => {
+  /** La base, con UNA operación rota a propósito. */
+  function conFalla(db: PrismaClient, que: "$transaction" | "cursorIngesta.findUnique"): PrismaClient {
+    return new Proxy(db, {
+      get(objetivo, prop, receptor) {
+        if (que === "$transaction" && prop === "$transaction") return () => Promise.reject(new Error("falla simulada"));
+        if (que === "cursorIngesta.findUnique" && prop === "cursorIngesta") {
+          const real = objetivo.cursorIngesta;
+          return new Proxy(real, {
+            get: (o, p) => (p === "findUnique" ? () => Promise.reject(new Error("falla simulada")) : (Reflect.get(o, p) as (...a: unknown[]) => unknown).bind(o)),
+          });
+        }
+        const v = Reflect.get(objetivo, prop, receptor);
+        return typeof v === "function" ? v.bind(objetivo) : v;
+      },
+    });
+  }
+
+  it("la base falla DESPUÉS de una respuesta válida: el cursor no avanza, no quedan eventos y el arriendo se suelta", async () => {
+    const erp = erpDoble(() => HISTORIA);
+    await sincronizar(erp.consultar);
+    const antes = await cursor();
+    const filas = await claves();
+    const r = await sincronizarTransferenciasLocal({
+      db: conFalla(base.db, "$transaction"),
+      instalacionId: INSTALACION,
+      alcance: CASIANO,
+      consultar: erp.consultar,
+      ahora: () => reloj,
+      generarId: () => "con-falla",
+      limitePorPagina: 2,
+      maxPaginas: 1,
+    });
+    assert.equal(r.tipo, "FALLA_LOCAL");
+    const c = await cursor();
+    assert.deepEqual([c.cursor, c.arrendadoPor, c.ultimoErrorCodigo], [antes.cursor, null, "FALLA_LOCAL"]);
+    assert.deepEqual(await claves(), filas);
+  });
+
+  it("un backfill que llega al tope de 3 páginas con hayMas: guarda el cursor de la tercera, sigue abierto y todo es histórico", async () => {
+    const r = await sincronizar(erpDoble(() => HISTORIA).consultar, { limitePorPagina: 1, maxPaginas: 3 });
+    assert.deepEqual([r.tipo, (r as { hayMas?: boolean }).hayMas], ["SINCRONIZADO", true]);
+    const c = await cursor();
+    assert.deepEqual(c.cursor, UN_CURSOR(HISTORIA[2]!));
+    assert.equal(c.backfillCompletoEn, null);
+    const todos = await eventos();
+    assert.equal(todos.length, 3);
+    assert.ok(todos.every((e) => e.historico));
+  });
+
+  it("si la base falla justo después de tomar el arriendo, se suelta (solo el propio)", async () => {
+    const r = await sincronizarTransferenciasLocal({
+      db: conFalla(base.db, "cursorIngesta.findUnique"),
+      instalacionId: INSTALACION,
+      alcance: CASIANO,
+      consultar: erpDoble(() => HISTORIA).consultar,
+      ahora: () => reloj,
+      generarId: () => "temprana",
+      limitePorPagina: 2,
+      maxPaginas: 1,
+    });
+    assert.equal(r.tipo, "FALLA_LOCAL");
+    const c = await cursor();
+    assert.deepEqual([c.arrendadoPor, c.arrendadoHasta], [null, null]);
   });
 });
 

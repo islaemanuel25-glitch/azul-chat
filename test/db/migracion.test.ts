@@ -63,6 +63,8 @@ describe("la migración", () => {
       "CursorIngesta.erpLocalId",
       "CursorIngesta.id",
       "CursorIngesta.instalacionId",
+      "CursorIngesta.ultimaDiferenciaContenidoClave",
+      "CursorIngesta.ultimaDiferenciaContenidoEn",
       "CursorIngesta.ultimaSincronizacionEn",
       "CursorIngesta.ultimoErrorCodigo",
       "CursorIngesta.ultimoErrorEn",

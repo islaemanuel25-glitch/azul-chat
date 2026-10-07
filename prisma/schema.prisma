@@ -150,6 +150,11 @@ model CursorIngesta {
   /// El código del último fallo (nunca un mensaje). Un éxito lo limpia.
   ultimoErrorCodigo      String?
   ultimoErrorEn          DateTime?
+  /// Diagnóstico, NO error: la última clave ya guardada que el ERP volvió a
+  /// entregar con OTRO contenido (misma identidad). Se conservó la primera
+  /// foto y la sincronización siguió. Un éxito no lo limpia: es historia.
+  ultimaDiferenciaContenidoClave String?
+  ultimaDiferenciaContenidoEn    DateTime?
 
   instalacion Instalacion @relation(fields: [instalacionId], references: [id], onDelete: Restrict)
 

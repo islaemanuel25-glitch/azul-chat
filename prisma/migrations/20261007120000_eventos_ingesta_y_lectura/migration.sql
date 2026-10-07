@@ -47,6 +47,8 @@ CREATE TABLE "CursorIngesta" (
     "arrendadoPor" TEXT,
     "ultimoErrorCodigo" TEXT,
     "ultimoErrorEn" TIMESTAMP(3),
+    "ultimaDiferenciaContenidoClave" TEXT,
+    "ultimaDiferenciaContenidoEn" TIMESTAMP(3),
 
     CONSTRAINT "CursorIngesta_pkey" PRIMARY KEY ("id")
 );
@@ -115,6 +117,10 @@ ALTER TABLE "CursorIngesta" ADD CONSTRAINT "CursorIngesta_arriendo_check"
   CHECK (("arrendadoHasta" IS NULL) = ("arrendadoPor" IS NULL));
 ALTER TABLE "CursorIngesta" ADD CONSTRAINT "CursorIngesta_error_check"
   CHECK (("ultimoErrorCodigo" IS NULL) = ("ultimoErrorEn" IS NULL));
+
+-- El diagnóstico de contenido diferente (no es un error): la clave y su fecha, juntas.
+ALTER TABLE "CursorIngesta" ADD CONSTRAINT "CursorIngesta_diferencia_check"
+  CHECK (("ultimaDiferenciaContenidoClave" IS NULL) = ("ultimaDiferenciaContenidoEn" IS NULL));
 
 -- La lectura es un Evento.id (0 = nada leído) de un local real.
 ALTER TABLE "LecturaLocal" ADD CONSTRAINT "LecturaLocal_check" CHECK ("leidoHastaEventoId" >= 0 AND "erpLocalId" > 0);

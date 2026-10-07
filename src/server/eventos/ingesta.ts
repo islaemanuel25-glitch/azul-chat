@@ -18,10 +18,14 @@
 //   3. La página se valida entera contra lo pedido (pagina.ts). Si falla, no
 //      se guarda nada y el cursor no se mueve.
 //   4. UNA transacción: se bloquea la fila del cursor y se comprueba que el
-//      arriendo SIGA SIENDO PROPIO; si no, rollback. Se insertan los eventos
-//      ignorando los que ya existen (unique instalación + clave externa), se
-//      guarda el `siguiente` del ERP como cursor, se marca el backfill si
-//      corresponde, se limpia el error anterior y se libera el arriendo.
+//      arriendo SIGA SIENDO PROPIO; si no, rollback. Se guardan los eventos
+//      con `guardarEventos`: una clave que ya estaba se compara con lo
+//      guardado. Si cuenta la misma verdad, es un duplicado; si cambia su
+//      IDENTIDAD (tipo, local, referencia, fecha), la página entera se deshace
+//      (EVENTO_CONTRADICTORIO); si solo cambia la FOTO, se conserva la primera
+//      y se anota en el diagnóstico de contenido. Después se guarda el
+//      `siguiente` del ERP como cursor, se marca el backfill si corresponde, se
+//      limpia el error anterior y se libera el arriendo.
 //
 // Un fallo (del ERP, de la página o local) libera el arriendo, deja el cursor
 // donde estaba y anota el CÓDIGO en el cursor. Nunca un mensaje. Y no se
@@ -49,7 +53,8 @@ import {
 } from "../../shared/erp/contrato.ts";
 import type { EntradaTransferenciasEventos } from "../erp/transferenciasEventos.ts";
 import { validarPagina, type MotivoPaginaInvalida } from "./pagina.ts";
-import { aFilaEvento } from "./transferenciaRecibida.ts";
+import { clasificarRepetido } from "./repetido.ts";
+import { aFilaEvento, type FilaEvento } from "./transferenciaRecibida.ts";
 
 /** Lo que dura un arriendo. Más que el timeout del cliente ERP (10 s): una llamada colgada no lo pierde. */
 export const DURACION_ARRIENDO_MS = 30_000;
@@ -62,7 +67,17 @@ export type ConsultarPagina = (entrada: EntradaTransferenciasEventos) => Promise
 
 export type ResultadoSincronizacion =
   /** Se guardó al menos una página. `hayMas`: el ERP tiene más, para la próxima visita. */
-  | { readonly tipo: "SINCRONIZADO"; readonly paginas: number; readonly eventosNuevos: number; readonly hayMas: boolean; readonly backfillCompleto: boolean }
+  | {
+      readonly tipo: "SINCRONIZADO";
+      readonly paginas: number;
+      readonly eventosNuevos: number;
+      /** Claves ya guardadas que volvieron con otro contenido: se conservó la primera foto. */
+      readonly contenidoDiferente: number;
+      readonly hayMas: boolean;
+      readonly backfillCompleto: boolean;
+    }
+  /** Una clave ya guardada volvió con otra identidad: la página no se guardó y el cursor no se movió. */
+  | { readonly tipo: "EVENTO_CONTRADICTORIO"; readonly claveExterna: string; readonly paginas: number; readonly eventosNuevos: number }
   /** Otra ejecución tiene el arriendo: no se llamó al ERP. */
   | { readonly tipo: "OCUPADO"; readonly paginas: number; readonly eventosNuevos: number }
   /** El ERP (o el cliente) contestó un fallo. `fallo` es el resultado tal cual, para el flujo de invalidación del vínculo. */
@@ -90,14 +105,70 @@ export type EntradaSincronizacion = {
 
 class ArriendoPerdido extends Error {}
 
+/** Una clave ya guardada volvió con otra identidad: la página no se guarda. */
+export class EventoContradictorio extends Error {
+  readonly claveExterna: string;
+  constructor(claveExterna: string) {
+    super("EVENTO_CONTRADICTORIO");
+    this.claveExterna = claveExterna;
+  }
+}
+
+type Tx = Pick<PrismaClient, "evento">;
+
+/**
+ * GUARDA LOS EVENTOS DE UNA PÁGINA, DENTRO DE LA TRANSACCIÓN DE LA PÁGINA.
+ *
+ * 1. Inserta los que no existen. `INSERT … ON CONFLICT DO NOTHING`: si otra
+ *    transacción está insertando la misma clave, PostgreSQL espera a que
+ *    termine; el índice único es la defensa final y no hay ventana entre
+ *    "consulto" e "inserto".
+ * 2. Relee TODAS las claves de la página —las recién insertadas y las que ya
+ *    estaban— y compara cada una con lo que llegó (`clasificarRepetido`).
+ *    Ignorar el duplicado no decide nada: decide la comparación.
+ * 3. Una identidad contradictoria lanza `EventoContradictorio`, y la
+ *    transacción entera se deshace: ni un evento de la página queda.
+ *
+ * Devuelve cuántos se crearon y las claves cuyo contenido difiere de la foto
+ * guardada (que no se toca).
+ */
+export async function guardarEventos(
+  tx: Tx,
+  instalacionId: string,
+  nuevas: readonly FilaEvento[],
+  historico: boolean,
+): Promise<{ creados: number; contenidoDiferente: string[] }> {
+  if (nuevas.length === 0) return { creados: 0, contenidoDiferente: [] };
+  const creados = await tx.evento.createMany({
+    data: nuevas.map((n) => ({ ...n, payload: n.payload as unknown as Prisma.InputJsonObject, instalacionId, historico })),
+    skipDuplicates: true,
+  });
+  const guardadas = await tx.evento.findMany({
+    where: { instalacionId, claveExterna: { in: nuevas.map((n) => n.claveExterna) } },
+    select: { claveExterna: true, tipo: true, erpLocalId: true, erpReferenciaId: true, fechaOperacion: true, payloadVersion: true, payload: true },
+  });
+  const porClave = new Map(guardadas.map((g) => [g.claveExterna, g]));
+  const contenidoDiferente: string[] = [];
+  for (const n of nuevas) {
+    const g = porClave.get(n.claveExterna);
+    // Recién insertada o ya existente, tiene que estar: si no, algo la borró en el medio.
+    if (!g) throw new Error("evento ausente después de insertar");
+    const c = clasificarRepetido(g, n);
+    if (c === "IDENTIDAD_CONTRADICTORIA") throw new EventoContradictorio(n.claveExterna);
+    if (c === "CONTENIDO_DIFERENTE") contenidoDiferente.push(n.claveExterna);
+  }
+  return { creados: creados.count, contenidoDiferente };
+}
+
 type Ciclo =
-  | { tipo: "PAGINA"; eventosNuevos: number; hayMas: boolean; backfillCompleto: boolean }
+  | { tipo: "PAGINA"; eventosNuevos: number; contenidoDiferente: number; hayMas: boolean; backfillCompleto: boolean }
   | Exclude<ResultadoSincronizacion, { tipo: "SINCRONIZADO" }>;
 
 export async function sincronizarTransferenciasLocal(entrada: EntradaSincronizacion): Promise<ResultadoSincronizacion> {
   const maxPaginas = entrada.maxPaginas ?? MAX_PAGINAS_POR_SINCRONIZACION;
   let paginas = 0;
   let eventosNuevos = 0;
+  let contenidoDiferente = 0;
   let ultimo: Extract<Ciclo, { tipo: "PAGINA" }> | null = null;
   while (paginas < maxPaginas) {
     const c = await unaPagina(entrada);
@@ -107,6 +178,7 @@ export async function sincronizarTransferenciasLocal(entrada: EntradaSincronizac
     }
     paginas += 1;
     eventosNuevos += c.eventosNuevos;
+    contenidoDiferente += c.contenidoDiferente;
     ultimo = c;
     if (!c.hayMas) break;
   }
@@ -114,6 +186,7 @@ export async function sincronizarTransferenciasLocal(entrada: EntradaSincronizac
     tipo: "SINCRONIZADO",
     paginas,
     eventosNuevos,
+    contenidoDiferente,
     hayMas: ultimo?.hayMas ?? false,
     backfillCompleto: ultimo?.backfillCompleto ?? false,
   };
@@ -128,6 +201,7 @@ async function unaPagina(e: EntradaSincronizacion): Promise<Ciclo> {
 
   // 1. El arriendo.
   let fila: { id: string; cursor: Prisma.JsonValue | null };
+  let arrendado = false;
   try {
     await db.cursorIngesta.createMany({ data: [clave], skipDuplicates: true });
     const ahora = new Date(e.ahora());
@@ -136,6 +210,7 @@ async function unaPagina(e: EntradaSincronizacion): Promise<Ciclo> {
       data: { arrendadoHasta: new Date(ahora.getTime() + DURACION_ARRIENDO_MS), arrendadoPor: yo },
     });
     if (tomado.count !== 1) return { tipo: "OCUPADO", paginas: 0, eventosNuevos: 0 };
+    arrendado = true;
     const leida = await db.cursorIngesta.findUnique({
       where: { instalacionId_erpLocalId_capacidad: clave },
       select: { id: true, cursor: true },
@@ -143,6 +218,14 @@ async function unaPagina(e: EntradaSincronizacion): Promise<Ciclo> {
     if (!leida) throw new Error("cursor desaparecido");
     fila = leida;
   } catch {
+    // Si ya se había tomado el arriendo, se suelta, pero SOLO si sigue siendo
+    // propio: el filtro por `arrendadoPor` impide soltar el de otra ejecución.
+    // Si ni esto anda, vence solo en 30 s.
+    if (arrendado) {
+      await db.cursorIngesta
+        .updateMany({ where: { ...clave, arrendadoPor: yo }, data: { arrendadoHasta: null, arrendadoPor: null } })
+        .catch(() => {});
+    }
     return { tipo: "FALLA_LOCAL", paginas: 0, eventosNuevos: 0 };
   }
 
@@ -190,10 +273,7 @@ async function unaPagina(e: EntradaSincronizacion): Promise<Ciclo> {
         SELECT "arrendadoPor", "backfillCompletoEn" FROM "CursorIngesta" WHERE "id" = ${fila.id} FOR UPDATE`;
       if (!actual || actual.arrendadoPor !== yo) throw new ArriendoPerdido();
       const historico = actual.backfillCompletoEn === null;
-      const creados = await tx.evento.createMany({
-        data: nuevas.map((n) => ({ ...n, payload: n.payload as unknown as Prisma.InputJsonObject, instalacionId, historico })),
-        skipDuplicates: true,
-      });
+      const { creados, contenidoDiferente } = await guardarEventos(tx, instalacionId, nuevas, historico);
       const completa = historico && !datos.hayMas;
       const ahora = new Date(e.ahora());
       await tx.cursorIngesta.update({
@@ -202,16 +282,31 @@ async function unaPagina(e: EntradaSincronizacion): Promise<Ciclo> {
           cursor: datos.siguiente === null ? Prisma.DbNull : { fechaRecepcion: datos.siguiente.fechaRecepcion, transferenciaId: datos.siguiente.transferenciaId },
           ultimaSincronizacionEn: ahora,
           ...(completa ? { backfillCompletoEn: ahora } : {}),
+          // Diagnóstico, no error: la página es válida y se guardó.
+          ...(contenidoDiferente.length > 0
+            ? { ultimaDiferenciaContenidoClave: contenidoDiferente[contenidoDiferente.length - 1]!, ultimaDiferenciaContenidoEn: ahora }
+            : {}),
           arrendadoHasta: null,
           arrendadoPor: null,
           ultimoErrorCodigo: null,
           ultimoErrorEn: null,
         },
       });
-      return { tipo: "PAGINA" as const, eventosNuevos: creados.count, hayMas: datos.hayMas, backfillCompleto: !historico || completa };
+      return {
+        tipo: "PAGINA" as const,
+        eventosNuevos: creados,
+        contenidoDiferente: contenidoDiferente.length,
+        hayMas: datos.hayMas,
+        backfillCompleto: !historico || completa,
+      };
     });
   } catch (err) {
     if (err instanceof ArriendoPerdido) return { tipo: "ARRIENDO_PERDIDO", paginas: 0, eventosNuevos: 0 };
+    if (err instanceof EventoContradictorio) {
+      // El rollback ya deshizo todo: el cursor sigue donde estaba.
+      await soltarConError("EVENTO_CONTRADICTORIO");
+      return { tipo: "EVENTO_CONTRADICTORIO", claveExterna: err.claveExterna, paginas: 0, eventosNuevos: 0 };
+    }
     await soltarConError("FALLA_LOCAL");
     return { tipo: "FALLA_LOCAL", paginas: 0, eventosNuevos: 0 };
   }
