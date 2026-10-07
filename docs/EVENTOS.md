@@ -2,7 +2,8 @@
 
 Fundación de la Tanda 2. Describe lo que existe hoy en el servidor: el contrato
 con el ERP, cómo se guardan los hechos, cómo se sincronizan y cómo se mide la
-lectura. La interfaz de Chats, la conversación y General todavía no existen.
+lectura. Las rutas que lo usan (lista de chats, Local, General y marcar
+leído) están en `docs/CHATS.md`; la interfaz de Chats todavía no existe.
 
 ## Cuatro cosas distintas
 
@@ -14,8 +15,8 @@ lectura. La interfaz de Chats, la conversación y General todavía no existen.
   25172fe). Tener eventos guardados de un local no autoriza a nadie a verlos.
 - **Lectura.** Hasta dónde leyó cada persona, en `LecturaLocal`.
 - **Conversación.** La de un local es la pareja (instalación, `erpLocalId`) y se
-  deriva; General será una proyección sobre los locales autorizados en ese
-  momento. Ninguna de las dos duplica eventos. No hay tabla de conversación.
+  deriva; General es una proyección sobre los locales autorizados en ese
+  momento (`docs/CHATS.md`). Ninguna de las dos duplica eventos. No hay tabla de conversación.
 
 ## El ERP sigue siendo la autoridad
 
@@ -174,5 +175,5 @@ la sesión: dos dispositivos de la misma persona leen lo mismo.
   `Evento.id` que existe en el local.
 - La instalación sale del vínculo: no se lee ni se marca sobre otra.
 
-Todavía no hay una ruta para marcar leído: llega con la capa de chats, que
-antes de leer o marcar un local tiene que verificarlo con `mi_alcance` vivo.
+Marcar leído es `POST /api/chats/leido`, explícito, y antes de leer o marcar un
+local la capa de chats lo verifica con `mi_alcance` vivo (`docs/CHATS.md`).

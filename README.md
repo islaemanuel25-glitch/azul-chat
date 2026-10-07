@@ -73,8 +73,9 @@ no toca a los demás.
 ## Estructura
 
 - `src/app/` — Next.js App Router. Las rutas `api/` solo delegan:
-  `salud`, `version`, `sesion` (GET, DELETE) y `sesion/vincular` (POST). No
-  hay proxy genérico.
+  `salud`, `version`, `sesion` (GET, DELETE), `sesion/vincular` (POST) y los
+  chats: `chats`, `chats/local` y `chats/general` (GET) y `chats/leido`
+  (POST), descritos en `docs/CHATS.md`. No hay proxy genérico.
   - `GET /api/salud` — healthcheck: 200 si la configuración es válida, la base
     contesta y está migrada. No llama al ERP ni escribe.
   - `GET /api/version` — el SHA del commit con que se construyó la imagen
@@ -88,11 +89,16 @@ no toca a los demás.
   - `http/` — Origin, cupo, lectura del cuerpo y respuestas.
   - `sesion/` — cookie, repositorio, vincular, estado, cerrar y el paso de la
     sesión al token (`delegacion.ts`).
+  - `chats/` — autorización viva por capacidad, sincronización con frecuencia
+    mínima, historial paginado y las cuatro rutas de chats.
+  - `eventos/` — ingesta, eventos guardados y lectura (`docs/EVENTOS.md`).
   - `ventas/ventasResumen.ts` — "ventas" desde una sesión. Servicio interno:
     ninguna ruta lo expone todavía.
   - `configuracion.ts`, `db.ts`, `log.ts`.
 - `prisma/` — esquema y migraciones de la base propia: `Instalacion`,
-  `Vinculo`, `Sesion`. Nada de conversaciones, mensajes, eventos ni auditoría.
+  `Vinculo`, `Sesion`, `Evento`, `CursorIngesta` y `LecturaLocal`. Nada de
+  conversaciones, mensajes ni auditoría: la conversación de un local y General
+  se derivan de los eventos.
 - `test/` — `node:test`. `test/db/` usa una base descartable y un ERP de
   mentira con estado; ningún test llama al ERP real.
 - `scripts/verificar-bundle-cliente.mjs` — compila con secretos canario y los
