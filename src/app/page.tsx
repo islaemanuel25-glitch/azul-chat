@@ -1,10 +1,5 @@
-import { PanelSesion } from "@/components/sesion/PanelSesion";
-import { ShellMovil } from "@/components/shell/ShellMovil";
+import { AzulChat } from "@/components/chats/AzulChat";
 
 export default function Inicio() {
-  return (
-    <ShellMovil titulo="Azul Chat">
-      <PanelSesion />
-    </ShellMovil>
-  );
+  return <AzulChat />;
 }
