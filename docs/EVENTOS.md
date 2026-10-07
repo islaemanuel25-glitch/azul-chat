@@ -73,8 +73,42 @@ Columnas para indexar, payload para mostrar:
 - Unique `(instalacionId, claveExterna)`. La base además exige que la clave de
   una `TRANSFERENCIA_RECIBIDA` coincida con su id y su fecha.
 
-**Idempotencia.** Ingerir la misma página dos veces, o páginas solapadas, deja
-una fila por evento: el insert ignora las claves que ya existen.
+**Identidad y foto.** La `claveExterna` identifica el hecho. Lo que está
+guardado de un evento son dos cosas distintas:
+
+- su IDENTIDAD: tipo, `erpLocalId`, `erpReferenciaId` y `fechaOperacion`. No
+  puede contradecirse nunca;
+- su FOTO (`payloadVersion` y `payload`): lo que se vio en la PRIMERA ingesta.
+  Un cambio posterior de contenido no reescribe la historia: renombrar un local
+  o que el ERP recalcule un conteo no toca los eventos ya guardados.
+
+**Cuando una clave vuelve** (páginas solapadas, la misma página dos veces, un
+cursor que retrocede), se compara con lo guardado, campo por campo y no por el
+texto del JSON (`src/server/eventos/repetido.ts`):
+
+- **Duplicado idéntico**: no pasa nada. Ni fila nueva, ni cambio, ni error.
+- **Identidad contradictoria** (la misma clave con otro tipo, otro local, otra
+  referencia u otra fecha): `EVENTO_CONTRADICTORIO`. La página ENTERA se
+  deshace —tampoco entran los eventos nuevos que traía—, la fila guardada no
+  se toca ni se mueve de local, el cursor no avanza y el código queda en
+  `ultimoErrorCodigo`. Otra referencia u otra fecha bajo la misma clave ni
+  siquiera llegan acá: el contrato exige que la clave sea `TIPO:id:fecha` y la
+  base lo exige con un CHECK. El caso que sí puede llegar es el mismo evento
+  en una página de OTRO local, porque el local no forma parte de la clave.
+- **Misma identidad, otra foto**: no bloquea. Se conserva la primera foto, los
+  eventos nuevos de la página entran, el cursor avanza y la diferencia queda en
+  `ultimaDiferenciaContenidoClave` / `ultimaDiferenciaContenidoEn` del cursor.
+  Ese diagnóstico no es un error —la sincronización salió bien— y por eso no va
+  en `ultimoErrorCodigo`, que dice que la última sincronización falló y se
+  limpia con un éxito; el diagnóstico de contenido no se limpia.
+
+**Idempotencia y carreras.** Dentro de la transacción de la página: se insertan
+las claves que faltan con `INSERT … ON CONFLICT DO NOTHING` y después se relee
+y se compara CADA clave de la página. Si otra transacción está insertando la
+misma clave, PostgreSQL espera a que termine; el índice único es la defensa
+final y no hay ventana entre "consulto" y "guardo". Ignorar el duplicado no
+decide nada: decide la comparación. La misma página dos veces, o páginas
+solapadas, dejan una fila por evento.
 
 **Reset-operativo.** El ERP borra transferencias y reinicia sus ids, así que un
 `transferenciaId` puede volver con otra recepción. No se deduplica por id: la
@@ -110,8 +144,9 @@ Cada página es un ciclo:
 3. Se valida la página entera.
 4. Una transacción bloquea la fila y comprueba que el arriendo SIGA siendo
    propio; si otro lo tomó, se deshace todo y el cursor no avanza. Si es propio:
-   inserta los eventos, guarda el cursor, marca el backfill si corresponde,
-   limpia el error anterior y suelta el arriendo.
+   guarda los eventos (con la comparación de claves repetidas de arriba),
+   guarda el cursor, marca el backfill si corresponde, limpia el error anterior
+   y suelta el arriendo.
 
 Un fallo suelta el arriendo, deja el cursor quieto y anota el **código** en
 `ultimoErrorCodigo` (nunca un mensaje). No hay reintentos automáticos:
