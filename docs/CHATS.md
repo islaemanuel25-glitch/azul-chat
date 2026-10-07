@@ -1,7 +1,7 @@
 # La API de chats
 
-Tanda 2B. Describe las cuatro rutas que la interfaz de Chats va a usar y lo que
-garantizan. La interfaz todavía no existe: esto es solo el servidor. Lo que hay
+Tanda 2B. Describe las cuatro rutas que usa la interfaz de Chats y lo que
+garantizan. La interfaz que las usa (Tanda 2C) está en `docs/INTERFAZ.md`. Lo que hay
 debajo —eventos, ingesta, lectura— está en `docs/EVENTOS.md`.
 
 El camino de cada solicitud es siempre el mismo:
