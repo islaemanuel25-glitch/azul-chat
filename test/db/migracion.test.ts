@@ -34,11 +34,11 @@ async function rechaza(q: string, ...codigos: string[]) {
 }
 
 describe("la migración", () => {
-  it("38. aplica desde una base vacía y deja solo las tablas de identidad y sesión", async () => {
+  it("38. aplica desde una base vacía y deja las tablas de identidad y sesión, y desde la Tanda 2 las de eventos", async () => {
     const tablas = await base.db.$queryRawUnsafe<{ t: string }[]>(
       `SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' ORDER BY 1`,
     );
-    assert.deepEqual(tablas.map((x) => x.t), ["Instalacion", "Sesion", "Vinculo", "_prisma_migrations"]);
+    assert.deepEqual(tablas.map((x) => x.t), ["CursorIngesta", "Evento", "Instalacion", "LecturaLocal", "Sesion", "Vinculo", "_prisma_migrations"]);
     const aplicadas = await base.db.$queryRawUnsafe<{ n: string }[]>(`SELECT migration_name AS n FROM _prisma_migrations WHERE finished_at IS NOT NULL`);
     const enElRepo = readdirSync(path.join(RAIZ, "prisma/migrations"), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name);
     assert.deepEqual(aplicadas.map((x) => x.n).sort(), enElRepo.sort());
@@ -48,10 +48,42 @@ describe("la migración", () => {
     const columnas = await base.db.$queryRawUnsafe<{ c: string }[]>(
       `SELECT table_name || '.' || column_name AS c FROM information_schema.columns WHERE table_schema = 'public' AND table_name <> '_prisma_migrations' ORDER BY 1`,
     );
+    // La lista es exhaustiva a propósito: una columna nueva se agrega acá a
+    // sabiendas. Las de la Tanda 2 tampoco son autoridad: `erpLocalId` es DÓNDE
+    // ocurrió un hecho o QUÉ local se pagina, nunca un permiso para verlo;
+    // `capacidad` nombra lo que se pagina, no algo que la persona pueda;
+    // `ultimoErrorCodigo` es un código cerrado, nunca un mensaje; y no hay
+    // ningún token, sesión, rol, permiso, alcance ni lista de capacidades.
     assert.deepEqual(columnas.map((x) => x.c), [
+      "CursorIngesta.arrendadoHasta",
+      "CursorIngesta.arrendadoPor",
+      "CursorIngesta.backfillCompletoEn",
+      "CursorIngesta.capacidad",
+      "CursorIngesta.cursor",
+      "CursorIngesta.erpLocalId",
+      "CursorIngesta.id",
+      "CursorIngesta.instalacionId",
+      "CursorIngesta.ultimaSincronizacionEn",
+      "CursorIngesta.ultimoErrorCodigo",
+      "CursorIngesta.ultimoErrorEn",
+      "Evento.claveExterna",
+      "Evento.erpLocalId",
+      "Evento.erpReferenciaId",
+      "Evento.fechaOperacion",
+      "Evento.historico",
+      "Evento.id",
+      "Evento.ingeridoEn",
+      "Evento.instalacionId",
+      "Evento.payload",
+      "Evento.payloadVersion",
+      "Evento.tipo",
       "Instalacion.creadaEn",
       "Instalacion.id",
       "Instalacion.unica",
+      "LecturaLocal.actualizadoEn",
+      "LecturaLocal.erpLocalId",
+      "LecturaLocal.leidoHastaEventoId",
+      "LecturaLocal.vinculoId",
       "Sesion.creadaEn",
       "Sesion.expiraEn",
       "Sesion.id",

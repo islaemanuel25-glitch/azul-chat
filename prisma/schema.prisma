@@ -1,16 +1,19 @@
 // La base PROPIA de Azul Chat. No es la del ERP y nunca se conecta a ella.
 //
-// Hoy guarda solo lo que hace falta para tener una sesión propia sobre la
-// identidad que delega el ERP: la instalación, el vínculo de cada persona y
-// sus sesiones. Conversaciones, mensajes, eventos y push vendrán en tablas
-// propias cuando existan.
+// Guarda la identidad propia sobre la que delega el ERP —la instalación, el
+// vínculo de cada persona y sus sesiones— y, desde la Tanda 2, los HECHOS del
+// ERP que Azul Chat sincroniza (Evento), hasta dónde los trajo (CursorIngesta)
+// y hasta dónde leyó cada persona (LecturaLocal). Ver docs/EVENTOS.md.
 //
 // Lo que NO se guarda, a propósito: el código de canje que la persona copió,
-// su contraseña o cookie o JWT del ERP, y su rol, permisos, locales o grupo.
-// Eso es del ERP y se le pregunta en el momento (`mi_alcance`).
+// su contraseña o cookie o JWT del ERP, y su rol, permisos, locales, grupo o
+// capacidades. Eso es del ERP y se le pregunta en el momento (`mi_alcance`).
+// Un evento guardado NO es un permiso para verlo: quién puede leer la historia
+// de un local se decide cada vez con el ERP.
 //
-// Varias reglas viven solo en SQL (migración inicial): una sola instalación,
-// la forma del token cifrado y del hash de sesión, y la coherencia de fechas.
+// Varias reglas viven solo en SQL (en las migraciones, al final): una sola
+// instalación, la forma del token cifrado y del hash de sesión, la coherencia
+// de fechas, la forma de la clave de un evento y el arriendo de la ingesta.
 
 generator client {
   provider = "prisma-client-js"
@@ -26,11 +29,13 @@ datasource db {
 /// si la base ya pertenece a otra instalación, el servidor no arranca la
 /// sesión (fail closed).
 model Instalacion {
-  id       String    @id
+  id       String          @id
   /// Siempre true: el índice único y un CHECK hacen que haya una sola fila.
-  unica    Boolean   @unique @default(true)
-  creadaEn DateTime  @default(now())
+  unica    Boolean         @unique @default(true)
+  creadaEn DateTime        @default(now())
   vinculos Vinculo[]
+  eventos  Evento[]
+  cursores CursorIngesta[]
 }
 
 /// Por qué se invalidó un vínculo.
@@ -60,8 +65,9 @@ model Vinculo {
   invalidadoEn       DateTime?
   motivoInvalidacion MotivoInvalidacion?
 
-  instalacion Instalacion @relation(fields: [instalacionId], references: [id], onDelete: Restrict)
+  instalacion Instalacion    @relation(fields: [instalacionId], references: [id], onDelete: Restrict)
   sesiones    Sesion[]
+  lecturas    LecturaLocal[]
 
   @@unique([instalacionId, erpUsuarioId])
   @@unique([instalacionId, erpVinculoId])
@@ -81,4 +87,85 @@ model Sesion {
   vinculo Vinculo @relation(fields: [vinculoId], references: [id], onDelete: Restrict)
 
   @@index([vinculoId])
+}
+
+/// Los tipos de hecho del ERP que Azul Chat guarda. Uno nuevo es un valor más
+/// acá, con su validador de payload en src/server/eventos/.
+enum TipoEvento {
+  TRANSFERENCIA_RECIBIDA
+}
+
+/// UN HECHO DEL ERP, guardado UNA vez. No es de una persona ni de una
+/// conversación: la conversación de un local y General lo leen, y quién puede
+/// verlo se decide con el ERP en cada consulta. Nunca se borra solo: si el ERP
+/// borra la transferencia (reset-operativo), el evento queda como historia.
+model Evento {
+  /// Secuencia de INGESTA: el orden en que Azul Chat se enteró. La lectura se
+  /// mide con esto, no con la fecha (ver docs/EVENTOS.md).
+  id              BigInt     @id @default(autoincrement())
+  instalacionId   String
+  tipo            TipoEvento
+  /// El `eventoId` del ERP, tal cual. Única dentro de la instalación.
+  claveExterna    String
+  /// El local del hecho: para TRANSFERENCIA_RECIBIDA, el destino. Es una
+  /// referencia, NO una autorización.
+  erpLocalId      Int
+  /// El id de la entidad del ERP (la transferencia). Puede repetirse: un
+  /// reset-operativo reutiliza ids, y la clave externa los distingue.
+  erpReferenciaId Int
+  /// Cuándo ocurrió en el ERP (fechaRecepcion). Orden de OPERACIÓN.
+  fechaOperacion  DateTime   @db.Timestamp(3)
+  payloadVersion  Int
+  /// Lo que se muestra, validado por tipo y versión. Sin permisos ni personas.
+  payload         Json
+  /// Ingerido durante el backfill inicial: es historia, nunca "no leído".
+  historico       Boolean
+  ingeridoEn      DateTime   @default(now())
+
+  instalacion Instalacion @relation(fields: [instalacionId], references: [id], onDelete: Restrict)
+
+  @@unique([instalacionId, claveExterna])
+  @@index([instalacionId, erpLocalId, id])
+  @@index([instalacionId, erpLocalId, fechaOperacion, id])
+  @@index([instalacionId, tipo, erpReferenciaId])
+}
+
+/// HASTA DÓNDE SE TRAJO cada local, por capacidad. Compartido por todas las
+/// personas: el mismo evento no se baja una vez por cada una. No es un estado
+/// de lectura.
+model CursorIngesta {
+  id                     String    @id @default(uuid())
+  instalacionId          String
+  erpLocalId             Int
+  /// La capacidad del ERP que se pagina (hoy, transferencias_eventos).
+  capacidad              String
+  /// El `siguiente` del ERP, tal cual lo devolvió. Null antes de la primera página.
+  cursor                 Json?
+  /// Cuándo el ERP contestó por primera vez `hayMas: false`. Hasta entonces, todo es histórico.
+  backfillCompletoEn     DateTime?
+  ultimaSincronizacionEn DateTime?
+  /// El arriendo: quién sincroniza este local y hasta cuándo. Los dos o ninguno.
+  arrendadoHasta         DateTime?
+  arrendadoPor           String?
+  /// El código del último fallo (nunca un mensaje). Un éxito lo limpia.
+  ultimoErrorCodigo      String?
+  ultimoErrorEn          DateTime?
+
+  instalacion Instalacion @relation(fields: [instalacionId], references: [id], onDelete: Restrict)
+
+  @@unique([instalacionId, erpLocalId, capacidad])
+}
+
+/// HASTA DÓNDE LEYÓ una persona en un local. Es del Vinculo —la persona en
+/// esta instalación—, no de la sesión: dos dispositivos comparten lectura.
+model LecturaLocal {
+  vinculoId          String
+  erpLocalId         Int
+  /// El Evento.id (secuencia de ingesta) leído. Solo sube.
+  leidoHastaEventoId BigInt
+  actualizadoEn      DateTime @default(now()) @updatedAt
+
+  vinculo Vinculo @relation(fields: [vinculoId], references: [id], onDelete: Restrict)
+
+  @@id([vinculoId, erpLocalId])
 }

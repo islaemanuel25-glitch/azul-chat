@@ -26,7 +26,7 @@ export type BaseDescartable = {
   readonly nombre: string;
   readonly url: string;
   readonly db: PrismaClient;
-  /** Deja las tres tablas vacías, sin tocar la migración. */
+  /** Deja todas las tablas vacías, sin tocar la migración. */
   vaciar(): Promise<void>;
   borrar(): Promise<void>;
 };
@@ -96,7 +96,7 @@ export async function crearBaseDescartable(): Promise<BaseDescartable> {
     url: vacia.url,
     db,
     async vaciar() {
-      await db.$executeRawUnsafe(`TRUNCATE "Sesion", "Vinculo", "Instalacion"`);
+      await db.$executeRawUnsafe(`TRUNCATE "LecturaLocal", "Evento", "CursorIngesta", "Sesion", "Vinculo", "Instalacion"`);
     },
     async borrar() {
       await db.$disconnect();
