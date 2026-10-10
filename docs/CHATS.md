@@ -1,7 +1,7 @@
 # La API de chats
 
-Tanda 2B. Describe las cuatro rutas que usa la interfaz de Chats y lo que
-garantizan. La interfaz que las usa (Tanda 2C) está en `docs/INTERFAZ.md`. Lo que hay
+Tanda 2B. Describe las rutas que usa la interfaz de Chats y lo que garantizan:
+las cuatro de la Tanda 2B y, desde la Tanda 3A, `GET /api/chats/ventas`. La interfaz que las usa (Tanda 2C) está en `docs/INTERFAZ.md`. Lo que hay
 debajo —eventos, ingesta, lectura— está en `docs/EVENTOS.md`.
 
 El camino de cada solicitud es siempre el mismo:
@@ -100,9 +100,14 @@ evento es el más reciente entre ellos, con su local.
 ### GET /api/chats/local?localId=N[&cursor=C]
 
 El historial de un local, 30 eventos por página, del más reciente al más
-antiguo. Devuelve `{ estado: "OK", local: { localId, nombre, esDeposito },
+antiguo. Devuelve `{ estado: "OK", local: { localId, nombre, esDeposito, ventas },
 sincronizacion, noLeidos, leidoHasta, eventos, siguiente }`. `siguiente` es el
 cursor de la página siguiente, o `null`.
+
+`local.ventas` (Tanda 3A) es `true` si el `mi_alcance` de ESA solicitud anuncia
+`ventas_resumen` en el local. Es un anuncio para mostrar el botón "Ventas", no
+una autorización: `GET /api/chats/ventas` lo vuelve a decidir. Abrir el chat no
+consulta ventas.
 
 Un local que no está en los autorizados de ahora —por no tener la capacidad o
 por no existir en el alcance— es `NO_AUTORIZADO` (403), sin distinguir cuál.
@@ -137,6 +142,39 @@ como vincular y cerrar.
 
 Devuelve `{ estado: "OK", lecturas: [{ localId, leidoHasta, noLeidos }] }`.
 Marcar General leído es mandar una marca por cada local.
+
+### GET /api/chats/ventas?localId=N
+
+Tanda 3A. Las ventas de HOY de un local, como las calcula el ERP en esta
+solicitud. Período fijo: `localId` es el único parámetro, y cualquier otro
+(`periodo`, `grupoId`, uno repetido) es `SOLICITUD_INVALIDA` (400) antes de leer
+la sesión.
+
+1. Sesión obligatoria y `mi_alcance` vivo, como las demás. El local tiene que
+   estar en el alcance de ahora y anunciar `ventas_resumen` (`conVentas`, en
+   `autorizacion.ts`); si no, `NO_AUTORIZADO` (403), igual que `chats/local`, y
+   el ERP no recibe la consulta de ventas. No hace falta `transferencias_eventos`.
+2. `ventasResumenDeSesion` (`src/server/ventas/`) con `{ alcance: { grupoId,
+   localId }, periodo: { tipo: "hoy" } }`. El `grupoId` es el que `mi_alcance`
+   dio para ese local, nunca uno del navegador. El ERP vuelve a decidir.
+
+Sin reintentos. Los errores del ERP se leen por código: `VINCULO_NO_VALIDO`
+revoca como en el resto (401 con motivo, cookie borrada); caído, lento,
+`NO_AUTORIZADO` o una respuesta fuera del contrato son `ERP_NO_DISPONIBLE`
+(503) y la sesión queda como está. Una respuesta que no es del local, el grupo
+o el período pedidos tampoco se muestra.
+
+Devuelve `{ estado: "OK", local: { id, nombre }, periodo: { desde, hasta },
+cantidadVentas, totalVendido, mediosDePago: [{ medio, etiqueta, total,
+cantidadPagos }], advertencias: [{ codigo, mensaje }] }`. El nombre es el de
+hoy, de `mi_alcance`; los números son los del ERP copiados campo por campo, y los
+montos, su decimal en texto tal cual. No salen el token, el grupo, la zona
+horaria ni la versión del contrato.
+
+Nada se guarda: no toca `Evento`, `CursorIngesta` ni `LecturaLocal`, no
+sincroniza y no marca leído. Por solicitud: una `mi_alcance` y una
+`ventas_resumen`. Los candados están en `test/db/ventas.test.ts` y
+`test/unidad/ventasChats.test.ts`.
 
 ## El evento público
 
@@ -184,12 +222,13 @@ Solo un estado, sin mensaje, stack, URL interna, respuesta del ERP ni token:
 
 - `SIN_SESION` (401), con `motivo: "VINCULO_INVALIDO"` si el ERP revocó el
   vínculo. Si había cookie, se borra.
-- `NO_AUTORIZADO` (403): el local no está autorizado ahora, o el ERP negó la
-  consulta.
+- `NO_AUTORIZADO` (403): el local no está autorizado ahora, o el ERP negó
+  `mi_alcance`. (En ventas, un `NO_AUTORIZADO` del ERP a la consulta de ventas
+  es `ERP_NO_DISPONIBLE`.)
 - `ORIGEN_NO_PERMITIDO` (403): marcar leído desde otro origen.
 - `SOLICITUD_INVALIDA` (400).
 - `ERP_NO_DISPONIBLE` (503): no se pudo comprobar la autorización. Sin
-  historial.
+  historial. En ventas, además, el ERP no dio unas ventas que se puedan mostrar.
 - `SERVICIO_NO_DISPONIBLE` (503): configuración o base.
 
 La ingesta demorada de un local no es un error: es `sincronizacion: "DEMORADA"`

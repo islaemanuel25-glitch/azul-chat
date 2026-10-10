@@ -29,6 +29,21 @@ grande se centra en una columna de 480 px; no hay un diseño de escritorio.
   con diferencias". Si tiene diferencias, "1 línea con diferencia" o "N líneas
   con diferencias": el dato cuenta líneas del remito, no productos. Además, de
   dónde vino y la hora. Sin ids ni datos técnicos.
+- **Ventas de hoy (Tanda 3A).** En un Local cuyo `GET /api/chats/local` trae
+  `local.ventas: true`, abajo hay una barra fija con UN solo chip, "Ventas"
+  (Figma nodo 1:142). Sin el anuncio no hay barra; General no la tiene nunca.
+  Tocarlo pide `GET /api/chats/ventas` y, al final del historial, aparece la
+  tarjeta (nodo 1:127): "Ventas de hoy · {local}", el total grande en moneda
+  es-AR ("$ 1.850.320,00", formateado sobre el texto del ERP, sin pasar por
+  number), "N ventas" ("1 venta" en singular), una línea "{medio} · {monto}" por
+  medio de pago y, debajo, las advertencias del ERP tal cual. Sin acciones dentro
+  de la tarjeta. Mientras consulta, el chip dice "Consultando ventas…" y está
+  deshabilitado. Si falla, la tarjeta de error (nodo 1:329): "No se pudo
+  consultar ERP Azul." y "Reintentar", que solo pide de nuevo si la persona la
+  toca. Tocar "Ventas" otra vez descarta la tarjeta y consulta de nuevo; salir
+  del chat la descarta. Sin refresco automático, sin almacenamiento del
+  navegador, y no toca la lectura (`useVentas` y `AccionesDelLocal`, en
+  `Conversacion.tsx`; `reducirVentas`, en `logica.ts`).
 
 ## Cómo se navega
 
@@ -140,8 +155,12 @@ estaba. No hay scroll infinito ni refresco automático.
 
 - `test/ui/chats.test.ts`: la lógica, los componentes dibujados con
   `react-dom/server` (sin navegador) y el cliente HTTP con un `fetch` de prueba.
+  Para ventas: la barra con y sin el anuncio, la carga, la tarjeta (singular,
+  plural, advertencias), el error con "Reintentar" y la consulta que reemplaza.
 - `test/frontera/alcanceUi.test.ts`: la interfaz no muestra "Ver diferencias",
-  "Abrir en ERP", "Ventas de hoy" ni "Última transferencia"; no tiene refresco
+  "Abrir en ERP", "Última transferencia", "Ver detalle", "Comparar", el campo
+  "Preguntá…" ni los chips Caja, Transferencias, Pedidos o Stock; "Ventas de
+  hoy" se admite SOLO como título de la tarjeta, en `formato.ts`; no tiene refresco
   automático ni almacenamiento del navegador; hace HTTP solo desde sus dos
   clientes; no sabe nada de la delegación ni del ERP; y POST leído se llama
   desde un solo lugar, la lectura del Local, que General no usa.
@@ -156,6 +175,11 @@ estaba. No hay scroll infinito ni refresco automático.
 
 No existen todavía, y la interfaz no los muestra ni los insinúa: Pendientes,
 buscar en el historial, la configuración completa, el compositor y los mensajes
-de personas, la IA, las ventas, las acciones sobre el ERP ("Ver diferencias",
-"Abrir en ERP", acciones rápidas), las notificaciones y cualquier actualización
-en vivo (WebSocket, SSE o refresco periódico).
+de personas, la IA, las acciones sobre el ERP ("Ver diferencias", "Abrir en
+ERP"), las notificaciones y cualquier actualización en vivo (WebSocket, SSE o
+refresco periódico).
+
+De las acciones rápidas del diseño existe solo "Ventas", y solo para hoy. No
+existen: los chips Caja, Transferencias, Pedidos y Stock; el campo "Preguntá
+sobre este local…"; "Ver detalle" y "Comparar" en la tarjeta de ventas; otros
+períodos (ayer, rango); y nada de ventas en General.

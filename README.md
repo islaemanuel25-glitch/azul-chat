@@ -74,16 +74,17 @@ no toca a los demás.
 
 - `src/app/` — Next.js App Router. Las rutas `api/` solo delegan:
   `salud`, `version`, `sesion` (GET, DELETE), `sesion/vincular` (POST) y los
-  chats: `chats`, `chats/local` y `chats/general` (GET) y `chats/leido`
-  (POST), descritos en `docs/CHATS.md`. No hay proxy genérico.
+  chats: `chats`, `chats/local`, `chats/general` y `chats/ventas` (GET) y
+  `chats/leido` (POST), descritos en `docs/CHATS.md`. No hay proxy genérico.
   - `GET /api/salud` — healthcheck: 200 si la configuración es válida, la base
     contesta y está migrada. No llama al ERP ni escribe.
   - `GET /api/version` — el SHA del commit con que se construyó la imagen
     (`APP_BUILD_ID`).
 - `src/components/` — interfaz. **No pueden importar `src/server`.**
   - `chats/` — la app móvil (Tanda 2C): la lista de chats, un Local, General y
-    sus estados, con un único cliente HTTP (`clienteChats.ts`) para las cuatro
-    rutas de chats. Descrita en `docs/INTERFAZ.md`.
+    sus estados, y el botón "Ventas" de un Local (Tanda 3A), con un único
+    cliente HTTP (`clienteChats.ts`) para las cinco rutas de chats. Descrita en
+    `docs/INTERFAZ.md`.
   - `sesion/PanelSesion.tsx` — vincular, ver la sesión y cerrarla.
   - `shell/ShellMovil.tsx` — el marco: encabezado fijo, volver y acciones.
 - `src/shared/` — tipos y validaciones que puede usar la interfaz. Sin secretos ni red.
@@ -95,10 +96,10 @@ no toca a los demás.
   - `sesion/` — cookie, repositorio, vincular, estado, cerrar y el paso de la
     sesión al token (`delegacion.ts`).
   - `chats/` — autorización viva por capacidad, sincronización con frecuencia
-    mínima, historial paginado y las cuatro rutas de chats.
+    mínima, historial paginado y las cinco rutas de chats.
   - `eventos/` — ingesta, eventos guardados y lectura (`docs/EVENTOS.md`).
-  - `ventas/ventasResumen.ts` — "ventas" desde una sesión. Servicio interno:
-    ninguna ruta lo expone todavía.
+  - `ventas/ventasResumen.ts` — "ventas" desde una sesión. Lo expone solo
+    `GET /api/chats/ventas`, con período fijo "hoy".
   - `configuracion.ts`, `db.ts`, `log.ts`.
 - `prisma/` — esquema y migraciones de la base propia: `Instalacion`,
   `Vinculo`, `Sesion`, `Evento`, `CursorIngesta` y `LecturaLocal`. Nada de
