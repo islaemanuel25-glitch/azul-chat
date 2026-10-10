@@ -21,9 +21,18 @@ import { afterEach, describe, it } from "node:test";
 import { createElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { marcarLeido, pedirChats, pedirGeneral, pedirLocal, RUTAS_DEL_CLIENTE } from "../../src/components/chats/clienteChats.ts";
-import { CuerpoConversacion, ListaDeEventos } from "../../src/components/chats/Conversacion.tsx";
-import { detalleDeDiferencias, etiquetaDeDia, formatearHora, formatearMomento, iniciales, resumenDeEvento } from "../../src/components/chats/formato.ts";
+import { marcarLeido, pedirChats, pedirGeneral, pedirLocal, pedirVentas, RUTAS_DEL_CLIENTE } from "../../src/components/chats/clienteChats.ts";
+import { AccionesDelLocal, CuerpoConversacion, ListaDeEventos, PantallaGeneral } from "../../src/components/chats/Conversacion.tsx";
+import {
+  cantidadDeVentas,
+  detalleDeDiferencias,
+  etiquetaDeDia,
+  formatearHora,
+  formatearMomento,
+  formatearMonto,
+  iniciales,
+  resumenDeEvento,
+} from "../../src/components/chats/formato.ts";
 import {
   decidirLecturaLocal,
   destinoDeFalla,
@@ -31,14 +40,17 @@ import {
   leerVista,
   ordenCronologico,
   reducirConversacion,
+  reducirVentas,
   unirPaginas,
   urlDeVista,
   type EstadoConversacion,
+  type EstadoVentas,
   type InfoLocal,
 } from "../../src/components/chats/logica.ts";
 import { CuerpoChats, type Estado as EstadoChats } from "../../src/components/chats/PantallaChats.tsx";
 import { TarjetaEvento } from "../../src/components/chats/Piezas.tsx";
-import { RUTAS_CHATS, type EventoGeneral, type EventoPublico, type RespuestaChats } from "../../src/shared/chats/api.ts";
+import { RUTAS_CHATS, type EventoGeneral, type EventoPublico, type RespuestaChats, type RespuestaVentas } from "../../src/shared/chats/api.ts";
+import { DATOS_ERP } from "../ayuda/servidorErp.ts";
 
 const ZONA = "America/Argentina/Buenos_Aires";
 /** "Ahora": 2026-10-07 18:30 en Buenos Aires. */
@@ -91,7 +103,7 @@ const cuerpoChats = (estado: EstadoChats, filtro: "TODOS" | "NO_LEIDOS" = "TODOS
   dibujar(createElement(CuerpoChats, { estado, filtro, alCambiarFiltro: nada, alAbrir: nada, alReintentar: nada, ahora: AHORA, zona: ZONA }));
 
 type EstLocal = EstadoConversacion<EventoPublico, InfoLocal>;
-const INFO_LOCAL: InfoLocal = { tipo: "LOCAL", localId: 3, nombre: "Casiano", sincronizacion: "AL_DIA", leidoHasta: "2", noLeidos: 2 };
+const INFO_LOCAL: InfoLocal = { tipo: "LOCAL", localId: 3, nombre: "Casiano", sincronizacion: "AL_DIA", leidoHasta: "2", noLeidos: 2, ventas: true };
 const lista = (eventos: readonly EventoPublico[], extra: Partial<Extract<EstLocal, { fase: "LISTA" }>> = {}): EstLocal => ({
   fase: "LISTA",
   eventos,
@@ -456,5 +468,146 @@ describe("el cliente HTTP", () => {
     assert.ok(r.ok);
     assert.equal(r.datos.eventos[0]!.id, "9007199254740993");
     assert.equal(r.datos.leidoHasta, "9007199254740992");
+  });
+});
+
+// ── Ventas de hoy (Tanda 3A) ────────────────────────────────────────────────
+//
+// La respuesta es la que arma GET /api/chats/ventas con DATOS_ERP (salida real
+// de armarVentasResumen), con el nombre de mi_alcance: la fija
+// test/db/ventas.test.ts.
+
+type VentasOk = Extract<RespuestaVentas, { estado: "OK" }>;
+const VENTAS: VentasOk = {
+  estado: "OK",
+  local: { id: 3, nombre: "Casiano" },
+  periodo: { desde: DATOS_ERP.periodo.desde, hasta: DATOS_ERP.periodo.hasta },
+  cantidadVentas: DATOS_ERP.cantidadVentas,
+  totalVendido: DATOS_ERP.totalVendido,
+  mediosDePago: DATOS_ERP.mediosDePago,
+  advertencias: DATOS_ERP.advertencias,
+} satisfies RespuestaVentas;
+
+const acciones = (anuncia: boolean, estado: EstadoVentas, alPedir: () => void = nada) => dibujar(createElement(AccionesDelLocal, { anuncia, estado, alPedir }));
+/** El elemento (etiqueta de apertura) del chip "Ventas". */
+const chip = (html: string) => /<button[^>]*class="ac-chip ac-chip--accion"[^>]*>/.exec(html)?.[0] ?? "";
+
+describe("ventas de hoy: la barra y la tarjeta", () => {
+  it("3A-UI-1. con la capacidad: barra con UN solo chip, \"Ventas\", habilitado; nada más en la barra", () => {
+    const html = acciones(true, { fase: "QUIETO" });
+    assert.match(html, /<nav class="ac-barra-acciones" aria-label="Acciones del local">/);
+    assert.equal((html.match(/<button/g) ?? []).length, 1);
+    assert.equal(texto(html), "Ventas");
+    assert.equal(/disabled/.test(chip(html)), false);
+    assert.equal(/<input|<textarea/.test(html), false);
+  });
+
+  it("3A-UI-2. sin la capacidad: no hay barra ni tarjeta, aunque haya un resultado", () => {
+    assert.equal(acciones(false, { fase: "QUIETO" }), "");
+    assert.equal(acciones(false, { fase: "LISTA", ventas: VENTAS }), "");
+  });
+
+  it("3A-UI-3. General no tiene barra", () => {
+    const html = dibujar(createElement(PantallaGeneral, { alVolver: nada, alPerderSesion: nada }));
+    assert.equal(html.includes("ac-barra-acciones"), false);
+    assert.equal(/>\s*Ventas\s*</.test(html), false);
+  });
+
+  it("3A-UI-4. cargando: el chip deshabilitado y ocupado, sin tarjeta", () => {
+    const html = acciones(true, { fase: "CARGANDO" });
+    assert.match(chip(html), /disabled=""/);
+    assert.match(chip(html), /aria-busy="true"/);
+    assert.equal(/<article/.test(html), false);
+    assert.equal(texto(html), "Consultando ventas…");
+  });
+
+  it("3A-UI-5. la tarjeta: título con el local, total en moneda es-AR, cantidad, una línea por medio y las advertencias; sin acciones adentro", () => {
+    const html = acciones(true, { fase: "LISTA", ventas: VENTAS });
+    const tarjeta = /<article class="ac-ventas"[\s\S]*?<\/article>/.exec(html)?.[0] ?? "";
+    assert.ok(tarjeta);
+    assert.deepEqual(
+      [...tarjeta.matchAll(/<p class="([^"]+)">([^<]*)<\/p>/g)].map((m) => [m[1], m[2]]),
+      [
+        ["ac-ventas__titulo", "Ventas de hoy · Casiano"],
+        ["ac-ventas__total", "$ 1.500,00"],
+        ["ac-ventas__linea", "2 ventas"],
+        ["ac-ventas__linea", "Efectivo · $ 1.000,00"],
+        ["ac-ventas__linea", "Mercado Pago · $ 500,00"],
+        ["ac-ventas__advertencia", "El período incluye el día de hoy, que todavía no terminó: el total puede crecer."],
+      ],
+    );
+    assert.equal(/<button|<a /.test(tarjeta), false, "sin acciones dentro de la tarjeta");
+    // La tarjeta va antes que la barra: al final del historial, con la barra debajo.
+    assert.ok(html.indexOf("<article") >= 0 && html.indexOf("<article") < html.indexOf("ac-barra-acciones"));
+  });
+
+  it("3A-UI-6. singular, plural y sin advertencias", () => {
+    assert.equal(cantidadDeVentas(1), "1 venta");
+    assert.equal(cantidadDeVentas(0), "0 ventas");
+    assert.equal(cantidadDeVentas(347), "347 ventas");
+    assert.equal(cantidadDeVentas(1234), "1.234 ventas");
+    const una = acciones(true, { fase: "LISTA", ventas: { ...VENTAS, cantidadVentas: 1, advertencias: [] } });
+    assert.ok(texto(una).includes("1 venta "));
+    assert.equal(una.includes("ac-ventas__advertencia"), false);
+  });
+
+  it("3A-UI-7. el monto se formatea sobre el texto del ERP: sin redondear ni perder centavos; lo que no es del contrato, tal cual", () => {
+    assert.equal(formatearMonto("1850320.00"), "$ 1.850.320,00");
+    assert.equal(formatearMonto("0.05"), "$ 0,05");
+    assert.equal(formatearMonto("999.99"), "$ 999,99");
+    assert.equal(formatearMonto("1000.10"), "$ 1.000,10");
+    assert.equal(formatearMonto("-1500.00"), "-$ 1.500,00");
+    assert.equal(formatearMonto("90071992547409931.99"), "$ 90.071.992.547.409.931,99");
+    assert.equal(formatearMonto("1500"), "1500");
+  });
+
+  it("3A-UI-8. error: la tarjeta de 1:329 con \"Reintentar\", que pide de nuevo solo al tocarla", () => {
+    let pedidos = 0;
+    const html = acciones(true, { fase: "FALLA" }, () => pedidos++);
+    assert.match(html, /<article class="ac-ventas ac-ventas--falla" role="alert">/);
+    assert.ok(texto(html).startsWith("No se pudo consultar ERP Azul. Reintentar"));
+    assert.equal(pedidos, 0, "dibujar no pide nada");
+    // El chip sigue disponible: tocarlo también reintenta.
+    assert.equal(/disabled/.test(chip(html)), false);
+  });
+
+  it("3A-UI-9. la consulta: pedir carga, la respuesta reemplaza la tarjeta, una falla deja el error, y volver a pedir reemplaza todo", () => {
+    let e: EstadoVentas = { fase: "QUIETO" };
+    e = reducirVentas(e, { tipo: "PEDIR" });
+    assert.deepEqual(e, { fase: "CARGANDO" });
+    e = reducirVentas(e, { tipo: "RESPUESTA", resultado: { ok: true, datos: VENTAS } });
+    assert.deepEqual(e, { fase: "LISTA", ventas: VENTAS });
+    e = reducirVentas(e, { tipo: "PEDIR" });
+    assert.deepEqual(e, { fase: "CARGANDO" }, "la tarjeta anterior se descarta");
+    e = reducirVentas(e, { tipo: "RESPUESTA", resultado: { ok: false, falla: { estado: "ERP_NO_DISPONIBLE" } } });
+    assert.deepEqual(e, { fase: "FALLA" });
+    // Reintentar es un PEDIR más, y una respuesta tardía sin pedido en curso no cambia nada.
+    assert.deepEqual(reducirVentas(e, { tipo: "RESPUESTA", resultado: { ok: true, datos: VENTAS } }), { fase: "FALLA" });
+    assert.deepEqual(reducirVentas(reducirVentas(e, { tipo: "PEDIR" }), { tipo: "RESPUESTA", resultado: { ok: true, datos: VENTAS } }), { fase: "LISTA", ventas: VENTAS });
+    for (const falla of [{ estado: "RED" }, { estado: "NO_AUTORIZADO" }, { estado: "SERVICIO_NO_DISPONIBLE" }] as const) {
+      assert.deepEqual(reducirVentas({ fase: "CARGANDO" }, { tipo: "RESPUESTA", resultado: { ok: false, falla } }), { fase: "FALLA" }, falla.estado);
+    }
+    // Cancelada (se pidió de nuevo o se salió del chat): no es un error que mostrar.
+    assert.deepEqual(reducirVentas({ fase: "CARGANDO" }, { tipo: "RESPUESTA", resultado: { ok: false, falla: { estado: "CANCELADA" } } }), { fase: "QUIETO" });
+  });
+
+  it("3A-UI-10. el cliente pide solo GET /api/chats/ventas?localId=N, sin período ni grupo", async () => {
+    const original = globalThis.fetch;
+    const urls: string[] = [];
+    const inits: (RequestInit | undefined)[] = [];
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      urls.push(String(url));
+      inits.push(init);
+      return new Response(JSON.stringify(VENTAS), { status: 200 });
+    }) as typeof fetch;
+    try {
+      assert.deepEqual(await pedirVentas(3), { ok: true, datos: VENTAS });
+    } finally {
+      globalThis.fetch = original;
+    }
+    assert.deepEqual(urls, ["/api/chats/ventas?localId=3"]);
+    assert.equal(inits[0]?.method, undefined);
+    assert.equal(inits[0]?.credentials, "same-origin");
+    assert.equal(inits[0]?.cache, "no-store");
   });
 });

@@ -2,7 +2,7 @@
 //
 // Lo que el navegador puede pedir es: ver el estado de su sesión, vincular con
 // un código, cerrar, y —desde la Tanda 2B— ver sus chats (la lista, un local,
-// General) y marcar leído. No hay una ruta que reciba una capacidad, una URL o un
+// General) y marcar leído; desde la Tanda 3A, las ventas de hoy de un local. No hay una ruta que reciba una capacidad, una URL o un
 // camino del ERP y lo reenvíe. Una ruta nueva entra a propósito, con su
 // manejador y sus tests, y ese día se actualiza la lista de abajo.
 
@@ -47,6 +47,12 @@ const RUTAS = {
   },
   "src/app/api/chats/leido/route.ts": {
     metodos: ["POST"],
+    importa: ["../../../../server/chats/manejadores.ts", "../../../../server/sesion/dependencias.ts"],
+  },
+  // Tanda 3A: las ventas de hoy de un local. Una acción concreta —período fijo
+  // "hoy", el local por query—, no un pase genérico a `ventas_resumen`.
+  "src/app/api/chats/ventas/route.ts": {
+    metodos: ["GET"],
     importa: ["../../../../server/chats/manejadores.ts", "../../../../server/sesion/dependencias.ts"],
   },
 };

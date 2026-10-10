@@ -33,6 +33,7 @@
   --ac-letra-chica: 13px;
   --ac-letra-base: 15px;
   --ac-letra-titulo: 20px;
+  --ac-letra-monto: 26px;
 
   color-scheme: light;
 }
@@ -523,5 +524,87 @@ body {
 .ac-anteriores__mas {
   margin: 0 0 var(--ac-espacio-2);
   color: var(--ac-color-marca-fuerte);
+  font-weight: 600;
+}
+
+/* ── Tanda 3A: ventas de hoy (Figma 1:142, 1:127, 1:329) ─────────────────── */
+
+.ac-barra-acciones {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: var(--ac-espacio-2);
+  margin: var(--ac-espacio-3) calc(-1 * var(--ac-espacio-4)) 0;
+  padding: var(--ac-espacio-2) var(--ac-espacio-4);
+  padding-bottom: max(var(--ac-espacio-2), env(safe-area-inset-bottom));
+  border-top: 1px solid var(--ac-color-borde);
+  background: var(--ac-color-fondo);
+}
+
+.ac-chip--accion {
+  min-height: var(--ac-alto-toque);
+  font-size: var(--ac-letra-mini);
+  font-weight: 500;
+}
+
+.ac-chip--accion:disabled {
+  opacity: 0.5;
+}
+
+.ac-ventas-al-final:not(:empty) {
+  margin-top: var(--ac-espacio-3);
+}
+
+.ac-ventas {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--ac-espacio-2);
+  max-width: 88%;
+  padding: var(--ac-espacio-3);
+  border: 1px solid var(--ac-color-borde);
+  border-radius: var(--ac-radio-tarjeta);
+  background: var(--ac-color-superficie);
+}
+
+.ac-ventas p {
+  margin: 0;
+}
+
+.ac-ventas__titulo {
+  color: var(--ac-color-texto-suave);
+  font-size: var(--ac-letra-mini);
+  font-weight: 600;
+}
+
+.ac-ventas__total {
+  font-size: var(--ac-letra-monto);
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.ac-ventas__linea {
+  font-size: var(--ac-letra-mini);
+}
+
+.ac-ventas__advertencia {
+  color: var(--ac-color-texto-suave);
+  font-size: var(--ac-letra-mini);
+}
+
+.ac-ventas__falla {
+  font-size: var(--ac-letra-chica);
+  font-weight: 600;
+}
+
+.ac-pastilla-accion {
+  min-height: var(--ac-alto-toque);
+  padding: 0 var(--ac-espacio-3);
+  border: none;
+  border-radius: var(--ac-radio-pastilla);
+  background: var(--ac-color-marca-suave);
+  color: var(--ac-color-marca-fuerte);
+  font: inherit;
+  font-size: var(--ac-letra-mini);
   font-weight: 600;
 }

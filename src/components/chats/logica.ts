@@ -8,8 +8,8 @@
 // Los ids de evento son BigInt en la base y viajan como TEXTO: acá se comparan
 // con BigInt y no se convierten nunca a Number.
 
-import type { EstadoSincronizacion, EventoGeneral, EventoPublico, LocalDeChats, RespuestaChats } from "../../shared/chats/api.ts";
-import type { FallaCliente } from "./clienteChats.ts";
+import type { EstadoSincronizacion, EventoGeneral, EventoPublico, LocalDeChats, RespuestaChats, RespuestaVentas } from "../../shared/chats/api.ts";
+import type { FallaCliente, Resultado } from "./clienteChats.ts";
 
 // ── La lista ────────────────────────────────────────────────────────────────
 
@@ -104,6 +104,8 @@ export type InfoLocal = {
   readonly sincronizacion: EstadoSincronizacion;
   readonly leidoHasta: string;
   readonly noLeidos: number;
+  /** El ERP anuncia `ventas_resumen` en este local, en esta respuesta: hay barra con "Ventas" (Tanda 3A). */
+  readonly ventas: boolean;
 };
 /** General no lleva lectura: en la Tanda 2C no marca leído (docs/INTERFAZ.md). */
 export type InfoGeneral = { readonly tipo: "GENERAL"; readonly localesDemorados: readonly number[] };
@@ -187,6 +189,34 @@ export function destinoDeFalla(f: FallaCliente): DestinoDeFalla {
     case "ORIGEN_NO_PERMITIDO":
       return "NO_DISPONIBLE";
   }
+}
+
+// ── Ventas de hoy (Tanda 3A) ────────────────────────────────────────────────
+//
+// Una consulta por toque: nada se guarda, nada se refresca solo. Tocar "Ventas"
+// otra vez descarta lo que había y pregunta de nuevo; una falla deja la tarjeta
+// de error, y reintentar es otro toque. Salir del chat descarta todo (el estado
+// vive en la pantalla del Local).
+
+export type EstadoVentas =
+  | { readonly fase: "QUIETO" }
+  | { readonly fase: "CARGANDO" }
+  | { readonly fase: "LISTA"; readonly ventas: Extract<RespuestaVentas, { estado: "OK" }> }
+  | { readonly fase: "FALLA" };
+
+export type AccionVentas =
+  | { readonly tipo: "PEDIR" }
+  | { readonly tipo: "RESPUESTA"; readonly resultado: Resultado<Extract<RespuestaVentas, { estado: "OK" }>> };
+
+/** Qué se ve después de pedir o de recibir. Una respuesta sin pedido en curso no cambia nada. */
+export function reducirVentas(estado: EstadoVentas, accion: AccionVentas): EstadoVentas {
+  if (accion.tipo === "PEDIR") return { fase: "CARGANDO" };
+  if (estado.fase !== "CARGANDO") return estado;
+  const r = accion.resultado;
+  if (r.ok) return { fase: "LISTA", ventas: r.datos };
+  // Cancelada: la pantalla se fue o se volvió a pedir; no es una falla que mostrar.
+  if (r.falla.estado === "CANCELADA") return { fase: "QUIETO" };
+  return { fase: "FALLA" };
 }
 
 // ── Navegación ──────────────────────────────────────────────────────────────

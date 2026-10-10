@@ -1,4 +1,4 @@
-// EL NAVEGADOR HABLA CON LAS CUATRO RUTAS DE CHATS DESDE ACÁ, Y SOLO DESDE ACÁ.
+// EL NAVEGADOR HABLA CON LAS CINCO RUTAS DE CHATS DESDE ACÁ, Y SOLO DESDE ACÁ.
 //
 // Las rutas son las propias de Azul Chat (docs/CHATS.md); este archivo no sabe
 // nada del ERP, ni de la delegación, ni de tokens: la sesión va en una cookie
@@ -11,14 +11,15 @@
 // consulta (`?localId=…&cursor=…`) solo después de una de ellas.
 // test/ui/clienteChats.test.ts comprueba que coinciden con RUTAS_CHATS.
 
-import type { FallaChats, PedidoLeido, RespuestaChats, RespuestaGeneral, RespuestaLeido, RespuestaLocal } from "../../shared/chats/api.ts";
+import type { FallaChats, PedidoLeido, RespuestaChats, RespuestaGeneral, RespuestaLeido, RespuestaLocal, RespuestaVentas } from "../../shared/chats/api.ts";
 
 const RUTA_CHATS = "/api/chats";
 const RUTA_LOCAL = "/api/chats/local";
 const RUTA_GENERAL = "/api/chats/general";
 const RUTA_LEIDO = "/api/chats/leido";
+const RUTA_VENTAS = "/api/chats/ventas";
 
-export const RUTAS_DEL_CLIENTE = Object.freeze({ chats: RUTA_CHATS, local: RUTA_LOCAL, general: RUTA_GENERAL, leido: RUTA_LEIDO });
+export const RUTAS_DEL_CLIENTE = Object.freeze({ chats: RUTA_CHATS, local: RUTA_LOCAL, general: RUTA_GENERAL, leido: RUTA_LEIDO, ventas: RUTA_VENTAS });
 
 const ESTADOS_DE_FALLA: readonly FallaChats["estado"][] = [
   "SIN_SESION",
@@ -73,6 +74,12 @@ export function pedirLocal(localId: number, cursor: string | null, signal?: Abor
 export function pedirGeneral(cursor: string | null, signal?: AbortSignal) {
   const q = new URLSearchParams(cursor ? { cursor } : {}).toString();
   return pedir<RespuestaGeneral>(() => fetch(`${RUTA_GENERAL}?${q}`, { ...OPCIONES, signal: signal ?? null }), signal);
+}
+
+/** GET /api/chats/ventas?localId=N: las ventas de hoy. Solo cuando la persona toca "Ventas". */
+export function pedirVentas(localId: number, signal?: AbortSignal) {
+  const q = new URLSearchParams({ localId: String(localId) }).toString();
+  return pedir<RespuestaVentas>(() => fetch(`${RUTA_VENTAS}?${q}`, { ...OPCIONES, signal: signal ?? null }), signal);
 }
 
 /** POST /api/chats/leido: lo único que marca leído, y solo cuando una pantalla lo pide. */

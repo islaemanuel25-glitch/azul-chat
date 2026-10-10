@@ -1,7 +1,8 @@
 // src/server/ventas/ventasResumen.ts
 //
-// "VENTAS DE HOY" DESDE UNA SESIÓN. Servicio interno, listo para la pantalla
-// que todavía no existe: NO hay ruta que lo exponga.
+// "VENTAS DE HOY" DESDE UNA SESIÓN. Servicio interno: lo usa solo
+// GET /api/chats/ventas (src/server/chats/manejadores.ts, Tanda 3A), que antes
+// comprueba el local con `mi_alcance` vivo y fija el período en "hoy".
 //
 // La persona sale de la sesión (su vínculo y su token, descifrado acá en el
 // servidor). Quien llama elige solo QUÉ local y QUÉ período: el ERP decide si

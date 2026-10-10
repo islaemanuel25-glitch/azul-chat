@@ -21,24 +21,30 @@
 //     ERP_NO_DISPONIBLE no queda historial detrás (P1).
 //
 // Ningún GET marca leído, y no hay refresco automático.
+//
+// Tanda 3A: un Local cuyo `mi_alcance` anuncia `ventas_resumen` lleva abajo una
+// barra fija con UN chip, "Ventas". Tocarlo consulta las ventas de hoy y deja la
+// tarjeta al final del historial; no toca la lectura. General no lleva barra.
 
 import { Fragment, useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState, type ReactNode } from "react";
 
 import type { EventoGeneral, EventoPublico } from "../../shared/chats/api.ts";
 import { ShellMovil } from "../shell/ShellMovil.tsx";
-import { marcarLeido, pedirGeneral, pedirLocal, type FallaCliente, type Resultado } from "./clienteChats.ts";
+import { marcarLeido, pedirGeneral, pedirLocal, pedirVentas, type FallaCliente, type Resultado } from "./clienteChats.ts";
 import { diaDe, etiquetaDeDia } from "./formato.ts";
 import {
   decidirLecturaLocal,
   destinoDeFalla,
   ordenCronologico,
   reducirConversacion,
+  reducirVentas,
   type AccionConversacion,
   type EstadoConversacion,
+  type EstadoVentas,
   type InfoGeneral,
   type InfoLocal,
 } from "./logica.ts";
-import { AvisoDemorada, EstadoChat, EstadoErpNoDisponible, TarjetaEvento } from "./Piezas.tsx";
+import { AvisoDemorada, BarraVentas, EstadoChat, EstadoErpNoDisponible, ResultadoVentas, TarjetaEvento } from "./Piezas.tsx";
 
 type Pagina<E, I> = { readonly eventos: readonly E[]; readonly siguiente: string | null; readonly info: I };
 type PedirPagina<E, I> = (cursor: string | null, signal?: AbortSignal) => Promise<Resultado<Pagina<E, I>>>;
@@ -253,7 +259,15 @@ export function PantallaLocal({ localId, alVolver, alPerderSesion }: { localId: 
         datos: {
           eventos: d.eventos,
           siguiente: d.siguiente,
-          info: { tipo: "LOCAL", localId: d.local.localId, nombre: d.local.nombre, sincronizacion: d.sincronizacion, leidoHasta: d.leidoHasta, noLeidos: d.noLeidos },
+          info: {
+            tipo: "LOCAL",
+            localId: d.local.localId,
+            nombre: d.local.nombre,
+            sincronizacion: d.sincronizacion,
+            leidoHasta: d.leidoHasta,
+            noLeidos: d.noLeidos,
+            ventas: d.local.ventas,
+          },
         },
       };
     },
@@ -262,6 +276,7 @@ export function PantallaLocal({ localId, alVolver, alPerderSesion }: { localId: 
   const { estado, despachar, reintentar, cargarAnteriores } = useConversacion(pedirPagina, alPerderSesion);
   const lectura = useLecturaLocal(estado, despachar, alPerderSesion);
   const info = estado.fase === "LISTA" ? estado.info : null;
+  const ventas = useVentas(localId, alPerderSesion);
 
   return (
     <ShellMovil
@@ -278,7 +293,57 @@ export function PantallaLocal({ localId, alVolver, alPerderSesion }: { localId: 
         alVolver={alVolver}
         alCargarAnteriores={cargarAnteriores}
       />
+      <AccionesDelLocal anuncia={info?.ventas === true} estado={ventas.estado} alPedir={ventas.pedir} />
     </ShellMovil>
+  );
+}
+
+/**
+ * Ventas de hoy de un Local (Tanda 3A): una consulta por toque. Pedir de nuevo
+ * cancela la anterior; salir del chat (desmontar) también. No marca leído, no
+ * guarda nada y no se repite sola.
+ */
+function useVentas(localId: number, alPerderSesion: AlPerderSesion) {
+  const [estado, despachar] = useReducer(reducirVentas, { fase: "QUIETO" });
+  const enCurso = useRef<AbortController | null>(null);
+
+  useEffect(() => () => enCurso.current?.abort(), []);
+
+  const pedir = useCallback(() => {
+    enCurso.current?.abort();
+    const control = new AbortController();
+    enCurso.current = control;
+    despachar({ tipo: "PEDIR" });
+    void pedirVentas(localId, control.signal).then((resultado) => {
+      if (control.signal.aborted) return;
+      enCurso.current = null;
+      if (!resultado.ok && resultado.falla.estado === "SIN_SESION") return alPerderSesion(resultado.falla.motivo);
+      despachar({ tipo: "RESPUESTA", resultado });
+    });
+  }, [localId, alPerderSesion]);
+
+  return { estado, pedir };
+}
+
+/**
+ * La tarjeta al final del historial y la barra fija con "Ventas". Sin el anuncio
+ * de `ventas_resumen` en este local (o con la conversación todavía sin cargar),
+ * no hay barra ni tarjeta. Exportado para los tests.
+ */
+export function AccionesDelLocal({ anuncia, estado, alPedir }: { anuncia: boolean; estado: EstadoVentas; alPedir: () => void }) {
+  const tarjeta = useRef<HTMLDivElement | null>(null);
+  // La tarjeta nueva queda a la vista, como un mensaje que llega al final del chat.
+  useLayoutEffect(() => {
+    if (estado.fase === "LISTA" || estado.fase === "FALLA") tarjeta.current?.scrollIntoView({ block: "end" });
+  }, [estado]);
+  if (!anuncia) return null;
+  return (
+    <>
+      <div ref={tarjeta} className="ac-ventas-al-final">
+        <ResultadoVentas estado={estado} alReintentar={alPedir} />
+      </div>
+      <BarraVentas cargando={estado.fase === "CARGANDO"} alPedir={alPedir} />
+    </>
   );
 }
 

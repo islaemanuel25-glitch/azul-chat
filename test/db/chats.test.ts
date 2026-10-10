@@ -483,7 +483,8 @@ describe("GET local y General: forma pública y proyección", () => {
     const r = await local(adm, CASIANO.id);
     assert.equal(r.status, 200, r.texto);
     assert.deepEqual(Object.keys(r.cuerpo).sort(), ["estado", "eventos", "leidoHasta", "local", "noLeidos", "siguiente", "sincronizacion"]);
-    assert.deepEqual(r.cuerpo.local, { localId: 3, nombre: "Casiano", esDeposito: false });
+    // Tanda 3A: `ventas` es el anuncio de `ventas_resumen` del mi_alcance de ahora (adminGlobal lo trae en Casiano).
+    assert.deepEqual(r.cuerpo.local, { localId: 3, nombre: "Casiano", esDeposito: false, ventas: true });
     const ids = r.cuerpo.eventos.map((e) => e.id);
     // Los cuatro, del más reciente al más antiguo; 181 y 182 en el mismo milisegundo, por id descendente.
     assert.deepEqual(r.cuerpo.eventos.map((e) => e.transferenciaId), [183, 182, 181, 180]);
@@ -829,7 +830,15 @@ describe("la lectura que decide la interfaz, contra el servidor (Tanda 2C)", () 
     eventos: r.eventos,
     siguiente: r.siguiente,
     anteriores: "QUIETO",
-    info: { tipo: "LOCAL", localId: r.local.localId, nombre: r.local.nombre, sincronizacion: r.sincronizacion, leidoHasta: r.leidoHasta, noLeidos: r.noLeidos },
+    info: {
+      tipo: "LOCAL",
+      localId: r.local.localId,
+      nombre: r.local.nombre,
+      sincronizacion: r.sincronizacion,
+      leidoHasta: r.leidoHasta,
+      noLeidos: r.noLeidos,
+      ventas: r.local.ventas,
+    },
   });
 
   it("AL/AC/AD/AP. 40 nuevos y 30 en la primera página: no marca; con las anteriores cargadas marca hasta el mayor mostrado; lo que llegó después sigue sin leer", async () => {

@@ -22,6 +22,7 @@ import "server-only";
 
 import { anunciaCapacidad, CAPACIDAD_TRANSFERENCIAS_EVENTOS, type DatosMiAlcance, type ResultadoConsulta } from "../../shared/erp/contrato.ts";
 import { conDelegacion, type Contexto, type ResultadoDelegado } from "../sesion/delegacion.ts";
+import { CAPACIDAD_VENTAS_RESUMEN } from "../erp/ventasResumen.ts";
 import type { DependenciasSesion } from "../sesion/dependencias.ts";
 
 /** Un local que la persona puede ver HOY en los chats, con lo que el ERP dijo de él en esta solicitud. */
@@ -32,11 +33,16 @@ export type LocalAutorizado = {
   readonly esDeposito: boolean;
 };
 
-/** Los locales de `mi_alcance` que anuncian `transferencias_eventos`. Sin la lista (ERP anterior), ninguno. */
-export function localesAutorizadosAhora(datos: DatosMiAlcance): LocalAutorizado[] {
+/** Los locales de `mi_alcance` que anuncian esa capacidad. Sin la lista (ERP anterior), ninguno. */
+export function localesConCapacidad(datos: DatosMiAlcance, capacidad: string): LocalAutorizado[] {
   return datos.locales
-    .filter((l) => anunciaCapacidad(l, CAPACIDAD_TRANSFERENCIAS_EVENTOS))
+    .filter((l) => anunciaCapacidad(l, capacidad))
     .map((l) => ({ localId: l.id, grupoId: l.grupoId, nombre: l.nombre, esDeposito: l.esDeposito }));
+}
+
+/** Los locales de `mi_alcance` que anuncian `transferencias_eventos`: los de los chats. */
+export function localesAutorizadosAhora(datos: DatosMiAlcance): LocalAutorizado[] {
+  return localesConCapacidad(datos, CAPACIDAD_TRANSFERENCIAS_EVENTOS);
 }
 
 /** Lo que recibe el trabajo de una solicitud de chats, ya autorizado. */
@@ -46,6 +52,12 @@ export type Autorizacion = {
   readonly contexto: Contexto;
   readonly usuario: { readonly nombre: string };
   readonly autorizados: readonly LocalAutorizado[];
+  /**
+   * Los locales de `mi_alcance` que anuncian `ventas_resumen` (Tanda 3A), con
+   * el `grupoId` que el ERP acepta para cada uno. Mismo criterio que
+   * `autorizados`: lo que el ERP anuncia hoy, sin guardar ni inferir nada.
+   */
+  readonly conVentas: readonly LocalAutorizado[];
 };
 
 /**
@@ -66,6 +78,7 @@ export function conAutorizacionViva<T>(
       contexto,
       usuario: { nombre: alcance.datos.usuario.nombre },
       autorizados: localesAutorizadosAhora(alcance.datos),
+      conVentas: localesConCapacidad(alcance.datos, CAPACIDAD_VENTAS_RESUMEN),
     });
   });
 }
