@@ -33,8 +33,31 @@ function codigoDeLaInterfaz(): Record<string, string> {
   return salida;
 }
 
-/** Lo que todavía no existe y no se puede ofrecer (ni insinuar, como el viejo texto de "Estados"). */
-const TEXTOS_FUERA_DE_ALCANCE = ["Ver diferencias", "Abrir en ERP", "Ventas de hoy", "Última transferencia", "Podés leer historial"];
+/**
+ * Lo que todavía no existe y no se puede ofrecer (ni insinuar, como el viejo texto de "Estados").
+ *
+ * Tanda 3A: "Ventas de hoy" SALE de esta lista porque existe, y solo eso: el
+ * título de la tarjeta, armado en UN lugar (TEXTO_PERMITIDO, abajo). Las
+ * acciones de la tarjeta del diseño ("Ver detalle", "Comparar"), los otros
+ * chips de la barra y el campo de preguntas siguen sin existir.
+ */
+const TEXTOS_FUERA_DE_ALCANCE = [
+  "Ver diferencias",
+  "Abrir en ERP",
+  "Última transferencia",
+  "Podés leer historial",
+  "Ver detalle",
+  "Comparar",
+  "Preguntá",
+  "Ventas de ayer",
+];
+
+/** Los chips del diseño que no están implementados, como texto visible: literal o hijo de JSX. */
+const CHIPS_NO_IMPLEMENTADOS = ["Caja", "Transferencias", "Pedidos", "Stock"];
+const comoTextoVisible = (t: string) => new RegExp(`["'\`>]\\s*${t}\\s*["'\`<]`);
+
+/** "Ventas de hoy" existe en un solo archivo de la interfaz: el que arma el título de la tarjeta. */
+const TEXTO_PERMITIDO = { texto: "Ventas de hoy", archivo: "src/components/chats/formato.ts" };
 
 /** Los únicos archivos de la interfaz que hacen HTTP (a rutas propias; lo controla secretoSoloServidor.test.ts). */
 const CLIENTES_HTTP = ["src/components/chats/clienteChats.ts", "src/components/sesion/PanelSesion.tsx"];
@@ -43,6 +66,10 @@ function problemas(archivos: Record<string, string>): string[] {
   const p: string[] = [];
   for (const [archivo, codigo] of Object.entries(archivos)) {
     for (const t of TEXTOS_FUERA_DE_ALCANCE) if (codigo.includes(t)) p.push(`${archivo}: "${t}"`);
+    for (const t of CHIPS_NO_IMPLEMENTADOS) if (comoTextoVisible(t).test(codigo)) p.push(`${archivo}: chip "${t}"`);
+    if (codigo.includes(TEXTO_PERMITIDO.texto) && archivo !== TEXTO_PERMITIDO.archivo) p.push(`${archivo}: "${TEXTO_PERMITIDO.texto}" fuera de su lugar`);
+    // El campo de preguntas del diseño: en los chats no hay dónde escribir.
+    if (archivo.startsWith("src/components/chats/") && /<(input|textarea)\b/.test(codigo)) p.push(`${archivo}: campo de texto en los chats`);
     if (/\b(setInterval|setTimeout|requestIdleCallback)\b|\brefetchInterval\b|WebSocket|EventSource/.test(codigo)) p.push(`${archivo}: refresco automático`);
     if (/localStorage|sessionStorage|indexedDB|document\.cookie|\bcaches\./.test(codigo)) p.push(`${archivo}: almacenamiento del navegador`);
     if (/(?<![\w-])fetch\s*\(/.test(codigo) && !CLIENTES_HTTP.includes(archivo)) p.push(`${archivo}: fetch fuera del cliente`);
@@ -60,7 +87,7 @@ describe("alcance de la interfaz de chats", () => {
     assert.ok("src/app/page.tsx" in arbol);
   });
 
-  it("I/J/Z/AA/X. sin textos de lo que no existe, sin refresco automático, sin almacenamiento, fetch solo en el cliente, sin delegación", () => {
+  it("I/J/Z/AA/X/3A. sin textos de lo que no existe (\"Ventas de hoy\" solo como título de la tarjeta), sin otros chips ni campo de preguntas, sin refresco automático, sin almacenamiento, fetch solo en el cliente, sin delegación", () => {
     assert.deepEqual(problemas(arbol), []);
   });
 
@@ -69,7 +96,16 @@ describe("alcance de la interfaz de chats", () => {
     const casos: Record<string, string> = {
       ver: conversacion.replace('"Cargar anteriores"', '"Ver diferencias"'),
       abrir: `${conversacion}\nexport const X = () => <button>Abrir en ERP</button>;\n`,
-      ventas: `${conversacion}\nconst t = "Ventas de hoy";\n`,
+      ventasFueraDeLugar: `${conversacion}\nconst t = "Ventas de hoy";\n`,
+      ventasAyer: `${conversacion}\nconst t2 = "Ventas de ayer";\n`,
+      verDetalle: `${conversacion}\nexport const D = () => <button>Ver detalle</button>;\n`,
+      comparar: `${conversacion}\nexport const C = () => <button>Comparar</button>;\n`,
+      pregunta: `${conversacion}\nconst ph = "Preguntá sobre este local…";\n`,
+      campo: `${conversacion}\nexport const I = () => <input placeholder="x" />;\n`,
+      chipCaja: `${conversacion}\nexport const K = () => <button className="ac-chip">Caja</button>;\n`,
+      chipStock: `${conversacion}\nconst chips = ["Ventas", "Stock"];\n`,
+      chipPedidos: `${conversacion}\nexport const P = () => <button>\n  Pedidos\n</button>;\n`,
+      chipTransferencias: `${conversacion}\nconst tr = 'Transferencias';\n`,
       ultima: `${conversacion}\nconst u = "Última transferencia";\n`,
       p1: `${conversacion}\nconst v = "Podés leer historial.";\n`,
       intervalo: `${conversacion}\nsetInterval(() => {}, 30000);\n`,
@@ -83,6 +119,12 @@ describe("alcance de la interfaz de chats", () => {
       assert.notEqual(codigo, conversacion, nombre);
       assert.notDeepEqual(problemas({ ...arbol, "src/components/chats/Conversacion.tsx": codigo }), [], nombre);
     }
+    // El permiso es SOLO el título en su archivo: ahí mismo, lo demás sigue en rojo.
+    const formato = arbol[TEXTO_PERMITIDO.archivo]!;
+    assert.ok(formato.includes(TEXTO_PERMITIDO.texto), "el título de la tarjeta está donde el permiso dice");
+    assert.notDeepEqual(problemas({ ...arbol, [TEXTO_PERMITIDO.archivo]: `${formato}\nexport const x = "Comparar";\n` }), [], "formato con Comparar");
+    // Un texto que solo CONTIENE el nombre de un chip no es el chip: "Transferencia #182 recibida" sigue bien.
+    assert.deepEqual(problemas({ ...arbol, "src/components/chats/Conversacion.tsx": `${conversacion}\nconst ok = "Transferencias recibidas hoy";\n` }), []);
     // En prosa no cuenta: el código se mira sin comentarios.
     const conComentario = sinComentarios(`${conversacion}\n// todavía no hay "Ver diferencias" ni setInterval\n`);
     assert.deepEqual(problemas({ ...arbol, "src/components/chats/Conversacion.tsx": conComentario }), []);

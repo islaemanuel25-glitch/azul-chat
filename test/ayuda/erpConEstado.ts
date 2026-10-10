@@ -20,6 +20,8 @@
 //     esa persona anuncia `transferencias_eventos` para ese local y grupo
 //     (si no, el NO_AUTORIZADO real de `cajeroSinPermiso`) y pagina sobre los
 //     eventos que el test cargó para ese local (test/ayuda/paginadorErp.ts);
+//     `ventas_resumen` contesta lo que el test cargó en `respuestasVentas` y,
+//     si no cargó nada, DATOS_ERP;
 //   · modos para simular caída (503 del ERP) y cuelgue (no contesta).
 //
 // Los cuerpos de respuesta y de error son los del fixture generado ejecutando
@@ -37,6 +39,8 @@ const VENTANA_S = 300;
 
 export type ModoErp = "normal" | "caido" | "colgado";
 
+export type RespuestaVentasCargada = { readonly status: number; readonly cuerpo: unknown } | { readonly colgar: true };
+
 type VinculoErp = { usuarioId: number; vinculoId: number; codigo: string; token: string | null; revocado: boolean };
 
 export type ErpConEstado = ServidorErp & {
@@ -47,6 +51,8 @@ export type ErpConEstado = ServidorErp & {
   readonly respuestasEventos: { status: number; cuerpo: unknown }[];
   /** Una respuesta fija de `transferencias_eventos` para un local (por id), mientras esté cargada: un local que falla y otros que no. */
   readonly respuestaParaLocal: Map<number, { status: number; cuerpo: unknown }>;
+  /** Lo que contesta `ventas_resumen`, en orden, a un token vigente; `colgar`: esa no contesta. Vacía: DATOS_ERP (salida real de armarVentasResumen). */
+  readonly respuestasVentas: RespuestaVentasCargada[];
   /** Los eventos que el ERP tiene de cada local (por id), para paginar. */
   readonly eventosPorLocal: Map<number, EventoTransferenciaRecibida[]>;
   /** Lo que la persona hace en el ERP: generar un código. */
@@ -84,6 +90,7 @@ export async function levantarErpConEstado(): Promise<ErpConEstado> {
   const respuestasEventos: { status: number; cuerpo: unknown }[] = [];
   const eventosPorLocal = new Map<number, EventoTransferenciaRecibida[]>();
   const respuestaParaLocal = new Map<number, { status: number; cuerpo: unknown }>();
+  const respuestasVentas: RespuestaVentasCargada[] = [];
 
   const estado = { modo: "normal" as ModoErp };
 
@@ -124,7 +131,13 @@ export async function levantarErpConEstado(): Promise<ErpConEstado> {
         if (!datos) return responderErrorErp(res, "NO_AUTORIZADO");
         return responderJson(res, 200, { ok: true, datos });
       }
-      if (cuerpo.capacidad === "ventas_resumen") return responderJson(res, 200, { ok: true, datos: DATOS_ERP });
+      if (cuerpo.capacidad === "ventas_resumen") {
+        // Tanda 3A: una respuesta cargada por el test (un error del fixture, una forma rota) va primero.
+        const r = respuestasVentas.shift();
+        if (r && "colgar" in r) return; // solo esta consulta no contesta: el cliente corta por tiempo
+        if (r) return responderJson(res, r.status, r.cuerpo);
+        return responderJson(res, 200, { ok: true, datos: DATOS_ERP });
+      }
       if (cuerpo.capacidad === "transferencias_eventos") {
         // Las páginas las carga el test, salidas del fixture generado con el ERP (erp-25172fe.json).
         const r = respuestasEventos.shift();
@@ -163,6 +176,7 @@ export async function levantarErpConEstado(): Promise<ErpConEstado> {
     respuestasEventos,
     eventosPorLocal,
     respuestaParaLocal,
+    respuestasVentas,
     emitirCodigo(usuarioId: number) {
       // Como autorizarVinculo: revoca el vigente y crea otro, en el mismo paso.
       for (const x of vinculos) if (x.usuarioId === usuarioId) x.revocado = true;

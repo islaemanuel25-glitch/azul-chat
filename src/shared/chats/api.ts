@@ -82,7 +82,12 @@ export type RespuestaChats =
 export type RespuestaLocal =
   | {
       readonly estado: "OK";
-      readonly local: { readonly localId: number; readonly nombre: string; readonly esDeposito: boolean };
+      /**
+       * `ventas`: el `mi_alcance` de ESTA solicitud anuncia `ventas_resumen` en
+       * este local. Es un anuncio para mostrar el botón, no una autorización:
+       * GET /api/chats/ventas lo vuelve a decidir con el ERP.
+       */
+      readonly local: { readonly localId: number; readonly nombre: string; readonly esDeposito: boolean; readonly ventas: boolean };
       readonly sincronizacion: EstadoSincronizacion;
       readonly noLeidos: number;
       /** Hasta qué evento leyó la persona (id como texto). */
@@ -117,10 +122,31 @@ export type RespuestaLeido =
     }
   | FallaChats;
 
+/**
+ * GET /api/chats/ventas?localId=… — las ventas de HOY de un local, como las
+ * calcula el ERP en esta solicitud. Nada se guarda. Los montos son el decimal
+ * en texto del ERP, tal cual: la interfaz los formatea sin pasar por number.
+ */
+export type RespuestaVentas =
+  | {
+      readonly estado: "OK";
+      /** El nombre de HOY, de `mi_alcance`: el mismo que el encabezado del chat. */
+      readonly local: { readonly id: number; readonly nombre: string };
+      /** Días de calendario "AAAA-MM-DD" en la zona del ERP. Hoy: desde = hasta. */
+      readonly periodo: { readonly desde: string; readonly hasta: string };
+      readonly cantidadVentas: number;
+      readonly totalVendido: string;
+      readonly mediosDePago: readonly { readonly medio: string; readonly etiqueta: string; readonly total: string; readonly cantidadPagos: number }[];
+      /** Avisos del ERP para mostrar tal cual (p. ej. que el día todavía no terminó). */
+      readonly advertencias: readonly { readonly codigo: string; readonly mensaje: string }[];
+    }
+  | FallaChats;
+
 /** Las rutas, para la interfaz. */
 export const RUTAS_CHATS = Object.freeze({
   chats: "/api/chats",
   local: "/api/chats/local",
   general: "/api/chats/general",
   leido: "/api/chats/leido",
+  ventas: "/api/chats/ventas",
 });

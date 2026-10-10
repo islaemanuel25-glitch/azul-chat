@@ -829,7 +829,15 @@ describe("la lectura que decide la interfaz, contra el servidor (Tanda 2C)", () 
     eventos: r.eventos,
     siguiente: r.siguiente,
     anteriores: "QUIETO",
-    info: { tipo: "LOCAL", localId: r.local.localId, nombre: r.local.nombre, sincronizacion: r.sincronizacion, leidoHasta: r.leidoHasta, noLeidos: r.noLeidos },
+    info: {
+      tipo: "LOCAL",
+      localId: r.local.localId,
+      nombre: r.local.nombre,
+      sincronizacion: r.sincronizacion,
+      leidoHasta: r.leidoHasta,
+      noLeidos: r.noLeidos,
+      ventas: r.local.ventas,
+    },
   });
 
   it("AL/AC/AD/AP. 40 nuevos y 30 en la primera página: no marca; con las anteriores cargadas marca hasta el mayor mostrado; lo que llegó después sigue sin leer", async () => {

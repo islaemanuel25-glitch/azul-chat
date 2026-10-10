@@ -1,14 +1,17 @@
 // src/server/chats/manejadores.ts
 //
-// LAS CUATRO RUTAS DE CHATS. Las de src/app solo delegan acá.
+// LAS CINCO RUTAS DE CHATS. Las de src/app solo delegan acá.
 //
 //   GET  /api/chats                          la lista: General y cada local autorizado
 //   GET  /api/chats/local?localId=&cursor=   el historial de un local
 //   GET  /api/chats/general?cursor=          el historial de todos los locales autorizados
 //   POST /api/chats/leido                    marcar leído, explícito
+//   GET  /api/chats/ventas?localId=          las ventas de hoy de un local (Tanda 3A)
 //
-// Todas: sesión → `mi_alcance` vivo, UNA vez → locales con
+// Las cuatro primeras: sesión → `mi_alcance` vivo, UNA vez → locales con
 // `transferencias_eventos` → recién ahí la base. La base no autoriza nada.
+// Ventas: sesión → `mi_alcance` vivo → local con `ventas_resumen` → el ERP;
+// no toca Evento ni LecturaLocal.
 //
 // Los GET sincronizan lo que haga falta (frecuencia mínima de ingesta) y crean
 // la línea de base de lectura la primera vez que la persona ve un local
@@ -27,8 +30,9 @@ import type {
   RespuestaGeneral,
   RespuestaLeido,
   RespuestaLocal,
+  RespuestaVentas,
 } from "../../shared/chats/api.ts";
-import type { ResultadoConsulta } from "../../shared/erp/contrato.ts";
+import type { DatosVentasResumen, ResultadoConsulta } from "../../shared/erp/contrato.ts";
 import { contarNoLeidos, avanzarLectura, inicializarLectura, leerLectura } from "../eventos/lectura.ts";
 import { leerObjetoJson } from "../http/cuerpo.ts";
 import { origenPermitido } from "../http/origen.ts";
@@ -36,7 +40,8 @@ import { json } from "../http/respuestas.ts";
 import { cookieBorrada } from "../sesion/cookie.ts";
 import type { ResultadoDelegado } from "../sesion/delegacion.ts";
 import type { DependenciasSesion } from "../sesion/dependencias.ts";
-import { conAutorizacionViva, type Autorizacion } from "./autorizacion.ts";
+import { ventasResumenDeSesion } from "../ventas/ventasResumen.ts";
+import { conAutorizacionViva, type Autorizacion, type LocalAutorizado } from "./autorizacion.ts";
 import { decodificarCursor, leerIdEvento, masReciente, paginaDeHistorial, ultimoEventoDe, type PosicionHistorial } from "./historial.ts";
 import { sincronizarAutorizados, type LocalSincronizado } from "./sincronizacion.ts";
 
@@ -184,7 +189,7 @@ export function manejarLocal(request: Request, deps: DependenciasSesion): Promis
     const pagina = await paginaDeHistorial(db, config.instalacionId, [localId], desde);
     return ok<RespuestaLocal>({
       estado: "OK",
-      local: { localId, nombre: local.nombre, esDeposito: local.esDeposito },
+      local: { localId, nombre: local.nombre, esDeposito: local.esDeposito, ventas: a.conVentas.some((l) => l.localId === localId) },
       sincronizacion: local.sincronizacion,
       noLeidos: await contarNoLeidos(db, sesion.vinculo.id, localId),
       leidoHasta: ((await leerLectura(db, sesion.vinculo.id, localId)) ?? 0n).toString(),
@@ -263,4 +268,75 @@ export async function manejarLeido(request: Request, deps: DependenciasSesion): 
     });
     return ok<RespuestaLeido>({ estado: "OK", lecturas });
   });
+}
+
+// ── GET /api/chats/ventas ───────────────────────────────────────────────────
+//
+// Las ventas de HOY de un local (Tanda 3A). Dos pasos, sin reintentos:
+//
+//   1. autorización viva: el local tiene que estar en el `mi_alcance` de ahora
+//      y anunciar `ventas_resumen`. Si no, NO_AUTORIZADO, igual que chats/local.
+//      El `grupoId` sale de ahí, nunca del navegador;
+//   2. `ventasResumenDeSesion` con período "hoy". El ERP vuelve a decidir.
+//      VINCULO_NO_VALIDO revoca (lo hace conDelegacion); cualquier otro
+//      rechazo —caído, lento, NO_AUTORIZADO, respuesta ilegible— es
+//      ERP_NO_DISPONIBLE y la sesión queda como está.
+//
+// Nada se guarda. Los números son los del ERP, copiados campo por campo; si la
+// respuesta no es del local y del período pedidos, no se muestra nada.
+
+/** Lo que el ERP contestó → lo que ve el navegador, o null si no es lo que se pidió. */
+export function ventasPublicas(d: DatosVentasResumen, local: LocalAutorizado): Extract<RespuestaVentas, { estado: "OK" }> | null {
+  if (d.local.id !== local.localId || d.grupoId !== local.grupoId || d.periodo.tipo !== "hoy") return null;
+  return {
+    estado: "OK",
+    local: { id: local.localId, nombre: local.nombre },
+    periodo: { desde: d.periodo.desde, hasta: d.periodo.hasta },
+    cantidadVentas: d.cantidadVentas,
+    totalVendido: d.totalVendido,
+    mediosDePago: d.mediosDePago.map((m) => ({ medio: m.medio, etiqueta: m.etiqueta, total: m.total, cantidadPagos: m.cantidadPagos })),
+    advertencias: d.advertencias.map((a) => ({ codigo: a.codigo, mensaje: a.mensaje })),
+  };
+}
+
+export async function manejarVentas(request: Request, deps: DependenciasSesion): Promise<Response> {
+  const p = parametros(request, ["localId"]);
+  const crudo = p?.get("localId");
+  if (!p || !crudo || !LOCAL_ID.test(crudo)) return falla({ estado: "SOLICITUD_INVALIDA" }, request, deps);
+  const localId = Number(crudo);
+
+  let autorizacion: ResultadoDelegado<Trabajo<LocalAutorizado>>;
+  try {
+    autorizacion = await conAutorizacionViva(request.headers, deps, async (a) => {
+      const local = a.conVentas.find((l) => l.localId === localId);
+      return local ? ok(local) : localNoAutorizado();
+    });
+  } catch {
+    deps.registrar({ evento: "sesion.falla_local", etapa: "base" });
+    return falla({ estado: "SERVICIO_NO_DISPONIBLE" }, request, deps);
+  }
+  if (autorizacion.tipo !== "OK") return falla(fallaDeDelegacion(autorizacion), request, deps);
+  if (autorizacion.datos.tipo === "NO_AUTORIZADO") return falla({ estado: "NO_AUTORIZADO" }, request, deps);
+  const local = autorizacion.datos.respuesta;
+
+  let r: ResultadoDelegado<DatosVentasResumen>;
+  try {
+    r = await ventasResumenDeSesion(request.headers, { alcance: { grupoId: local.grupoId, localId }, periodo: { tipo: "hoy" } }, deps);
+  } catch {
+    deps.registrar({ evento: "sesion.falla_local", etapa: "base" });
+    return falla({ estado: "SERVICIO_NO_DISPONIBLE" }, request, deps);
+  }
+  switch (r.tipo) {
+    case "SIN_SESION":
+      return falla(r.vinculoInvalidado ? { estado: "SIN_SESION", motivo: "VINCULO_INVALIDO" } : { estado: "SIN_SESION" }, request, deps);
+    case "SERVICIO_NO_DISPONIBLE":
+      return falla({ estado: "SERVICIO_NO_DISPONIBLE" }, request, deps);
+    case "RECHAZO_ERP":
+      // Por código, no por texto: ninguno de estos dice algo del vínculo, así que la sesión sigue.
+      return falla({ estado: "ERP_NO_DISPONIBLE" }, request, deps);
+    case "OK": {
+      const publica = ventasPublicas(r.datos, local);
+      return publica ? json(publica) : falla({ estado: "ERP_NO_DISPONIBLE" }, request, deps);
+    }
+  }
 }

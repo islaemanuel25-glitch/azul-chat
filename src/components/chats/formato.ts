@@ -88,6 +88,38 @@ export function diaDe(iso: string, zona?: string): string {
   return claveDeDia(new Date(iso), zona);
 }
 
+// ── Ventas (Tanda 3A) ───────────────────────────────────────────────────────
+
+/** "Ventas de hoy · Casiano". */
+export function tituloDeVentas(nombreLocal: string): string {
+  return `Ventas de hoy · ${nombreLocal}`;
+}
+
+/** "1 venta", "347 ventas", "1.234 ventas". */
+export function cantidadDeVentas(n: number): string {
+  return n === 1 ? "1 venta" : `${n.toLocaleString(IDIOMA)} ventas`;
+}
+
+const DECIMAL_ERP = /^(-?)(\d+)\.(\d{2})$/;
+
+/**
+ * Un monto del ERP ("1850320.00") como moneda es-AR ("$ 1.850.320,00"), sobre
+ * el TEXTO: no pasa por number, así que no redondea ni pierde centavos. Lo que
+ * no tiene la forma del contrato se muestra tal cual, sin inventar.
+ */
+export function formatearMonto(decimal: string): string {
+  const m = DECIMAL_ERP.exec(decimal);
+  if (!m) return decimal;
+  const [, signo, entero, centavos] = m as unknown as [string, string, string, string];
+  const conMiles = entero.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  return `${signo}$ ${conMiles},${centavos}`;
+}
+
+/** "Efectivo · $ 620.000,00". */
+export function lineaDeMedioDePago(m: { readonly etiqueta: string; readonly total: string }): string {
+  return `${m.etiqueta} · ${formatearMonto(m.total)}`;
+}
+
 /** Dos letras para el avatar: "Casiano Casas" → "CC", "Casiano" → "CA". */
 export function iniciales(nombre: string): string {
   const palabras = nombre.trim().split(/\s+/).filter(Boolean);
