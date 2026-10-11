@@ -20,6 +20,16 @@ export const MAX_LARGO_PREGUNTA = 300;
 export const TIPOS_DE_EVENTO_PREGUNTA = ["recibidas", "recibidas_con_diferencias", "enviadas", "pedidos", "cancelaciones"] as const;
 export type TipoEventoPregunta = (typeof TIPOS_DE_EVENTO_PREGUNTA)[number];
 
+/**
+ * Tanda 6B: lo que una pregunta puede pedir y el sistema TODAVÍA NO SABE
+ * SEPARAR (ventas_resumen del ERP no filtra por turno, ni por hora, ni por
+ * vendedor…). La IA marca cuáles pidió la pregunta; el código contesta igual
+ * con el período completo y la interfaz lo DICE con un aviso fijo. Nunca se
+ * muestra un total como si respondiera algo que no responde.
+ */
+export const RESTRICCIONES_NO_SOPORTADAS = ["turno", "hora", "vendedor", "producto", "categoria", "medio_de_pago", "cliente"] as const;
+export type RestriccionNoSoportada = (typeof RESTRICCIONES_NO_SOPORTADAS)[number];
+
 /** Un período ya resuelto a días de calendario de Argentina ("AAAA-MM-DD"). Hoy: desde = hasta. */
 export type PeriodoPregunta = { readonly tipo: "hoy" | "ayer" | "rango"; readonly desde: string; readonly hasta: string };
 
@@ -41,7 +51,14 @@ export type TotalVentas = {
 
 export type RespuestaPregunta =
   /** Ventas de UN local. */
-  | { readonly estado: "VENTAS"; readonly alcance: "LOCAL"; readonly periodo: PeriodoPregunta; readonly ventas: VentasDeUnLocal }
+  | {
+      readonly estado: "VENTAS";
+      readonly alcance: "LOCAL";
+      readonly periodo: PeriodoPregunta;
+      readonly ventas: VentasDeUnLocal;
+      /** Tanda 6B: lo que la pregunta pidió y la respuesta NO separa. Vacío: nada. La interfaz lo avisa. */
+      readonly noSeparaPor: readonly RestriccionNoSoportada[];
+    }
   /**
    * Ventas de todos los locales con `ventas_resumen` hoy. `total` es null si
    * alguno falló: un total parcial no se muestra como si fuera completo.
@@ -51,6 +68,7 @@ export type RespuestaPregunta =
       readonly estado: "VENTAS";
       readonly alcance: "TODOS";
       readonly periodo: PeriodoPregunta;
+      readonly noSeparaPor: readonly RestriccionNoSoportada[];
       readonly total: TotalVentas | null;
       readonly locales: readonly VentasDeUnLocal[];
       readonly fallidos: readonly { readonly id: number; readonly nombre: string }[];
@@ -62,6 +80,7 @@ export type RespuestaPregunta =
       /** null: todos los locales autorizados con esa capacidad. */
       readonly local: { readonly localId: number; readonly nombre: string } | null;
       readonly periodo: PeriodoPregunta;
+      readonly noSeparaPor: readonly RestriccionNoSoportada[];
       readonly cantidad: number;
       readonly eventos: readonly EventoGeneral[];
       readonly restantes: number;

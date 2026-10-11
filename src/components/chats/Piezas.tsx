@@ -169,15 +169,31 @@ type VentasParaTarjeta = Pick<Extract<RespuestaVentas, { estado: "OK" }>, "total
 /**
  * Las ventas como las dio el ERP. Sin acciones adentro. El título es el de
  * hoy salvo que se diga otro (Tanda 6A: ayer, un rango, todos los locales);
- * `children` va al final (6A: una línea por local).
+ * `children` va al final (6A: una línea por local). Tanda 6B: `aviso` va
+ * arriba de todo (lo que la respuesta no separa) y `subtituloMedios`, si
+ * viene, encabeza las líneas de medios de pago.
  */
-export function TarjetaVentas({ ventas, titulo, children }: { ventas: VentasParaTarjeta; titulo?: string; children?: ReactNode }) {
+export function TarjetaVentas({
+  ventas,
+  titulo,
+  aviso = null,
+  subtituloMedios,
+  children,
+}: {
+  ventas: VentasParaTarjeta;
+  titulo?: string;
+  aviso?: string | null;
+  subtituloMedios?: string;
+  children?: ReactNode;
+}) {
   const t = titulo ?? tituloDeVentas(ventas.local.nombre);
   return (
     <article className="ac-ventas" aria-label={t}>
+      {aviso && <AvisoDeRespuesta texto={aviso} />}
       <p className="ac-ventas__titulo">{t}</p>
       <p className="ac-ventas__total">{formatearMonto(ventas.totalVendido)}</p>
       <p className="ac-ventas__linea">{cantidadDeVentas(ventas.cantidadVentas)}</p>
+      {subtituloMedios && ventas.mediosDePago.length > 0 && <SubtituloDeTarjeta texto={subtituloMedios} />}
       {ventas.mediosDePago.map((m) => (
         <p key={m.medio} className="ac-ventas__linea">
           {lineaDeMedioDePago(m)}
@@ -191,6 +207,20 @@ export function TarjetaVentas({ ventas, titulo, children }: { ventas: VentasPara
       {children}
     </article>
   );
+}
+
+/** Tanda 6B: lo que una respuesta no separa, arriba de la tarjeta. El texto lo arma `avisoNoSepara`. */
+export function AvisoDeRespuesta({ texto }: { texto: string }) {
+  return (
+    <p className="ac-ventas__aviso" role="note">
+      {texto}
+    </p>
+  );
+}
+
+/** Tanda 6B: un subtítulo dentro de una tarjeta ("Por medio de pago", "Por local"). */
+export function SubtituloDeTarjeta({ texto }: { texto: string }) {
+  return <p className="ac-ventas__subtitulo">{texto}</p>;
 }
 
 /**

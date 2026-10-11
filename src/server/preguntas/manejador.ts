@@ -219,6 +219,7 @@ export async function eventosDePregunta(
     tipo: intencion.tipoEvento,
     local: local ? { localId: local.localId, nombre: local.nombre } : null,
     periodo: intencion.periodo,
+    noSeparaPor: intencion.noSeparaPor,
     cantidad,
     eventos: filas.map((f) => ({ ...aEventoPublico(f), local: { localId: f.erpLocalId, nombre: nombre.get(f.erpLocalId)! } })),
     restantes: Math.max(0, cantidad - filas.length),
@@ -270,12 +271,13 @@ export async function ventasDePregunta(headers: Headers, deps: DependenciasSesio
 
   if (bien.length === 0) return { falla: primeraFalla ?? { estado: "ERP_NO_DISPONIBLE" } };
   const periodoFinal = periodoDelErp ?? intencion.periodo;
-  if (!intencion.todos) return { respuesta: { estado: "VENTAS", alcance: "LOCAL", periodo: periodoFinal, ventas: bien[0]! } };
+  if (!intencion.todos) return { respuesta: { estado: "VENTAS", alcance: "LOCAL", periodo: periodoFinal, ventas: bien[0]!, noSeparaPor: intencion.noSeparaPor } };
   return {
     respuesta: {
       estado: "VENTAS",
       alcance: "TODOS",
       periodo: periodoFinal,
+      noSeparaPor: intencion.noSeparaPor,
       total: fallidos.length === 0 ? sumarVentas(bien) : null,
       locales: bien,
       fallidos,

@@ -25,9 +25,9 @@ import { useCallback, useEffect, useReducer, useRef, useState, type FormEvent } 
 
 import { MAX_LARGO_PREGUNTA } from "../../shared/chats/preguntas.ts";
 import { preguntar, type FallaCliente, type RespuestaDePregunta } from "./clienteChats.ts";
-import { cantidadDeEventos, etiquetaDePeriodo, formatearHora, formatearMonto, tituloDeVentasDe } from "./formato.ts";
+import { avisoNoSepara, cantidadDeEventos, etiquetaDePeriodo, formatearHora, formatearMonto, tituloDeVentasDe } from "./formato.ts";
 import { destinoDeFalla, hayPreguntaEnCurso, reducirPreguntas, type IntercambioDePregunta } from "./logica.ts";
-import { TarjetaEvento, TarjetaVentas, TEXTO_CUPO_ERP } from "./Piezas.tsx";
+import { AvisoDeRespuesta, SubtituloDeTarjeta, TarjetaEvento, TarjetaVentas, TEXTO_CUPO_ERP } from "./Piezas.tsx";
 
 /** El texto de la caja según dónde se pregunta. */
 export const TEXTO_CAJA = Object.freeze({ local: "Preguntá sobre este local…", general: "Preguntá sobre tus locales…" });
@@ -86,6 +86,16 @@ function TarjetaFalla({ texto, alReintentar, enEspera = false }: { texto: string
   );
 }
 
+/** Tanda 6B: los subtítulos de la tarjeta de todos los locales. */
+export const TEXTO_POR_MEDIO = "Por medio de pago";
+export const TEXTO_POR_LOCAL = "Por local";
+
+/** Tanda 6B: el aviso de lo que la respuesta no separa, o nada. */
+function AvisoNoSepara({ periodo, noSeparaPor }: { periodo: Parameters<typeof avisoNoSepara>[0]; noSeparaPor: Parameters<typeof avisoNoSepara>[1] }) {
+  const texto = avisoNoSepara(periodo, noSeparaPor);
+  return texto ? <AvisoDeRespuesta texto={texto} /> : null;
+}
+
 /** Lo que contestó la pregunta, dibujado con las piezas de siempre. */
 export function RespuestaDePreguntaVista({
   respuesta,
@@ -98,11 +108,19 @@ export function RespuestaDePreguntaVista({
 }) {
   switch (respuesta.estado) {
     case "VENTAS":
-      if (respuesta.alcance === "LOCAL") return <TarjetaVentas ventas={respuesta.ventas} titulo={tituloDeVentasDe(respuesta.periodo, respuesta.ventas.local.nombre)} />;
+      if (respuesta.alcance === "LOCAL")
+        return (
+          <TarjetaVentas
+            ventas={respuesta.ventas}
+            titulo={tituloDeVentasDe(respuesta.periodo, respuesta.ventas.local.nombre)}
+            aviso={avisoNoSepara(respuesta.periodo, respuesta.noSeparaPor)}
+          />
+        );
       return <TarjetaVentasTodos respuesta={respuesta} />;
     case "EVENTOS":
       return (
         <article className="ac-ventas" aria-label={cantidadDeEventos(respuesta.tipo, respuesta.cantidad)}>
+          <AvisoNoSepara periodo={respuesta.periodo} noSeparaPor={respuesta.noSeparaPor} />
           <p className="ac-ventas__titulo">
             {respuesta.local ? respuesta.local.nombre : "Todos los locales"} · {etiquetaDePeriodo(respuesta.periodo)}
           </p>
@@ -142,26 +160,37 @@ export function RespuestaDePreguntaVista({
   }
 }
 
-/** Todos los locales: el total (si están todos) y una línea por local; si alguno falló, cuáles, y sin total. */
+/**
+ * Todos los locales (Tanda 6B, ordenada): el total y la cantidad arriba;
+ * "Por medio de pago" con sus líneas; "Por local" con una línea por local. Si
+ * alguno falló, cuáles, y sin total (ni medios: serían de una suma parcial).
+ */
 function TarjetaVentasTodos({ respuesta }: { respuesta: Extract<RespuestaDePregunta, { estado: "VENTAS"; alcance: "TODOS" }> }) {
   const titulo = tituloDeVentasDe(respuesta.periodo, "Todos los locales");
-  const porLocal = respuesta.locales.map((l) => (
-    <p key={l.local.id} className="ac-ventas__linea">
-      {l.local.nombre} · {formatearMonto(l.totalVendido)}
-    </p>
-  ));
+  const aviso = avisoNoSepara(respuesta.periodo, respuesta.noSeparaPor);
+  const porLocal = (
+    <>
+      <SubtituloDeTarjeta texto={TEXTO_POR_LOCAL} />
+      {respuesta.locales.map((l) => (
+        <p key={l.local.id} className="ac-ventas__linea">
+          {l.local.nombre} · {formatearMonto(l.totalVendido)}
+        </p>
+      ))}
+    </>
+  );
   const fallidos = respuesta.fallidos.length > 0 && (
     <p className="ac-ventas__advertencia">No se pudo consultar: {respuesta.fallidos.map((f) => f.nombre).join(", ")}. Sin total: faltan locales.</p>
   );
   if (respuesta.total) {
     return (
-      <TarjetaVentas ventas={{ ...respuesta.total, local: { nombre: "Todos los locales" } }} titulo={titulo}>
+      <TarjetaVentas ventas={{ ...respuesta.total, local: { nombre: "Todos los locales" } }} titulo={titulo} aviso={aviso} subtituloMedios={TEXTO_POR_MEDIO}>
         {porLocal}
       </TarjetaVentas>
     );
   }
   return (
     <article className="ac-ventas" aria-label={titulo}>
+      <AvisoNoSepara periodo={respuesta.periodo} noSeparaPor={respuesta.noSeparaPor} />
       <p className="ac-ventas__titulo">{titulo}</p>
       {porLocal}
       {fallidos}

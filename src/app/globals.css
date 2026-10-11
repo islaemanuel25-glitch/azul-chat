@@ -592,6 +592,20 @@ body {
   font-size: var(--ac-letra-mini);
 }
 
+/* Tanda 6B: lo que la respuesta no separa, arriba; y los subtítulos de la tarjeta de todos. */
+.ac-ventas__aviso {
+  font-size: var(--ac-letra-mini);
+  font-weight: 600;
+}
+
+/* Con la especificidad de `.ac-ventas p`, que le quita el margen a todo párrafo. */
+.ac-ventas .ac-ventas__subtitulo {
+  margin-top: var(--ac-espacio-1);
+  color: var(--ac-color-texto-suave);
+  font-size: var(--ac-letra-mini);
+  font-weight: 600;
+}
+
 .ac-ventas__falla {
   font-size: var(--ac-letra-chica);
   font-weight: 600;
