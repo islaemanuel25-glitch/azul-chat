@@ -23,12 +23,14 @@ import { useEffect, useState, type FormEvent } from "react";
 
 import type { EstadoSesion, RespuestaCerrar, RespuestaVincular } from "../../shared/sesion/api.ts";
 import { FilaNotificaciones } from "../push/FilaNotificaciones.tsx";
+import { anotarCommitDe } from "../chats/version.ts";
 
 const RUTA_SESION = "/api/sesion";
 const RUTA_VINCULAR = "/api/sesion/vincular";
 
 async function pedirEstado(): Promise<EstadoSesion> {
   const res = await fetch(RUTA_SESION, { cache: "no-store", credentials: "same-origin" });
+  anotarCommitDe(res); // Tanda 6D: el commit de cada respuesta (chats/version.ts)
   if (!res.ok) return { estado: "SERVICIO_NO_DISPONIBLE" };
   return (await res.json()) as EstadoSesion;
 }
@@ -81,6 +83,7 @@ export function PanelSesion({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ codigo: enviado }),
       });
+      anotarCommitDe(res);
       const r = (await res.json().catch(() => null)) as RespuestaVincular | null;
       if (!r || !r.ok) {
         setMensaje(r?.mensaje ?? `No se pudo vincular (error ${res.status}).`);
@@ -100,6 +103,7 @@ export function PanelSesion({
     setTrabajando(true);
     try {
       const res = await fetch(RUTA_SESION, { method: "DELETE", credentials: "same-origin", cache: "no-store" });
+      anotarCommitDe(res);
       const r = (await res.json().catch(() => null)) as RespuestaCerrar | null;
       if (!r || !r.ok) setMensaje(r?.mensaje ?? `No se pudo cerrar la sesión (error ${res.status}).`);
       await recargar();
