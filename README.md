@@ -82,9 +82,10 @@ no toca a los demás.
     (`APP_BUILD_ID`).
 - `src/components/` — interfaz. **No pueden importar `src/server`.**
   - `chats/` — la app móvil (Tanda 2C): la lista de chats, un Local, General y
-    sus estados, y el botón "Ventas" de un Local (Tanda 3A), con un único
-    cliente HTTP (`clienteChats.ts`) para las cinco rutas de chats. Descrita en
-    `docs/INTERFAZ.md`.
+    sus estados, el botón "Ventas" de un Local (Tanda 3A) y la recarga al
+    cambiar de versión (`version.ts`, Tanda 3B), con un único cliente HTTP
+    (`clienteChats.ts`) para las cinco rutas de chats y `/api/version`.
+    Descrita en `docs/INTERFAZ.md`.
   - `sesion/PanelSesion.tsx` — vincular, ver la sesión y cerrarla.
   - `shell/ShellMovil.tsx` — el marco: encabezado fijo, volver y acciones.
 - `src/shared/` — tipos y validaciones que puede usar la interfaz. Sin secretos ni red.
@@ -126,6 +127,9 @@ Procedimiento completo, con PRE, DEPLOY, nginx, POST, rollback y backups:
 - `ops/produccion/*.env.example` — las variables de producción, sin valores.
 - `ops/prisma-cli/` — el CLI de Prisma de la imagen, con su lockfile.
 - `ops/backup/backup-azul-chat.sh` — `pg_dump` verificado y rotado.
+- `ops/backup/systemd/` — el `.service` y el `.timer` de usuario que lo corren
+  una vez por día (04:15, Argentina); instalados en el VPS, se reinstalan desde
+  acá (`docs/DEPLOY.md`, Backups).
 - `.github/workflows/imagen.yml` — publica la imagen en GHCR por SHA completo,
   solo después de que la CI pasó en `main`. No despliega.
 

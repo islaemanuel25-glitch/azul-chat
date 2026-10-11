@@ -1,4 +1,5 @@
 // EL NAVEGADOR HABLA CON LAS CINCO RUTAS DE CHATS DESDE ACÁ, Y SOLO DESDE ACÁ.
+// Y, desde la Tanda 3B, con GET /api/version, para la recarga por versión.
 //
 // Las rutas son las propias de Azul Chat (docs/CHATS.md); este archivo no sabe
 // nada del ERP, ni de la delegación, ni de tokens: la sesión va en una cookie
@@ -18,6 +19,11 @@ const RUTA_LOCAL = "/api/chats/local";
 const RUTA_GENERAL = "/api/chats/general";
 const RUTA_LEIDO = "/api/chats/leido";
 const RUTA_VENTAS = "/api/chats/ventas";
+/** Tanda 3B: el commit que sirve el servidor, para recargar una pestaña que quedó con el JS de otro despliegue. */
+const RUTA_VERSION = "/api/version";
+
+/** Cuánto se espera a /api/version antes de darlo por fallido. Sin temporizadores propios: lo corta el navegador. */
+export const ESPERA_VERSION_MS = 5000;
 
 export const RUTAS_DEL_CLIENTE = Object.freeze({ chats: RUTA_CHATS, local: RUTA_LOCAL, general: RUTA_GENERAL, leido: RUTA_LEIDO, ventas: RUTA_VENTAS });
 
@@ -88,4 +94,22 @@ export function marcarLeido(pedido: PedidoLeido) {
     () => fetch(RUTA_LEIDO, { ...OPCIONES, method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(pedido) }),
     undefined,
   );
+}
+
+const SHA_COMPLETO = /^[0-9a-f]{40}$/;
+
+/**
+ * GET /api/version → el commit que sirve el servidor, o null si no se pudo
+ * saber: red caída, más de ESPERA_VERSION_MS, una respuesta que no es buena o
+ * un commit sin forma de SHA completo. Null nunca provoca una recarga.
+ */
+export async function pedirVersion(): Promise<string | null> {
+  try {
+    const res = await fetch(RUTA_VERSION, { ...OPCIONES, signal: AbortSignal.timeout(ESPERA_VERSION_MS) });
+    if (!res.ok) return null;
+    const cuerpo = (await res.json()) as { servicio?: unknown; commit?: unknown } | null;
+    return cuerpo?.servicio === "azul-chat" && typeof cuerpo.commit === "string" && SHA_COMPLETO.test(cuerpo.commit) ? cuerpo.commit : null;
+  } catch {
+    return null;
+  }
 }

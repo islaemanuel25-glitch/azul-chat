@@ -281,3 +281,85 @@ describe("los ejemplos de entorno de producción", () => {
     for (const f of ["ops/produccion/app.env.example", "ops/produccion/db.env.example"]) assert.equal(ignorado(f), false, f);
   });
 });
+
+// ── Las unidades del backup (Tanda 3B) ───────────────────────────────────────
+//
+// Instaladas en el VPS el 10/10 como unidades de USUARIO; el repo guarda la
+// copia de la que se reinstalan (docs/DEPLOY.md, Backups). El candado mínimo:
+// existen, el servicio corre EL script del repo desde el clon de producción, de
+// una vez y con prioridad baja, y el timer lo dispara una vez por día, recupera
+// la corrida perdida y se habilita con timers.target.
+
+const RUTA_CLON = "/srv/produccion/azul-chat";
+const SCRIPT_BACKUP = "ops/backup/backup-azul-chat.sh";
+
+/** Una unidad de systemd como `sección.clave → valores`, sin comentarios. */
+function leerUnidad(texto: string): Map<string, string[]> {
+  const salida = new Map<string, string[]>();
+  let seccion = "";
+  for (const crudo of texto.split("\n")) {
+    const l = crudo.trim();
+    if (!l || l.startsWith("#") || l.startsWith(";")) continue;
+    const s = /^\[(.+)\]$/.exec(l);
+    if (s) {
+      seccion = s[1]!;
+      continue;
+    }
+    const i = l.indexOf("=");
+    if (i < 0) continue;
+    const clave = `${seccion}.${l.slice(0, i).trim()}`;
+    salida.set(clave, [...(salida.get(clave) ?? []), l.slice(i + 1).trim()]);
+  }
+  return salida;
+}
+
+function problemasDeUnidades(servicio: string, timer: string): string[] {
+  const p: string[] = [];
+  const s = leerUnidad(servicio);
+  const t = leerUnidad(timer);
+  const uno = (u: Map<string, string[]>, k: string) => (u.get(k)?.length === 1 ? u.get(k)![0] : undefined);
+  if (uno(s, "Service.Type") !== "oneshot") p.push("el servicio no es oneshot");
+  if (uno(s, "Service.ExecStart") !== `${RUTA_CLON}/${SCRIPT_BACKUP}`) p.push(`ExecStart no es el script del repo: ${s.get("Service.ExecStart")?.join(" | ")}`);
+  if (uno(s, "Service.WorkingDirectory") !== RUTA_CLON) p.push("WorkingDirectory no es el clon de producción");
+  if (Number(uno(s, "Service.Nice")) < 10) p.push("prioridad de CPU no es baja");
+  if (uno(s, "Service.IOSchedulingClass") !== "idle") p.push("prioridad de disco no es idle");
+  if (!/^\*-\*-\* \d{2}:\d{2}:\d{2} America\/Argentina\/Buenos_Aires$/.test(uno(t, "Timer.OnCalendar") ?? "")) p.push("el timer no es diario en hora argentina");
+  if (uno(t, "Timer.Persistent") !== "true") p.push("el timer no recupera la corrida perdida");
+  if (uno(t, "Install.WantedBy") !== "timers.target") p.push("el timer no se habilita con timers.target");
+  // Sin Unit= el timer dispara el servicio de su mismo nombre; si lo trae, tiene que ser ese.
+  const destino = uno(t, "Timer.Unit");
+  if (destino !== undefined && destino !== "azul-chat-backup.service") p.push(`el timer dispara ${destino}`);
+  return p;
+}
+
+describe("las unidades de systemd del backup", () => {
+  const servicio = leer("ops/backup/systemd/azul-chat-backup.service");
+  const timer = leer("ops/backup/systemd/azul-chat-backup.timer");
+
+  it("3B. existen, el servicio corre el script del repo una vez y con prioridad baja, el timer es diario y persistente", () => {
+    assert.deepEqual(problemasDeUnidades(servicio, timer), []);
+    // El script al que apuntan existe y git lo guarda ejecutable.
+    const modo = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-s", SCRIPT_BACKUP], { cwd: RAIZ, encoding: "utf8" });
+    assert.match(leer(SCRIPT_BACKUP), /^#!\/usr\/bin\/env bash/);
+    assert.ok(modo.startsWith("100755"), `el script no está en git como ejecutable: ${modo || "no está"}`);
+  });
+
+  it("CONTRAPRUEBA: atrapa otro script, otro directorio, prioridad normal y un timer que no es diario ni persistente", () => {
+    const casos: [string, string][] = [
+      [servicio.replace("ops/backup/backup-azul-chat.sh", "ops/backup/otro.sh"), timer],
+      [servicio.replace("WorkingDirectory=/srv/produccion/azul-chat", "WorkingDirectory=/srv/produccion/erpmanual"), timer],
+      [servicio.replace("Type=oneshot", "Type=simple"), timer],
+      [servicio.replace("Nice=10", "Nice=0"), timer],
+      [servicio.replace("IOSchedulingClass=idle", "IOSchedulingClass=best-effort"), timer],
+      [`${servicio}\nExecStart=/bin/true\n`, timer],
+      [servicio, timer.replace("*-*-* 04:15:00", "*-*-* *:00:00").replace(" America/Argentina/Buenos_Aires", "")],
+      [servicio, timer.replace("Persistent=true", "Persistent=false")],
+      [servicio, timer.replace("WantedBy=timers.target", "WantedBy=default.target")],
+      [servicio, timer.replace("[Timer]", "[Timer]\nUnit=otro.service")],
+    ];
+    for (const [i, [s, t]] of casos.entries()) {
+      assert.ok(s !== servicio || t !== timer, `el reemplazo ${i} no se aplicó`);
+      assert.notDeepEqual(problemasDeUnidades(s, t), [], `caso ${i}`);
+    }
+  });
+});

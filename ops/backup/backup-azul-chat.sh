@@ -12,8 +12,8 @@
 # `azul-chat-*.sql.gz`, y rota solo esos. Se niega a correr si el directorio es
 # el de backups del ERP o el de datos de alguna base.
 #
-# No se instala solo: en esta etapa no hay timer. Se corre a mano o, cuando se
-# decida, con un timer de systemd de usuario como el del ERP.
+# Lo corre una vez por día el timer de systemd de usuario de
+# ops/backup/systemd/ (instalado en el VPS el 10/10), o se corre a mano.
 #
 # ── USO ─────────────────────────────────────────────────────────────────────
 #   ops/backup/backup-azul-chat.sh

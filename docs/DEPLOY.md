@@ -313,8 +313,50 @@ afectado en ningún caso.
 - lee el usuario y la base adentro del contenedor, sin recibir ni imprimir
   credenciales.
 
-**Todavía no hay timer.** Cuando se decida, va un timer de systemd de usuario
-como el del ERP, que corra el script una vez por día. Esta etapa no lo instala.
+### El timer diario
+
+Corre una vez por día, a las 04:15 de Argentina, con dos unidades de systemd de
+**usuario** (no de sistema) que viven en el repo, en `ops/backup/systemd/`:
+
+- `azul-chat-backup.service`: `Type=oneshot`, ejecuta
+  `/srv/produccion/azul-chat/ops/backup/backup-azul-chat.sh` desde el clon, con
+  `Nice=10` e `IOSchedulingClass=idle` porque el VPS comparte núcleos con el
+  ERP. La salida va al journal.
+- `azul-chat-backup.timer`: `OnCalendar=*-*-* 04:15:00
+  America/Argentina/Buenos_Aires` y `Persistent=true` (si el VPS estaba apagado
+  a esa hora, corre al volver).
+
+Están instaladas desde el 10/10 en `~/.config/systemd/user/` del usuario que
+despliega, con **linger** habilitado (`loginctl enable-linger`), así corren
+aunque nadie tenga una sesión abierta. `test/frontera/produccion.test.ts` vigila
+que las del repo apunten al script y sean diarias.
+
+Ver el estado:
+
+```sh
+systemctl --user status azul-chat-backup.timer
+systemctl --user list-timers azul-chat-backup.timer   # próxima y última corrida
+journalctl --user -u azul-chat-backup -n 50            # salida del último backup
+loginctl show-user "$USER" -p Linger                   # tiene que decir Linger=yes
+ls -lt /srv/produccion/backups-azul-chat | head -6
+```
+
+Reinstalar (por ejemplo, después de cambiar las unidades en el repo y hacer
+`git pull` en el clon). Se copian, no se enlazan: lo que corre es lo que está
+en `~/.config/systemd/user/`:
+
+```sh
+mkdir -p ~/.config/systemd/user
+cp /srv/produccion/azul-chat/ops/backup/systemd/azul-chat-backup.service \
+   /srv/produccion/azul-chat/ops/backup/systemd/azul-chat-backup.timer \
+   ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now azul-chat-backup.timer
+systemctl --user list-timers azul-chat-backup.timer
+```
+
+Correr un backup ahora, sin esperar al timer:
+`systemctl --user start azul-chat-backup.service` (y mirar el journal).
 
 ### Restaurar
 

@@ -6,7 +6,8 @@
 // Mira el CÓDIGO de src/components y src/app, sin comentarios (la prosa puede
 // nombrar lo que falta; el código no lo puede mostrar).
 //
-// Además: nada de refresco automático (la sincronización ocurre cuando se pide),
+// Además: nada de refresco automático (la sincronización ocurre cuando se pide;
+// la única excepción, desde la Tanda 3B, es recargar al cambiar de versión),
 // nada guardado en el navegador, `fetch` solo en los dos clientes HTTP de la
 // interfaz, y ningún rastro de la delegación del ERP.
 
@@ -62,6 +63,25 @@ const TEXTO_PERMITIDO = { texto: "Ventas de hoy", archivo: "src/components/chats
 /** Los únicos archivos de la interfaz que hacen HTTP (a rutas propias; lo controla secretoSoloServidor.test.ts). */
 const CLIENTES_HTTP = ["src/components/chats/clienteChats.ts", "src/components/sesion/PanelSesion.tsx"];
 
+/**
+ * Tanda 3B: la ÚNICA excepción a "nada de refresco automático" es recargar la
+ * página cuando el servidor cambió de versión (src/components/chats/version.ts).
+ * Cada pieza vive en un solo archivo y con una sola forma: escuchar la vuelta a
+ * primer plano en version.ts, cortar el pedido por tiempo (sin temporizador
+ * propio) en el cliente, y recargar solo como el `recargar` del comprobador.
+ * setInterval, setTimeout, WebSocket y SSE siguen prohibidos en TODOS lados,
+ * también en estos archivos.
+ */
+const PIEZAS_DE_LA_RECARGA: readonly { readonly patron: RegExp; readonly archivo: string; readonly forma?: RegExp }[] = [
+  { patron: /visibilitychange|visibilityState/, archivo: "src/components/chats/version.ts" },
+  { patron: /AbortSignal\.timeout/, archivo: "src/components/chats/clienteChats.ts" },
+  {
+    patron: /location\.reload/,
+    archivo: "src/components/chats/AzulChat.tsx",
+    forma: /crearComprobadorDeVersion\(\{ pedir: pedirVersion, recargar: \(\) => window\.location\.reload\(\) \}\)/,
+  },
+];
+
 function problemas(archivos: Record<string, string>): string[] {
   const p: string[] = [];
   for (const [archivo, codigo] of Object.entries(archivos)) {
@@ -71,6 +91,12 @@ function problemas(archivos: Record<string, string>): string[] {
     // El campo de preguntas del diseño: en los chats no hay dónde escribir.
     if (archivo.startsWith("src/components/chats/") && /<(input|textarea)\b/.test(codigo)) p.push(`${archivo}: campo de texto en los chats`);
     if (/\b(setInterval|setTimeout|requestIdleCallback)\b|\brefetchInterval\b|WebSocket|EventSource/.test(codigo)) p.push(`${archivo}: refresco automático`);
+    for (const pieza of PIEZAS_DE_LA_RECARGA) {
+      if (!pieza.patron.test(codigo)) continue;
+      if (archivo !== pieza.archivo) p.push(`${archivo}: ${pieza.patron.source} fuera de la recarga por versión`);
+      else if (pieza.forma && (codigo.match(new RegExp(pieza.patron.source, "g")) ?? []).length !== 1) p.push(`${archivo}: más de un ${pieza.patron.source}`);
+      else if (pieza.forma && !pieza.forma.test(codigo)) p.push(`${archivo}: ${pieza.patron.source} fuera del comprobador de versión`);
+    }
     if (/localStorage|sessionStorage|indexedDB|document\.cookie|\bcaches\./.test(codigo)) p.push(`${archivo}: almacenamiento del navegador`);
     if (/(?<![\w-])fetch\s*\(/.test(codigo) && !CLIENTES_HTTP.includes(archivo)) p.push(`${archivo}: fetch fuera del cliente`);
     if (/delegaci|tokenDelegacion|\btoken\b|vinculoId|usuarioId|\/api\/integraciones|https?:\/\//i.test(codigo)) p.push(`${archivo}: sabe de la delegación o del ERP`);
@@ -128,6 +154,33 @@ describe("alcance de la interfaz de chats", () => {
     // En prosa no cuenta: el código se mira sin comentarios.
     const conComentario = sinComentarios(`${conversacion}\n// todavía no hay "Ver diferencias" ni setInterval\n`);
     assert.deepEqual(problemas({ ...arbol, "src/components/chats/Conversacion.tsx": conComentario }), []);
+  });
+
+  it("3B. la recarga por versión existe, y cada pieza está en su único lugar", () => {
+    for (const pieza of PIEZAS_DE_LA_RECARGA) assert.ok(pieza.patron.test(arbol[pieza.archivo] ?? ""), `falta ${pieza.patron.source} en ${pieza.archivo}`);
+  });
+
+  it("CONTRAPRUEBA 3B: recargar, escuchar primer plano o cortar por tiempo fuera de su lugar, o un temporizador en la recarga, es rojo", () => {
+    const VERSION = "src/components/chats/version.ts";
+    const AZUL = "src/components/chats/AzulChat.tsx";
+    const CLIENTE = "src/components/chats/clienteChats.ts";
+    const conv = arbol["src/components/chats/Conversacion.tsx"]!;
+    const casos: Record<string, Record<string, string>> = {
+      recargaEnOtroLado: { "src/components/chats/Conversacion.tsx": `${conv}\nconst r = () => window.location.reload();\n` },
+      recargaSuelta: { [AZUL]: `${arbol[AZUL]}\nexport const r2 = () => window.location.reload();\n` },
+      recargaSinComprobador: { [AZUL]: arbol[AZUL]!.replace("recargar: () => window.location.reload()", "recargar: () => {}") + "\nwindow.location.reload();\n" },
+      visibleEnOtroLado: { "src/components/chats/Conversacion.tsx": `${conv}\ndocument.addEventListener("visibilitychange", () => {});\n` },
+      corteEnOtroLado: { "src/components/chats/Conversacion.tsx": `${conv}\nconst s = AbortSignal.timeout(1000);\n` },
+      intervaloEnVersion: { [VERSION]: `${arbol[VERSION]}\nsetInterval(() => {}, 60000);\n` },
+      timeoutEnVersion: { [VERSION]: `${arbol[VERSION]}\nsetTimeout(() => {}, 60000);\n` },
+      timeoutEnCliente: { [CLIENTE]: `${arbol[CLIENTE]}\nsetTimeout(() => {}, 5000);\n` },
+      sseEnVersion: { [VERSION]: `${arbol[VERSION]}\nnew EventSource("/api/version");\n` },
+    };
+    for (const [nombre, cambio] of Object.entries(casos)) {
+      const [archivo, codigo] = Object.entries(cambio)[0]!;
+      assert.notEqual(codigo, arbol[archivo], `el cambio ${nombre} no se aplicó`);
+      assert.notDeepEqual(problemas({ ...arbol, ...cambio }), [], nombre);
+    }
   });
 });
 

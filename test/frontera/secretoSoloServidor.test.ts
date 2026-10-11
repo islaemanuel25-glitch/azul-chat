@@ -103,7 +103,11 @@ describe("el cliente ERP no es genérico", () => {
   // archivo valiendo una ruta propia. Después del `?` no se puede cambiar el
   // camino: el destino sigue siendo una ruta propia. Un camino armado
   // (`${RUTA}/${x}`) o una constante que no es ruta propia siguen en rojo.
-  it("HTTP saliente: al ERP solo desde el cliente firmado; el navegador solo a /api/sesion y /api/chats", () => {
+  //
+  // Tanda 3B: el navegador pide además `/api/version` (exacta, sin consulta ni
+  // subcamino) para recargar una pestaña que quedó con el JS de otro
+  // despliegue. Es ruta propia, pública y sin datos: dice solo el commit.
+  it("HTTP saliente: al ERP solo desde el cliente firmado; el navegador solo a /api/sesion, /api/chats y /api/version", () => {
     assert.deepEqual(violacionesHttp(codigoDeSrc()), []);
   });
 
@@ -118,6 +122,8 @@ describe("el cliente ERP no es genérico", () => {
       "src/components/x/ConsultaSinConstante.tsx": '"use client";\nconst q = "a=1";\nfetch(`${destino()}?${q}`);\n',
       "src/components/x/OtraApi.tsx": '"use client";\nfetch("/api/integraciones/azul-chat/consultar");\n',
       "src/components/x/Subida.tsx": '"use client";\nfetch("/api/chats/../sesion");\n',
+      "src/components/x/VersionDeMas.tsx": '"use client";\nfetch("/api/version/erp");\n',
+      "src/components/x/Versiones.tsx": '"use client";\nfetch("/api/versiones");\n',
       "src/shared/x/Axios.ts": 'import a from "axios";\nexport const y = a;\n',
       "src/server/otro/cliente2.ts": 'import "server-only";\nexport const z = () => fetch("http://x");\n',
     };
@@ -150,7 +156,7 @@ function codigoDeSrc(): Record<string, string> {
 }
 
 const CLIENTE_ERP = "src/server/erp/cliente.ts";
-const RUTA_PROPIA = /^\/api\/(sesion|chats)(\/[a-z]+)*$/;
+const RUTA_PROPIA = /^\/api\/((sesion|chats)(\/[a-z]+)*|version)$/;
 /** `${CONSTANTE}?${identificador}`: una ruta propia con una consulta (Tanda 2C). */
 const RUTA_CON_CONSULTA = /^`\$\{([A-Za-z_$][\w$]*)\}\?\$\{[A-Za-z_$][\w$]*\}`$/;
 

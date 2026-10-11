@@ -1,0 +1,13 @@
+# Dispara azul-chat-backup.service una vez por día, a las 04:15 de Argentina.
+# Persistent: si el VPS estaba apagado a esa hora, corre al volver.
+# Instalación y comandos: docs/DEPLOY.md, sección Backups.
+
+[Unit]
+Description=Disparo diario del backup de Azul Chat
+
+[Timer]
+OnCalendar=*-*-* 04:15:00 America/Argentina/Buenos_Aires
+Persistent=true
+
+[Install]
+WantedBy=timers.target

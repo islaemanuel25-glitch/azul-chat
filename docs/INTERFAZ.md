@@ -55,6 +55,28 @@ flecha "Volver a chats", que no depende del historial: si la entrada no es de
 la app, reemplaza la URL y muestra la lista. Una URL que no se entiende muestra
 la lista.
 
+## Recarga al cambiar de versión
+
+Tanda 3B. Navegar no recarga la página (es `history.pushState`), así que una
+pestaña abierta antes de un despliegue seguiría corriendo el JS viejo: el 10/10
+una pestaña con `3d8b849` no mostró la barra de Ventas hasta cerrarla del todo.
+
+- Al arrancar, la app pide `GET /api/version` y guarda EN MEMORIA el commit
+  con el que arrancó.
+- Lo vuelve a pedir solo en dos momentos: cuando la página vuelve a primer
+  plano (`visibilitychange` → `visible`) y al abrir un chat (un Local o
+  General; volver a la lista no). Nada de intervalos ni temporizadores.
+- Si el commit cambió, `window.location.reload()`, una sola vez.
+- Si `/api/version` falla, tarda más de 5 s (lo corta el navegador con
+  `AbortSignal.timeout`) o no trae un SHA completo, no pasa nada: ni recarga
+  ni error. Si falló el pedido del arranque, el primer commit que se consiga
+  después pasa a ser el de referencia.
+- Nada se guarda en el navegador. Un pedido en curso no se duplica.
+
+Está en `src/components/chats/version.ts` (sin React: recibe pedir, recargar y
+el documento), `pedirVersion` en `clienteChats.ts` y la conexión en
+`AzulChat.tsx`.
+
 ## Marcar leído
 
 Regla: la interfaz nunca marca como leído un evento que no pueda demostrar que
@@ -161,15 +183,21 @@ estaba. No hay scroll infinito ni refresco automático.
   "Abrir en ERP", "Última transferencia", "Ver detalle", "Comparar", el campo
   "Preguntá…" ni los chips Caja, Transferencias, Pedidos o Stock; "Ventas de
   hoy" se admite SOLO como título de la tarjeta, en `formato.ts`; no tiene refresco
-  automático ni almacenamiento del navegador; hace HTTP solo desde sus dos
+  automático —salvo la recarga por versión, con cada pieza en su único archivo:
+  escuchar el primer plano en `version.ts`, el corte por tiempo en el cliente y
+  `location.reload` solo como el `recargar` del comprobador en `AzulChat.tsx`—
+  ni almacenamiento del navegador; hace HTTP solo desde sus dos
   clientes; no sabe nada de la delegación ni del ERP; y POST leído se llama
   desde un solo lugar, la lectura del Local, que General no usa.
 - `test/db/chats.test.ts`: el caso real de 40 no leídos con 30 en la primera
   página, contra el servidor: no se marca hasta tenerlos a la vista, y lo que
   llega después sigue sin leer.
 - `test/frontera/secretoSoloServidor.test.ts`: el navegador solo llama a rutas
-  propias (`/api/sesion…`, `/api/chats…`), con una consulta solo detrás de una
-  constante que vale una ruta propia.
+  propias (`/api/sesion…`, `/api/chats…` y, exacta, `/api/version`), con una
+  consulta solo detrás de una constante que vale una ruta propia.
+- `test/ui/version.test.ts`: la recarga por versión con un servidor y un
+  documento de mentira: igual no recarga, distinta recarga, un fallo no recarga,
+  y solo pregunta al volver a primer plano y al abrir un chat.
 
 ## Fuera de alcance
 
@@ -177,7 +205,8 @@ No existen todavía, y la interfaz no los muestra ni los insinúa: Pendientes,
 buscar en el historial, la configuración completa, el compositor y los mensajes
 de personas, la IA, las acciones sobre el ERP ("Ver diferencias", "Abrir en
 ERP"), las notificaciones y cualquier actualización en vivo (WebSocket, SSE o
-refresco periódico).
+refresco periódico). La recarga por versión no es eso: no trae datos, solo
+reemplaza el JS de un despliegue viejo, y solo en los dos momentos de arriba.
 
 De las acciones rápidas del diseño existe solo "Ventas", y solo para hoy. No
 existen: los chips Caja, Transferencias, Pedidos y Stock; el campo "Preguntá

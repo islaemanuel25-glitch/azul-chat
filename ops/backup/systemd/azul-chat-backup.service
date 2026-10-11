@@ -1,0 +1,24 @@
+# Backup diario de la base de Azul Chat. Unidad de USUARIO de systemd
+# (~/.config/systemd/user/), con linger: corre aunque nadie tenga sesión.
+# Instalación y comandos: docs/DEPLOY.md, sección Backups.
+#
+# El script saca el pg_dump, lo VERIFICA y recién entonces rota los viejos,
+# conservando AZUL_CHAT_BACKUP_RETENER (30 por defecto). Si algo falla, sale con
+# error y no rota.
+#
+# La salida va al journal: journalctl --user -u azul-chat-backup
+#
+# Prioridad baja de CPU y de disco: el VPS comparte núcleos con el ERP.
+
+[Unit]
+Description=Backup diario de la base de Azul Chat
+Documentation=file:///srv/produccion/azul-chat/docs/DEPLOY.md
+
+[Service]
+Type=oneshot
+ExecStart=/srv/produccion/azul-chat/ops/backup/backup-azul-chat.sh
+WorkingDirectory=/srv/produccion/azul-chat
+StandardOutput=journal
+StandardError=journal
+Nice=10
+IOSchedulingClass=idle
