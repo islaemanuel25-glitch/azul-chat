@@ -26,6 +26,24 @@
 // positivo— y no lleva local ni instalación: no sirve para salir de los
 // locales autorizados, porque la consulta los filtra siempre desde el servidor.
 // No es el cursor del ERP, que nunca sale del servidor.
+//
+// ── TANDA 6C: LAS PREGUNTAS GUARDADAS, EN LA MISMA PÁGINA ───────────────────
+//
+// Una conversación muestra también las preguntas guardadas de la persona en
+// ese chat, intercaladas por hora. Se pagina UNA sola secuencia: eventos por
+// `fechaOperacion` y preguntas por `creadaEn`, del más reciente al más
+// antiguo; a igual instante va primero la pregunta, y entre dos del mismo
+// tipo, el de id mayor. Es un orden total, así que el cursor sigue siendo "la
+// posición del último elemento de la página":
+//
+//   · si el último es un evento, el cursor es EXACTAMENTE el de antes,
+//     `{ f, i }`: un cursor viejo (de una página abierta antes del despliegue)
+//     sigue valiendo igual;
+//   · si es una pregunta, `{ f, i, t: "p" }`.
+//
+// Cada página pide `porPagina + 1` de cada lado después del cursor, junta las
+// dos listas en ese orden y se queda con las primeras `porPagina`: lo que
+// sobra vuelve en la página siguiente, así que nada se repite ni se pierde.
 
 import "server-only";
 
@@ -47,7 +65,8 @@ const MAX_LARGO_CURSOR = 200;
 const ID_EVENTO = /^[1-9][0-9]{0,18}$/;
 const MAX_BIGINT = 9_223_372_036_854_775_807n;
 
-export type PosicionHistorial = { readonly fecha: Date; readonly id: bigint };
+/** La posición del último elemento de una página. `pregunta`: es una pregunta guardada (Tanda 6C); si no, un evento. */
+export type PosicionHistorial = { readonly fecha: Date; readonly id: bigint; readonly pregunta?: true };
 
 /** Un id de evento que llega del navegador, como texto: entero positivo que entra en un BIGINT. */
 export function leerIdEvento(v: unknown): bigint | null {
@@ -57,7 +76,8 @@ export function leerIdEvento(v: unknown): bigint | null {
 }
 
 export function codificarCursor(p: PosicionHistorial): string {
-  return Buffer.from(JSON.stringify({ f: p.fecha.toISOString(), i: p.id.toString() }), "utf8").toString("base64url");
+  const datos = p.pregunta ? { f: p.fecha.toISOString(), i: p.id.toString(), t: "p" } : { f: p.fecha.toISOString(), i: p.id.toString() };
+  return Buffer.from(JSON.stringify(datos), "utf8").toString("base64url");
 }
 
 /** El cursor que manda el navegador, o null si no tiene EXACTAMENTE la forma. */
@@ -71,10 +91,12 @@ export function decodificarCursor(texto: unknown): PosicionHistorial | null {
   }
   if (datos === null || typeof datos !== "object" || Array.isArray(datos)) return null;
   const o = datos as Record<string, unknown>;
-  if (Object.keys(o).length !== 2 || !esInstanteIso(o.f)) return null;
+  const claves = Object.keys(o).length;
+  // Dos claves: un evento (el cursor de siempre). Tres: una pregunta guardada, con `t: "p"` y nada más.
+  if (!(claves === 2 || (claves === 3 && o.t === "p")) || !esInstanteIso(o.f)) return null;
   const id = leerIdEvento(o.i);
   if (id === null) return null;
-  return { fecha: new Date(o.f as string), id };
+  return claves === 3 ? { fecha: new Date(o.f as string), id, pregunta: true } : { fecha: new Date(o.f as string), id };
 }
 
 export const SELECT_PUBLICO = { id: true, tipo: true, erpLocalId: true, erpReferenciaId: true, fechaOperacion: true, payload: true, historico: true } as const;
@@ -133,36 +155,63 @@ const visibles = (locales: readonly LocalVisible[]): Prisma.EventoWhereInput[] =
   locales.filter((l) => l.tipos.length > 0).map((l) => ({ erpLocalId: l.localId, tipo: { in: [...l.tipos] } }));
 
 /**
+ * Tanda 6C: las preguntas guardadas de la conversación, ya filtradas por lo que
+ * la persona puede ver hoy, estrictamente después de `desde` en el orden del
+ * historial, a lo sumo `limite` (preguntas/guardadas.ts).
+ */
+export type FuenteDePreguntas<P> = (desde: PosicionHistorial | null, limite: number) => Promise<readonly { readonly fecha: Date; readonly id: bigint; readonly pregunta: P }[]>;
+
+/** ¿`a` va antes que `b` en el historial? A igual instante, la pregunta primero; después, el id mayor. */
+function antes(a: PosicionHistorial, b: PosicionHistorial): boolean {
+  if (a.fecha.getTime() !== b.fecha.getTime()) return a.fecha > b.fecha;
+  if (Boolean(a.pregunta) !== Boolean(b.pregunta)) return Boolean(a.pregunta);
+  return a.id > b.id;
+}
+
+/** Los eventos estrictamente después de `desde`: si `desde` es una pregunta, todo lo de su mismo instante va después. */
+const eventosDespuesDe = (desde: PosicionHistorial): Prisma.EventoWhereInput =>
+  desde.pregunta
+    ? { fechaOperacion: { lte: desde.fecha } }
+    : { OR: [{ fechaOperacion: { lt: desde.fecha } }, { fechaOperacion: desde.fecha, id: { lt: desde.id } }] };
+
+/**
  * Una página del historial de esos locales (ya autorizados), del más reciente
  * al más antiguo, estrictamente después de `desde` en ese orden. De cada local,
- * solo los tipos que la persona puede ver hoy.
+ * solo los tipos que la persona puede ver hoy. Tanda 6C: con `preguntas`, la
+ * página intercala las preguntas guardadas por hora (ver arriba).
  */
-export async function paginaDeHistorial(
+export async function paginaDeHistorial<P = never>(
   db: Db,
   instalacionId: string,
   locales: readonly LocalVisible[],
   desde: PosicionHistorial | null,
   porPagina = EVENTOS_POR_PAGINA,
-): Promise<{ filas: { readonly evento: EventoPublico; readonly erpLocalId: number }[]; siguiente: string | null }> {
+  preguntas?: FuenteDePreguntas<P>,
+): Promise<{ filas: { readonly evento: EventoPublico; readonly erpLocalId: number }[]; preguntas: P[]; siguiente: string | null }> {
   const permitidos = visibles(locales);
-  if (permitidos.length === 0) return { filas: [], siguiente: null };
-  const filas = await db.evento.findMany({
-    where: {
-      instalacionId,
-      AND: [
-        { OR: permitidos },
-        ...(desde ? [{ OR: [{ fechaOperacion: { lt: desde.fecha } }, { fechaOperacion: desde.fecha, id: { lt: desde.id } }] }] : []),
-      ],
-    },
-    orderBy: [{ fechaOperacion: "desc" }, { id: "desc" }],
-    take: porPagina + 1,
-    select: SELECT_PUBLICO,
-  });
-  const pagina = filas.slice(0, porPagina);
+  const eventos =
+    permitidos.length === 0
+      ? []
+      : await db.evento.findMany({
+          where: { instalacionId, AND: [{ OR: permitidos }, ...(desde ? [eventosDespuesDe(desde)] : [])] },
+          orderBy: [{ fechaOperacion: "desc" }, { id: "desc" }],
+          take: porPagina + 1,
+          select: SELECT_PUBLICO,
+        });
+  const guardadas = preguntas ? await preguntas(desde, porPagina + 1) : [];
+
+  // Las dos listas ya vienen en el orden del historial: se juntan y se cortan.
+  type Elemento = { readonly pos: PosicionHistorial } & ({ readonly evento: (typeof eventos)[number] } | { readonly pregunta: P });
+  const todos: Elemento[] = [
+    ...eventos.map((f) => ({ pos: { fecha: f.fechaOperacion, id: f.id }, evento: f })),
+    ...guardadas.map((g) => ({ pos: { fecha: g.fecha, id: g.id, pregunta: true as const }, pregunta: g.pregunta })),
+  ].sort((a, b) => (antes(a.pos, b.pos) ? -1 : 1));
+  const pagina = todos.slice(0, porPagina);
   const ultima = pagina.at(-1);
   return {
-    filas: pagina.map((f) => ({ evento: aEventoPublico(f), erpLocalId: f.erpLocalId })),
-    siguiente: filas.length > porPagina && ultima ? codificarCursor({ fecha: ultima.fechaOperacion, id: ultima.id }) : null,
+    filas: pagina.flatMap((e) => ("evento" in e ? [{ evento: aEventoPublico(e.evento), erpLocalId: e.evento.erpLocalId }] : [])),
+    preguntas: pagina.flatMap((e) => ("pregunta" in e ? [e.pregunta] : [])),
+    siguiente: todos.length > porPagina && ultima ? codificarCursor(ultima.pos) : null,
   };
 }
 

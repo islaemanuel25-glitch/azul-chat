@@ -40,7 +40,7 @@ describe("la migración", () => {
     const tablas = await base.db.$queryRawUnsafe<{ t: string }[]>(
       `SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' ORDER BY 1`,
     );
-    assert.deepEqual(tablas.map((x) => x.t), ["AvisoLocal", "ConsumoIa", "CursorIngesta", "Evento", "Instalacion", "LecturaLocal", "PushSuscripcion", "Sesion", "Vinculo", "_prisma_migrations"]);
+    assert.deepEqual(tablas.map((x) => x.t), ["AvisoLocal", "ConsumoIa", "CursorIngesta", "Evento", "Instalacion", "LecturaLocal", "Pregunta", "PushSuscripcion", "Sesion", "Vinculo", "_prisma_migrations"]);
     const aplicadas = await base.db.$queryRawUnsafe<{ n: string }[]>(`SELECT migration_name AS n FROM _prisma_migrations WHERE finished_at IS NOT NULL`);
     const enElRepo = readdirSync(path.join(RAIZ, "prisma/migrations"), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name);
     assert.deepEqual(aplicadas.map((x) => x.n).sort(), enElRepo.sort());
@@ -62,6 +62,10 @@ describe("la migración", () => {
     // marca de agua sobre Evento.id, como LecturaLocal.
     // La de la Tanda 6A: `ConsumoIa` son cuentas del mes (tokens, costo,
     // preguntas): ni la pregunta, ni la respuesta, ni quién preguntó.
+    // La de la Tanda 6C: `Pregunta` guarda lo que la persona preguntó y la
+    // respuesta que vio (pedido del dueño), por vínculo y chat. `requisitos`
+    // NO autoriza nada: es una lista de lo que el resultado trae, que se
+    // compara contra mi_alcance de hoy y solo puede OCULTAR la pregunta.
     assert.deepEqual(columnas.map((x) => x.c), [
       "AvisoLocal.actualizadoEn",
       "AvisoLocal.avisadoHastaEventoId",
@@ -104,6 +108,14 @@ describe("la migración", () => {
       "LecturaLocal.erpLocalId",
       "LecturaLocal.leidoHastaEventoId",
       "LecturaLocal.vinculoId",
+      "Pregunta.creadaEn",
+      "Pregunta.erpLocalId",
+      "Pregunta.id",
+      "Pregunta.requisitos",
+      "Pregunta.resultado",
+      "Pregunta.resultadoVersion",
+      "Pregunta.texto",
+      "Pregunta.vinculoId",
       "PushSuscripcion.auth",
       "PushSuscripcion.creadaEn",
       "PushSuscripcion.endpoint",
@@ -276,6 +288,25 @@ describe("40. invariantes que sostiene la base", () => {
     for (const mal of ["2026-13", "2026-00", "26-10", "2026-1", "2026-10-01"]) await rechaza(consumo(mal), CHECK);
     for (const col of ['"costoMicroUsd"=-1', '"tokensEntrada"=-1', '"tokensSalida"=-1', '"preguntas"=-1']) await rechaza(consumo("2026-11", col), CHECK);
     await sql(`DELETE FROM "ConsumoIa"`);
+  });
+
+  it("6C. las preguntas guardadas: texto de 1 a 300, local positivo o null, resultado objeto con estado, requisitos lista, de un vínculo que existe", async () => {
+    const [v] = await base.db.$queryRawUnsafe<{ id: string }[]>(`SELECT id FROM "Vinculo" LIMIT 1`);
+    assert.ok(v, "hace falta un vínculo de las pruebas de arriba");
+    const pregunta = (o: { vinculo?: string; local?: string; texto?: string; version?: string; resultado?: string; requisitos?: string } = {}) =>
+      `INSERT INTO "Pregunta" ("vinculoId", "erpLocalId", texto, "resultadoVersion", resultado, requisitos) VALUES ('${o.vinculo ?? v.id}', ${o.local ?? "3"}, '${o.texto ?? "¿Cuánto vendió hoy?"}', ${o.version ?? "1"}, '${o.resultado ?? '{"estado":"NO_ENTIENDO","ejemplos":[]}'}', '${o.requisitos ?? "[]"}')`;
+    await sql(pregunta());
+    await sql(pregunta({ local: "NULL" }));
+    await sql(pregunta({ texto: "x".repeat(300) }));
+    await rechaza(pregunta({ texto: "" }), CHECK);
+    await rechaza(pregunta({ texto: "x".repeat(301) }), CHECK);
+    await rechaza(pregunta({ local: "0" }), CHECK);
+    await rechaza(pregunta({ version: "0" }), CHECK);
+    await rechaza(pregunta({ resultado: "[]" }), CHECK);
+    await rechaza(pregunta({ resultado: '{"otra":1}' }), CHECK);
+    await rechaza(pregunta({ requisitos: "{}" }), CHECK);
+    await rechaza(pregunta({ vinculo: "00000000-0000-0000-0000-00000000dead" }), CLAVE_AJENA);
+    await sql(`DELETE FROM "Pregunta"`);
   });
 
   it("no se borra un vínculo con sesiones ni una instalación con vínculos", async () => {

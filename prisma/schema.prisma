@@ -70,6 +70,7 @@ model Vinculo {
   lecturas      LecturaLocal[]
   suscripciones PushSuscripcion[]
   avisos        AvisoLocal[]
+  preguntas     Pregunta[]
 
   @@unique([instalacionId, erpUsuarioId])
   @@unique([instalacionId, erpVinculoId])
@@ -247,4 +248,29 @@ model ConsumoIa {
   /// Preguntas que llegaron al modelo (las que pasaron la reserva).
   preguntas     Int      @default(0)
   actualizadoEn DateTime @default(now()) @updatedAt
+}
+
+/// Tanda 6C: LAS PREGUNTAS EN LENGUAJE NATURAL, GUARDADAS CON SU RESPUESTA.
+/// Por persona (vínculo) y por chat: `erpLocalId` es el Local donde se
+/// preguntó, o null si fue en General. `resultado` es EXACTAMENTE lo que se le
+/// contestó a la pantalla (RespuestaPregunta, versión `resultadoVersion`): una
+/// foto de ese momento que no se recalcula. `requisitos` dice de qué locales y
+/// capacidades trae datos el resultado ([{ localId, capacidad }]): para
+/// MOSTRARLA, todos tienen que seguir anunciados hoy por mi_alcance (fallo
+/// cerrado, como los eventos). No cuentan como no leídos, no avisan y no
+/// marcan leído. Se borran a los 90 días, en la corrida de fondo.
+model Pregunta {
+  id               BigInt   @id @default(autoincrement())
+  vinculoId        String
+  erpLocalId       Int?
+  texto            String
+  creadaEn         DateTime @default(now()) @db.Timestamp(3)
+  resultadoVersion Int
+  resultado        Json
+  requisitos       Json
+
+  vinculo Vinculo @relation(fields: [vinculoId], references: [id], onDelete: Restrict)
+
+  @@index([vinculoId, erpLocalId, creadaEn(sort: Desc), id(sort: Desc)])
+  @@index([creadaEn])
 }

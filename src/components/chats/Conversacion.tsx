@@ -34,6 +34,7 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState, type ReactNode } from "react";
 
 import type { EventoGeneral, EventoPublico } from "../../shared/chats/api.ts";
+import type { PreguntaGuardada } from "../../shared/chats/preguntas.ts";
 import { ShellMovil } from "../shell/ShellMovil.tsx";
 import { marcarLeido, pedirGeneral, pedirLocal, pedirVentas, type FallaCliente, type Resultado } from "./clienteChats.ts";
 import { useEsperaTrasCupo } from "./esperaCupo.ts";
@@ -41,9 +42,10 @@ import { diaDe, etiquetaDeDia } from "./formato.ts";
 import {
   decidirLecturaLocal,
   destinoDeFalla,
-  ordenCronologico,
+  elementosEnOrden,
   reducirConversacion,
   reducirVentas,
+  sinLasGuardadas,
   tituloDeLocal,
   type AccionConversacion,
   type EstadoConversacion,
@@ -51,10 +53,10 @@ import {
   type InfoGeneral,
   type InfoLocal,
 } from "./logica.ts";
-import { CajaPregunta, ListaDePreguntas, TEXTO_CAJA, usePreguntas } from "./Preguntas.tsx";
+import { CajaPregunta, ListaDePreguntas, PreguntaGuardadaVista, TEXTO_CAJA, usePreguntas } from "./Preguntas.tsx";
 import { AvisoDemorada, BarraVentas, EstadoChat, EstadoCupoErp, EstadoErpNoDisponible, ResultadoVentas, TarjetaEvento } from "./Piezas.tsx";
 
-type Pagina<E, I> = { readonly eventos: readonly E[]; readonly siguiente: string | null; readonly info: I };
+type Pagina<E, I> = { readonly eventos: readonly E[]; readonly guardadas: readonly PreguntaGuardada[]; readonly siguiente: string | null; readonly info: I };
 type PedirPagina<E, I> = (cursor: string | null, signal?: AbortSignal) => Promise<Resultado<Pagina<E, I>>>;
 type AlPerderSesion = (motivo?: "VINCULO_INVALIDO") => void;
 
@@ -112,7 +114,7 @@ function useConversacion<E extends EventoPublico, I extends InfoLocal | InfoGene
     distanciaAlFinal.current = raiz.scrollHeight - raiz.scrollTop;
     despachar({ tipo: "PIDIENDO_ANTERIORES" });
     void pedirPagina(estado.siguiente).then((r) => {
-      if (r.ok) despachar({ tipo: "ANTERIORES", eventos: r.datos.eventos, siguiente: r.datos.siguiente });
+      if (r.ok) despachar({ tipo: "ANTERIORES", eventos: r.datos.eventos, guardadas: r.datos.guardadas, siguiente: r.datos.siguiente });
       else fallar(r.falla);
     });
   };
@@ -157,29 +159,36 @@ function useLecturaLocal<E extends EventoPublico>(
 /** Los eventos como chat: del más viejo al más nuevo, con un separador por día. Sin red. */
 export function ListaDeEventos<E extends EventoPublico>({
   eventos,
+  guardadas = [],
   local,
   ahora = new Date(),
   zona,
 }: {
   eventos: readonly E[];
+  /** Tanda 6C: las preguntas guardadas, intercaladas por hora con los eventos. */
+  guardadas?: readonly PreguntaGuardada[];
   local?: (e: E) => string;
   ahora?: Date;
   zona?: string;
 }) {
-  const cronologico = ordenCronologico(eventos);
+  const cronologico = elementosEnOrden(eventos, guardadas);
   return (
     <ol className="ac-conversacion">
-      {cronologico.map((e, i) => {
-        const nuevoDia = i === 0 || diaDe(e.fecha, zona) !== diaDe(cronologico[i - 1]!.fecha, zona);
+      {cronologico.map((x, i) => {
+        const nuevoDia = i === 0 || diaDe(x.fecha, zona) !== diaDe(cronologico[i - 1]!.fecha, zona);
         return (
-          <Fragment key={e.id}>
+          <Fragment key={x.tipo === "EVENTO" ? x.evento.id : `p${x.guardada.id}`}>
             {nuevoDia && (
               <li className="ac-dia">
-                <span className="ac-dia__etiqueta">{etiquetaDeDia(e.fecha, ahora, zona)}</span>
+                <span className="ac-dia__etiqueta">{etiquetaDeDia(x.fecha, ahora, zona)}</span>
               </li>
             )}
             <li>
-              <TarjetaEvento evento={e} {...(local ? { local: local(e) } : {})} {...(zona ? { zona } : {})} />
+              {x.tipo === "EVENTO" ? (
+                <TarjetaEvento evento={x.evento} {...(local ? { local: local(x.evento) } : {})} {...(zona ? { zona } : {})} />
+              ) : (
+                <PreguntaGuardadaVista guardada={x.guardada} {...(zona ? { zona } : {})} />
+              )}
             </li>
           </Fragment>
         );
@@ -255,10 +264,16 @@ export function CuerpoConversacion<E extends EventoPublico, I extends InfoLocal 
           {estado.anteriores === "SIN_RED" && <p className="ac-mensaje">No se pudieron cargar. Probá de nuevo.</p>}
         </div>
       )}
-      {estado.eventos.length === 0 ? (
+      {estado.eventos.length === 0 && estado.guardadas.length === 0 ? (
         <EstadoChat texto={vacio} />
       ) : (
-        <ListaDeEventos eventos={estado.eventos} {...(local ? { local } : {})} {...(ahora ? { ahora } : {})} {...(zona ? { zona } : {})} />
+        <ListaDeEventos
+          eventos={estado.eventos}
+          guardadas={estado.guardadas}
+          {...(local ? { local } : {})}
+          {...(ahora ? { ahora } : {})}
+          {...(zona ? { zona } : {})}
+        />
       )}
     </>
   );
@@ -287,6 +302,7 @@ export function PantallaLocal({
         ok: true,
         datos: {
           eventos: d.eventos,
+          guardadas: d.guardadas,
           siguiente: d.siguiente,
           info: {
             tipo: "LOCAL",
@@ -333,7 +349,7 @@ export function PantallaLocal({
         alPedir={ventas.pedir}
         enEspera={espera.enEspera}
         iaDisponible={info?.preguntas === true}
-        preguntas={preguntas}
+        preguntas={{ ...preguntas, preguntas: sinLasGuardadas(preguntas.preguntas, estado.fase === "LISTA" ? estado.guardadas : []) }}
       />
     </ShellMovil>
   );
@@ -457,7 +473,12 @@ export function PantallaGeneral({ alVolver, alPerderSesion }: { alVolver: () => 
     const d = r.datos;
     return {
       ok: true,
-      datos: { eventos: d.eventos, siguiente: d.siguiente, info: { tipo: "GENERAL", localesDemorados: d.localesDemorados, preguntas: d.preguntas } },
+      datos: {
+        eventos: d.eventos,
+        guardadas: d.guardadas,
+        siguiente: d.siguiente,
+        info: { tipo: "GENERAL", localesDemorados: d.localesDemorados, preguntas: d.preguntas },
+      },
     };
   }, []);
   // General no marca leído (Tanda 2C): no puede demostrar que mostró todos los no leídos de cada local.
@@ -479,7 +500,11 @@ export function PantallaGeneral({ alVolver, alPerderSesion }: { alVolver: () => 
         alVolver={alVolver}
         alCargarAnteriores={cargarAnteriores}
       />
-      <AccionesDeGeneral iaDisponible={iaDisponible} preguntas={preguntas} enEspera={espera.enEspera} />
+      <AccionesDeGeneral
+        iaDisponible={iaDisponible}
+        preguntas={{ ...preguntas, preguntas: sinLasGuardadas(preguntas.preguntas, estado.fase === "LISTA" ? estado.guardadas : []) }}
+        enEspera={espera.enEspera}
+      />
     </ShellMovil>
   );
 }

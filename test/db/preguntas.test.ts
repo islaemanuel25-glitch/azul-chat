@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import { after, before, beforeEach, describe, it } from "node:test";
 
+import { codificarCursor, decodificarCursor, paginaDeHistorial, type PosicionHistorial } from "../../src/server/chats/historial.ts";
 import { manejarGeneral, manejarLocal } from "../../src/server/chats/manejadores.ts";
 import { FRECUENCIA_MINIMA_INGESTA_MS } from "../../src/server/chats/sincronizacion.ts";
 import { leerConfigAzulChat } from "../../src/server/configuracion.ts";
@@ -22,6 +23,7 @@ import { costoMicroUsd, MODELO_IA, reservaPorPregunta } from "../../src/server/i
 import { manejarSincronizar } from "../../src/server/interno/sincronizar.ts";
 import { CABECERA_SECRETO_TAREA, leerPuertaTarea } from "../../src/server/interno/tarea.ts";
 import type { Registro } from "../../src/server/log.ts";
+import { DIAS_DE_RETENCION, fuenteDePreguntas, guardarPregunta } from "../../src/server/preguntas/guardadas.ts";
 import { esquemaDeIntencion, instruccionesDeIntencion } from "../../src/server/preguntas/intencion.ts";
 import { manejarPreguntar } from "../../src/server/preguntas/manejador.ts";
 import { NOMBRE_COOKIE } from "../../src/server/sesion/cookie.ts";
@@ -158,14 +160,17 @@ async function fondo() {
   assert.equal(res.status, 200, await res.text());
 }
 
-type Contestada = { status: number; texto: string; cuerpo: Exclude<RespuestaPregunta, never> };
+/** Tanda 6C: `guardadaId` (con qué id se guardó, o null) va aparte, así `cuerpo` es la respuesta tal cual. */
+type Contestada = { status: number; texto: string; cuerpo: Exclude<RespuestaPregunta, never>; guardadaId: string | null };
 
 async function preguntar(cookie: string | null, cuerpo: unknown, { d = deps(), origen = ORIGEN }: { d?: DependenciasSesion; origen?: string | null } = {}): Promise<Contestada> {
   const headers: Record<string, string> = { "content-type": "application/json", ...(cookie ? conCookie(cookie) : {}) };
   if (origen) headers.origin = origen;
   const res = await manejarPreguntar(new Request(`${ORIGEN}/api/chats/preguntar`, { method: "POST", headers, body: JSON.stringify(cuerpo) }), d);
   const texto = await res.text();
-  return { status: res.status, texto, cuerpo: JSON.parse(texto) as RespuestaPregunta };
+  const { guardadaId = null, ...respuesta } = JSON.parse(texto) as RespuestaPregunta & { guardadaId?: unknown };
+  assert.ok(guardadaId === null || (typeof guardadaId === "string" && /^[1-9][0-9]*$/.test(guardadaId)), `guardadaId: ${String(guardadaId)}`);
+  return { status: res.status, texto, cuerpo: respuesta as RespuestaPregunta, guardadaId: guardadaId as string | null };
 }
 
 const capacidadesPedidas = () => erp.cuerposA("consultar").map((c) => c.capacidad as string);
@@ -676,5 +681,242 @@ describe("forma, sesión y origen", () => {
     assert.equal(r.status, 200, r.texto);
     const [fila] = await base.db.$queryRawUnsafe<{ x: string }[]>(`SELECT row_to_json(c)::text AS x FROM "ConsumoIa" c`);
     assert.ok(!fila!.x.includes("ñ"), "la pregunta no se guarda");
+  });
+});
+
+// ── Tanda 6C: las preguntas guardadas ───────────────────────────────────────
+
+describe("6C. las preguntas se guardan con su respuesta y vuelven en el historial", () => {
+  type Local = Extract<RespuestaLocal, { estado: "OK" }>;
+  type General = Extract<RespuestaGeneral, { estado: "OK" }>;
+  const verLocal = async (cookie: string, localId = CASIANO.id, cursor?: string) => {
+    const q = cursor ? `localId=${localId}&cursor=${cursor}` : `localId=${localId}`;
+    const res = await manejarLocal(new Request(`${ORIGEN}/api/chats/local?${q}`, { headers: conCookie(cookie) }), deps());
+    return { status: res.status, cuerpo: JSON.parse(await res.text()) as Local };
+  };
+  const verGeneral = async (cookie: string) =>
+    JSON.parse(await (await manejarGeneral(new Request(`${ORIGEN}/api/chats/general`, { headers: conCookie(cookie) }), deps())).text()) as General;
+
+  it("guardar y volver a ver: la misma respuesta, con cuándo se preguntó, solo en su chat", async () => {
+    const cookie = await vincular(ADMIN);
+    respuestaIa = () => respuestaGemini({ intencion: "ventas", local: "Casiano", periodo: "hoy" });
+    const r = await preguntar(cookie, { pregunta: "¿Cuánto vendió hoy?", localId: CASIANO.id });
+    assert.equal(r.cuerpo.estado, "VENTAS");
+    assert.ok(r.guardadaId, "la respuesta dice con qué id se guardó");
+
+    // "Salgo y vuelvo a entrar": otra solicitud, sin nada en el navegador.
+    const local = await verLocal(cookie);
+    assert.equal(local.status, 200);
+    assert.deepEqual(local.cuerpo.guardadas, [{ id: r.guardadaId, pregunta: "¿Cuánto vendió hoy?", creadaEn: new Date(reloj).toISOString(), respuesta: r.cuerpo }]);
+    assert.deepEqual((await verGeneral(cookie)).guardadas, [], "la del Local no aparece en General");
+
+    respuestaIa = () => respuestaGemini({ intencion: "no_entiendo" });
+    const g = await preguntar(cookie, { pregunta: "¿Qué temperatura va a hacer mañana?" });
+    assert.deepEqual(
+      (await verGeneral(cookie)).guardadas.map((x) => [x.id, x.pregunta, x.respuesta.estado]),
+      [[g.guardadaId, "¿Qué temperatura va a hacer mañana?", "NO_ENTIENDO"]],
+    );
+    assert.equal((await verLocal(cookie)).cuerpo.guardadas.length, 1, "la de General no aparece en el Local");
+  });
+
+  it("es por persona: otra persona no ve las preguntas de la primera", async () => {
+    // El encargado se vincula PRIMERO: así un guardado que no use el vínculo de quien pregunta se nota.
+    const encargado = await vincular(ENCARGADO);
+    const admin = await vincular(ADMIN);
+    respuestaIa = () => respuestaGemini({ intencion: "no_entiendo" });
+    await preguntar(admin, { pregunta: "hola", localId: CASIANO.id });
+    assert.deepEqual((await verLocal(admin)).cuerpo.guardadas.map((g) => g.pregunta), ["hola"]);
+    const otro = await verLocal(encargado);
+    assert.equal(otro.status, 200, JSON.stringify(otro.cuerpo));
+    assert.deepEqual(otro.cuerpo.guardadas, []);
+  });
+
+  it("se guardan las respuestas que vio la pantalla (también el ERP caído y la IA que no cierra); lo que no es de la persona, no", async () => {
+    const cookie = await vincular(ADMIN);
+    respuestaIa = () => respuestaGemini({ intencion: "ventas", local: "Casiano", periodo: "hoy" });
+    erp.respuestasVentas.push(FIXTURES_ERP.errores.INTEGRACION_NO_DISPONIBLE!);
+    const caido = await preguntar(cookie, { pregunta: "¿Y ahora?", localId: CASIANO.id });
+    assert.equal(caido.cuerpo.estado, "ERP_NO_DISPONIBLE");
+    respuestaIa = () => respuestaGemini({}, { finishReason: "SAFETY" });
+    llamadasIa.length = 0;
+    const iaRara = await preguntar(cookie, { pregunta: "¿Y la IA?", localId: CASIANO.id });
+    const fuera = await preguntar(cookie, { pregunta: "¿Y en otro?", localId: 999 });
+    assert.equal(fuera.cuerpo.estado, "NO_AUTORIZADO");
+    const filas = await base.db.pregunta.findMany({ orderBy: { id: "asc" }, select: { texto: true, erpLocalId: true, resultado: true } });
+    assert.deepEqual(
+      filas.map((f) => [f.texto, f.erpLocalId, (f.resultado as { estado: string }).estado]),
+      [
+        ["¿Y ahora?", CASIANO.id, "ERP_NO_DISPONIBLE"],
+        ["¿Y la IA?", CASIANO.id, iaRara.cuerpo.estado],
+      ],
+      "NO_AUTORIZADO no se guarda: ese local no es de la persona",
+    );
+  });
+
+  it("no cuentan como no leídos y no marcan leído", async () => {
+    const cookie = await vincular(ADMIN);
+    await fondo();
+    const antes = await verLocal(cookie);
+    const lecturaAntes = await base.db.lecturaLocal.findMany({ orderBy: { erpLocalId: "asc" } });
+    respuestaIa = () => respuestaGemini({ intencion: "eventos", tipoEvento: "recibidas", local: "Casiano", periodo: "ayer" });
+    await preguntar(cookie, { pregunta: "¿Qué llegó ayer?", localId: CASIANO.id });
+    const despues = await verLocal(cookie);
+    assert.equal(despues.cuerpo.guardadas.length, 1);
+    assert.equal(despues.cuerpo.noLeidos, antes.cuerpo.noLeidos);
+    assert.equal(despues.cuerpo.leidoHasta, antes.cuerpo.leidoHasta);
+    assert.deepEqual(await base.db.lecturaLocal.findMany({ orderBy: { erpLocalId: "asc" } }), lecturaAntes);
+  });
+
+  it("FALLO CERRADO: si hoy uno de los locales de la respuesta ya no se puede ver, la pregunta no se muestra", async () => {
+    const cookie = await vincular(ADMIN);
+    respuestaIa = () => respuestaGemini({ intencion: "ventas", local: "todos", periodo: "hoy" });
+    erp.respuestasVentas.push(
+      ventasDe({ id: 5, nombre: "Belgrano" }, "10.00", [["EFECTIVO", "Efectivo", "10.00"]]),
+      ventasDe(CASIANO, "20.00", [["EFECTIVO", "Efectivo", "20.00"]]),
+      ventasDe({ id: 9, nombre: "Depósito Central" }, "0.00", []),
+      ventasDe({ id: 20, nombre: "Centro", grupoId: 2 }, "30.00", [["EFECTIVO", "Efectivo", "30.00"]]),
+    );
+    await preguntar(cookie, { pregunta: "¿Cuánto vendimos entre todos?" });
+    respuestaIa = () => respuestaGemini({ intencion: "no_entiendo" });
+    await preguntar(cookie, { pregunta: "¿Qué temperatura hace?" });
+    assert.deepEqual((await verGeneral(cookie)).guardadas.map((g) => g.pregunta), ["¿Qué temperatura hace?", "¿Cuánto vendimos entre todos?"]);
+
+    // Hoy Belgrano ya no anuncia ventas_resumen: la de "todos" trae sus ventas y se oculta. La otra no trae datos de nadie.
+    const a = erp.alcances.get(ADMIN) as Rompible<DatosMiAlcance>;
+    a.locales.find((l) => l.id === 5)!.capacidades = ["transferencias_eventos"] as never;
+    assert.deepEqual((await verGeneral(cookie)).guardadas.map((g) => g.pregunta), ["¿Qué temperatura hace?"]);
+    // Y vuelve a verse si mañana el ERP la anuncia otra vez: no se borró, se ocultó.
+    a.locales.find((l) => l.id === 5)!.capacidades = ["ventas_resumen", "transferencias_eventos"] as never;
+    assert.equal((await verGeneral(cookie)).guardadas.length, 2);
+  });
+
+  it("FALLO CERRADO, en un Local: eventos guardados de una capacidad que hoy ya no tiene, no se muestran", async () => {
+    const cookie = await vincular(ADMIN);
+    await fondo();
+    respuestaIa = () => respuestaGemini({ intencion: "eventos", tipoEvento: "recibidas", local: "Casiano", periodo: "ayer" });
+    await preguntar(cookie, { pregunta: "¿Qué llegó ayer?", localId: CASIANO.id });
+    assert.equal((await verLocal(cookie)).cuerpo.guardadas.length, 1);
+    const a = erp.alcances.get(ADMIN) as Rompible<DatosMiAlcance>;
+    a.locales.find((l) => l.id === CASIANO.id)!.capacidades = ["ventas_resumen", "pedidos_eventos"] as never;
+    const sin = await verLocal(cookie);
+    assert.equal(sin.status, 200, JSON.stringify(sin.cuerpo));
+    assert.deepEqual(sin.cuerpo.guardadas, []);
+  });
+
+  it("CONTRAPRUEBA: un requisito ilegible también la oculta (no se muestra lo que no se puede comprobar)", async () => {
+    const cookie = await vincular(ADMIN);
+    respuestaIa = () => respuestaGemini({ intencion: "no_entiendo" });
+    await preguntar(cookie, { pregunta: "hola", localId: CASIANO.id });
+    assert.equal((await verLocal(cookie)).cuerpo.guardadas.length, 1);
+    await base.db.pregunta.updateMany({ data: { requisitos: [{ localId: "3", capacidad: "transferencias_eventos" }] } });
+    assert.equal((await verLocal(cookie)).cuerpo.guardadas.length, 0);
+  });
+
+  it("retención: a los 90 días la lectura ya no la muestra, y la corrida de fondo la borra sin tocar nada más", async () => {
+    const cookie = await vincular(ADMIN);
+    await fondo();
+    respuestaIa = () => respuestaGemini({ intencion: "no_entiendo" });
+    await preguntar(cookie, { pregunta: "vieja", localId: CASIANO.id });
+    reloj += 60_000;
+    await preguntar(cookie, { pregunta: "nueva", localId: CASIANO.id });
+    const vinculo = (await base.db.vinculo.findFirst({ select: { id: true } }))!;
+    const hoy = { autorizados: [{ localId: CASIANO.id, capacidades: ["transferencias_eventos"] }], conVentas: [] };
+    const aLos = (ms: number) => fuenteDePreguntas(base.db, { vinculoId: vinculo.id, erpLocalId: CASIANO.id, hoy, ahora: new Date(ms) })(null, 10);
+    const NOVENTA = DIAS_DE_RETENCION * 24 * 60 * 60 * 1000;
+    assert.deepEqual((await aLos(reloj - 60_000 + NOVENTA)).map((p) => p.pregunta.pregunta), ["nueva", "vieja"], "el día 90 todavía está");
+    assert.deepEqual((await aLos(reloj - 60_000 + NOVENTA + 1)).map((p) => p.pregunta.pregunta), ["nueva"], "pasado el día 90 ya no se muestra");
+
+    const eventos = await base.db.evento.count();
+    const lecturas = await base.db.lecturaLocal.count();
+    reloj = reloj - 60_000 + NOVENTA + 1;
+    await fondo();
+    assert.deepEqual((await base.db.pregunta.findMany({ select: { texto: true } })).map((p) => p.texto), ["nueva"]);
+    assert.equal(await base.db.evento.count(), eventos, "no toca eventos");
+    assert.equal(await base.db.lecturaLocal.count(), lecturas, "no toca lecturas");
+  });
+});
+
+describe("6C. la paginación intercala preguntas y eventos sin repetir ni perder ninguno", () => {
+  /** Arma un historial: los eventos reales de Casiano (ayer) y preguntas en el medio, con empates a propósito. */
+  async function armar() {
+    await vincular(ADMIN);
+    await fondo();
+    const vinculo = (await base.db.vinculo.findFirst({ select: { id: true } }))!;
+    const eventos = await base.db.evento.findMany({ where: { erpLocalId: CASIANO.id }, orderBy: [{ fechaOperacion: "asc" }, { id: "asc" }] });
+    assert.ok(eventos.length >= 3, "hacen falta eventos de Casiano");
+    const t = (ms: number) => new Date(ms);
+    const primero = eventos[0]!.fechaOperacion.getTime();
+    const segundo = eventos[1]!.fechaOperacion.getTime();
+    const ultimo = eventos.at(-1)!.fechaOperacion.getTime();
+    const momentos = [
+      t(primero - 60_000), // antes de todo
+      t(primero), // empate con un evento: la pregunta va antes (más reciente) que él
+      t(Math.floor((primero + segundo) / 2)), // entre dos eventos
+      t(Math.floor((primero + segundo) / 2)), // empate entre dos preguntas: por id
+      t(ultimo + 60_000), // después de todo
+    ];
+    const respuesta = { estado: "NO_ENTIENDO", ejemplos: [] } as const;
+    for (const [i, creadaEn] of momentos.entries()) {
+      await guardarPregunta(base.db, { vinculoId: vinculo.id, erpLocalId: CASIANO.id, texto: `p${i}`, creadaEn, respuesta, intencion: null });
+    }
+    const hoy = { autorizados: [{ localId: CASIANO.id, capacidades: ["transferencias_eventos"] }], conVentas: [] };
+    const fuente = fuenteDePreguntas(base.db, { vinculoId: vinculo.id, erpLocalId: CASIANO.id, hoy, ahora: new Date(reloj) });
+    const locales = [{ localId: CASIANO.id, tipos: ["TRANSFERENCIA_RECIBIDA" as const] }];
+    return { fuente, locales };
+  }
+
+  const clave = (p: { filas: { evento: { id: string; fecha: string } }[]; preguntas: { id: string; creadaEn: string }[] }) => [
+    ...p.filas.map((f) => ({ k: `e${f.evento.id}`, fecha: f.evento.fecha, p: 0, id: BigInt(f.evento.id) })),
+    ...p.preguntas.map((q) => ({ k: `p${q.id}`, fecha: q.creadaEn, p: 1, id: BigInt(q.id) })),
+  ];
+  /** El orden del historial: más reciente primero; a igual instante, la pregunta; después, el id mayor. */
+  const ordenar = <T extends { fecha: string; p: number; id: bigint }>(xs: T[]) =>
+    [...xs].sort((a, b) => (a.fecha !== b.fecha ? (a.fecha > b.fecha ? -1 : 1) : a.p !== b.p ? b.p - a.p : a.id > b.id ? -1 : 1));
+
+  it("de a 2 por página, recorrer todo da exactamente la misma secuencia que una sola página, en el orden del historial", async () => {
+    const { fuente, locales } = await armar();
+    const todo = await paginaDeHistorial(base.db, INSTALACION, locales, null, 100, fuente);
+    assert.equal(todo.siguiente, null);
+    const esperado = ordenar(clave(todo)).map((x) => x.k);
+    assert.equal(esperado.filter((k) => k.startsWith("p")).length, 5);
+
+    for (const porPagina of [1, 2, 3]) {
+      const visto: string[] = [];
+      let cursor: PosicionHistorial | null = null;
+      for (let vuelta = 0; vuelta < 50; vuelta++) {
+        const p = await paginaDeHistorial(base.db, INSTALACION, locales, cursor, porPagina, fuente);
+        const k = ordenar(clave(p)).map((x) => x.k);
+        assert.ok(k.length <= porPagina);
+        visto.push(...k);
+        if (!p.siguiente) break;
+        cursor = decodificarCursor(p.siguiente);
+        assert.ok(cursor, "el cursor que se emite se puede leer");
+      }
+      assert.deepEqual(visto, esperado, `de a ${porPagina}: ni repetidos ni perdidos, y en orden`);
+    }
+  });
+
+  it("el cursor de siempre (de un evento, dos claves) sigue valiendo; el de una pregunta lleva t: p", async () => {
+    const pos = { fecha: new Date("2026-10-07T12:00:00.000Z"), id: 7n };
+    const viejo = Buffer.from(JSON.stringify({ f: pos.fecha.toISOString(), i: "7" }), "utf8").toString("base64url");
+    assert.equal(codificarCursor(pos), viejo, "un evento se codifica exactamente como antes");
+    assert.deepEqual(decodificarCursor(viejo), pos);
+    const deUnaPregunta = codificarCursor({ ...pos, pregunta: true });
+    assert.deepEqual(JSON.parse(Buffer.from(deUnaPregunta, "base64url").toString("utf8")), { f: pos.fecha.toISOString(), i: "7", t: "p" });
+    assert.deepEqual(decodificarCursor(deUnaPregunta), { ...pos, pregunta: true });
+    for (const malo of [{ f: pos.fecha.toISOString(), i: "7", t: "e" }, { f: pos.fecha.toISOString(), i: "7", t: "p", x: 1 }]) {
+      assert.equal(decodificarCursor(Buffer.from(JSON.stringify(malo), "utf8").toString("base64url")), null, JSON.stringify(malo));
+    }
+  });
+
+  it("por la ruta: las páginas de GET local traen eventos y preguntas, y el cursor encadena", async () => {
+    const { locales } = await armar();
+    void locales;
+    const cookie = await vincular(ADMIN);
+    const res = await manejarLocal(new Request(`${ORIGEN}/api/chats/local?localId=${CASIANO.id}`, { headers: conCookie(cookie) }), deps());
+    const r = JSON.parse(await res.text()) as Extract<RespuestaLocal, { estado: "OK" }>;
+    assert.equal(r.guardadas.length, 5);
+    assert.ok(r.eventos.length > 0);
+    assert.deepEqual(r.guardadas.map((g) => g.pregunta), ["p4", "p3", "p2", "p1", "p0"], "del más reciente al más antiguo; a igual hora, el id mayor");
   });
 });

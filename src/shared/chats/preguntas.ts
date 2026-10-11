@@ -93,6 +93,26 @@ export type RespuestaPregunta =
   | { readonly estado: "IA_NO_DISPONIBLE" }
   | FallaChats;
 
+/**
+ * Tanda 6C: las respuestas que se GUARDAN con su pregunta: las que contestó
+ * la pregunta una vez autorizada la persona. Las fallas de antes (sin sesión,
+ * sin acceso, solicitud inválida, servicio caído) no se guardan: no hay a quién
+ * ni dónde.
+ */
+export const ESTADOS_GUARDADOS = ["VENTAS", "EVENTOS", "NO_ENTIENDO", "SALDO_AGOTADO", "IA_NO_DISPONIBLE", "ERP_NO_DISPONIBLE", "ERP_CUPO_EXCEDIDO"] as const;
+export type RespuestaGuardada = Extract<RespuestaPregunta, { readonly estado: (typeof ESTADOS_GUARDADOS)[number] }>;
+
+/**
+ * Tanda 6C: una pregunta guardada, como la ve el historial. `respuesta` es la
+ * foto de ese momento: no se recalcula. `creadaEn`: cuándo se preguntó (ISO).
+ */
+export type PreguntaGuardada = {
+  readonly id: string;
+  readonly pregunta: string;
+  readonly creadaEn: string;
+  readonly respuesta: RespuestaGuardada;
+};
+
 /** Lo que sí se puede preguntar. Fijo: no lo escribe la IA. */
 export const EJEMPLOS_DE_PREGUNTAS: readonly string[] = Object.freeze([
   "¿Cuánto vendió hoy?",

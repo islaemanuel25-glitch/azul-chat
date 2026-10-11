@@ -572,7 +572,7 @@ describe("GET local y General: forma pública y proyección", () => {
     await fondo();
     const r = await local(adm, CASIANO.id);
     assert.equal(r.status, 200, r.texto);
-    assert.deepEqual(Object.keys(r.cuerpo).sort(), ["estado", "eventos", "leidoHasta", "local", "noLeidos", "preguntas", "siguiente", "sincronizacion"]);
+    assert.deepEqual(Object.keys(r.cuerpo).sort(), ["estado", "eventos", "guardadas", "leidoHasta", "local", "noLeidos", "preguntas", "siguiente", "sincronizacion"]);
     // Tanda 6A: sin IA configurada (estos deps no la traen), no hay preguntas.
     assert.equal(r.cuerpo.preguntas, false);
     // Tanda 3A: `ventas` es el anuncio de `ventas_resumen` del mi_alcance de ahora (adminGlobal lo trae en Casiano).
@@ -946,6 +946,7 @@ describe("la lectura que decide la interfaz, contra el servidor (Tanda 2C)", () 
   const estadoDe = (r: Extract<RespuestaLocal, { estado: "OK" }>): EstadoConversacion<EventoPublico, InfoLocal> => ({
     fase: "LISTA",
     eventos: r.eventos,
+    guardadas: r.guardadas,
     siguiente: r.siguiente,
     anteriores: "QUIETO",
     info: {
@@ -1216,6 +1217,7 @@ describe("Tanda 4B: la lectura con varios tipos y backfills intercalados", () =>
   const estadoDe = (r: Extract<RespuestaLocal, { estado: "OK" }>): EstadoConversacion<EventoPublico, InfoLocal> => ({
     fase: "LISTA",
     eventos: r.eventos,
+    guardadas: r.guardadas,
     siguiente: r.siguiente,
     anteriores: "QUIETO",
     info: {

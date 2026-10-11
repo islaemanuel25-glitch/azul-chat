@@ -55,6 +55,7 @@ import { leerConfigPush, type ConfigPush } from "../push/config.ts";
 import { avisarNovedades, borrarSuscripcionesSinSesion } from "../push/avisos.ts";
 import type { DependenciasEnvio } from "../push/enviar.ts";
 import type { ResultadoConsulta } from "../../shared/erp/contrato.ts";
+import { borrarPreguntasVencidas } from "../preguntas/guardadas.ts";
 import { leerPuertaTarea, type PuertaTarea } from "./tarea.ts";
 
 export type DependenciasTarea = DependenciasSesion & {
@@ -88,6 +89,8 @@ export type ResumenTarea = {
   readonly enviados: number;
   readonly fallidos: number;
   readonly suscripcionesBorradas: number;
+  /** Tanda 6C: preguntas guardadas de más de 90 días, borradas en esta corrida. */
+  readonly preguntasBorradas: number;
   /** El ERP dijo LIMITE_EXCEDIDO y la corrida se cortó ahí; la siguiente retoma por lo pendiente. */
   readonly cortadaPorCupo: boolean;
   /** Personas cuya corrida llegó al presupuesto y dejó locales para la siguiente. */
@@ -128,12 +131,15 @@ export async function manejarSincronizar(request: Request, deps: DependenciasTar
     enviados: 0,
     fallidos: 0,
     suscripcionesBorradas: 0,
+    preguntasBorradas: 0,
     cortadaPorCupo: false,
     personasConPendientes: 0,
     consultasErp: 0,
   };
   try {
     resumen.suscripcionesBorradas += await borrarSuscripcionesSinSesion(db, ahora);
+    // Tanda 6C: la retención de las preguntas guardadas. Solo esa tabla.
+    resumen.preguntasBorradas += await borrarPreguntasVencidas(db, ahora);
     const sesiones = await sesionesParaSegundoPlano(db, config.instalacionId, ahora);
     for (const sesion of sesiones) {
       resumen.personas += 1;

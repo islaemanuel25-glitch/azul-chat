@@ -23,9 +23,9 @@
 
 import { useCallback, useEffect, useReducer, useRef, useState, type FormEvent } from "react";
 
-import { MAX_LARGO_PREGUNTA } from "../../shared/chats/preguntas.ts";
+import { MAX_LARGO_PREGUNTA, type PreguntaGuardada, type RespuestaGuardada } from "../../shared/chats/preguntas.ts";
 import { preguntar, type FallaCliente, type RespuestaDePregunta } from "./clienteChats.ts";
-import { avisoNoSepara, cantidadDeEventos, etiquetaDePeriodo, formatearHora, formatearMonto, tituloDeVentasDe } from "./formato.ts";
+import { avisoNoSepara, cantidadDeEventos, etiquetaDePeriodo, formatearHora, formatearMonto, respuestaGuardadaDel, tituloDeVentasDe } from "./formato.ts";
 import { destinoDeFalla, hayPreguntaEnCurso, reducirPreguntas, type IntercambioDePregunta } from "./logica.ts";
 import { AvisoDeRespuesta, SubtituloDeTarjeta, TarjetaEvento, TarjetaVentas, TEXTO_CUPO_ERP } from "./Piezas.tsx";
 
@@ -212,6 +212,35 @@ function FallaDePregunta({ falla, alReintentar, enEspera }: { falla: FallaClient
     default:
       return <TarjetaFalla texto="Azul Chat no está disponible en este momento." alReintentar={alReintentar} />;
   }
+}
+
+/** Tanda 6C: la respuesta guardada, tal cual se vio. Sin "Reintentar": es una foto, no una consulta. */
+function RespuestaGuardadaVista({ respuesta, zona }: { respuesta: RespuestaGuardada; zona?: string }) {
+  switch (respuesta.estado) {
+    case "IA_NO_DISPONIBLE":
+      return <TarjetaFalla texto="La IA no respondió." />;
+    case "ERP_NO_DISPONIBLE":
+      return <TarjetaFalla texto="No se pudo consultar ERP Azul." />;
+    case "ERP_CUPO_EXCEDIDO":
+      return <TarjetaFalla texto={TEXTO_CUPO_ERP} />;
+    default:
+      return <RespuestaDePreguntaVista respuesta={respuesta} alReintentar={() => {}} {...(zona ? { zona } : {})} />;
+  }
+}
+
+/**
+ * Tanda 6C: una pregunta guardada en el historial: la burbuja con la hora, la
+ * respuesta como se vio y cuándo fue ("Respuesta del 11/10 a las 21:02"), así
+ * se lee como una foto y no como un dato de ahora. Exportado para los tests.
+ */
+export function PreguntaGuardadaVista({ guardada, zona }: { guardada: PreguntaGuardada; zona?: string }) {
+  return (
+    <div className="ac-preguntas__item ac-pregunta-guardada">
+      <BurbujaPropia pregunta={guardada.pregunta} cuando={guardada.creadaEn} {...(zona ? { zona } : {})} />
+      <RespuestaGuardadaVista respuesta={guardada.respuesta} {...(zona ? { zona } : {})} />
+      <p className="ac-pregunta-guardada__momento">{respuestaGuardadaDel(guardada.creadaEn, zona)}</p>
+    </div>
+  );
 }
 
 /** Las preguntas de la conversación: cada burbuja y, debajo, su respuesta. Sin red. Exportado para los tests. */

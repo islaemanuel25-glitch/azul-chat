@@ -67,6 +67,8 @@ export type RegistroTarea = {
   readonly enviados: number;
   readonly fallidos: number;
   readonly suscripcionesBorradas: number;
+  /** Tanda 6C: preguntas guardadas de más de 90 días que se borraron. */
+  readonly preguntasBorradas: number;
   /** Tanda 5B: el ERP dijo LIMITE_EXCEDIDO y la corrida se cortó. */
   readonly cortadaPorCupo: boolean;
   /** Tanda 5B: personas cuya corrida llegó al presupuesto y dejó locales para la siguiente. */

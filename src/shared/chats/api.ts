@@ -21,6 +21,8 @@
 //     `sincronizacion: "DEMORADA"`. Es seguro: la persona está autorizada ahora
 //     para ese local.
 
+import type { PreguntaGuardada } from "./preguntas.ts";
+
 /**
  * Qué tan al día está lo guardado de un local, según los cursores que dejó la
  * sincronización de fondo (Tanda 5B: el pedido del navegador no trae nada).
@@ -148,6 +150,12 @@ export type RespuestaLocal =
       readonly leidoHasta: string;
       /** Del más reciente al más antiguo. */
       readonly eventos: readonly EventoPublico[];
+      /**
+       * Tanda 6C: las preguntas guardadas de esta persona en este Local que
+       * caen en la misma página, intercaladas por hora con los eventos (ver
+       * docs/CHATS.md, "Paginación"). Del más reciente al más antiguo.
+       */
+      readonly guardadas: readonly PreguntaGuardada[];
       /** Opaco: se manda tal cual como `cursor` para la página siguiente. Null: no hay más. */
       readonly siguiente: string | null;
     }
@@ -159,6 +167,8 @@ export type RespuestaGeneral =
       readonly estado: "OK";
       readonly noLeidos: number;
       readonly eventos: readonly EventoGeneral[];
+      /** Tanda 6C: las preguntas guardadas en General (ver RespuestaLocal). */
+      readonly guardadas: readonly PreguntaGuardada[];
       readonly siguiente: string | null;
       /** Tanda 6A: hay preguntas en lenguaje natural (ver RespuestaLocal). */
       readonly preguntas: boolean;

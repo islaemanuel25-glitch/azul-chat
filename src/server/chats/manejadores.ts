@@ -56,6 +56,7 @@ import {
   type LocalVisible,
   type PosicionHistorial,
 } from "./historial.ts";
+import { fuenteDePreguntas } from "../preguntas/guardadas.ts";
 import { esFalloDeCupo, estadoDeLocales, type LocalSincronizado } from "./sincronizacion.ts";
 
 /** Un local con las capacidades que siguen en esta respuesta → qué se puede leer de él. */
@@ -217,7 +218,9 @@ export function manejarLocal(request: Request, deps: DependenciasSesion): Promis
     const [local] = await prepararLocales(deps, a, [autorizado]);
     if (!local) return localNoAutorizado();
     const { db, config, sesion } = a.contexto;
-    const pagina = await paginaDeHistorial(db, config.instalacionId, [visible(local)], desde);
+    // Tanda 6C: las preguntas guardadas en este Local, intercaladas por hora (preguntas/guardadas.ts).
+    const preguntas = fuenteDePreguntas(db, { vinculoId: sesion.vinculo.id, erpLocalId: localId, hoy: a, ahora: new Date(deps.ahora()) });
+    const pagina = await paginaDeHistorial(db, config.instalacionId, [visible(local)], desde, undefined, preguntas);
     return ok<RespuestaLocal>({
       estado: "OK",
       local: { localId, nombre: local.nombre, esDeposito: local.esDeposito, ventas: a.conVentas.some((l) => l.localId === localId) },
@@ -226,6 +229,7 @@ export function manejarLocal(request: Request, deps: DependenciasSesion): Promis
       noLeidos: await contarNoLeidos(db, sesion.vinculo.id, localId, tiposVisibles(local.capacidades)),
       leidoHasta: ((await leerLectura(db, sesion.vinculo.id, localId)) ?? 0n).toString(),
       eventos: pagina.filas.map((f) => f.evento),
+      guardadas: pagina.preguntas,
       siguiente: pagina.siguiente,
     });
   });
@@ -243,13 +247,15 @@ export function manejarGeneral(request: Request, deps: DependenciasSesion): Prom
     const { db, config, sesion } = a.contexto;
     const porId = new Map<number, LocalSincronizado>(preparados.map((l) => [l.localId, l]));
     // General es una proyección: la misma tabla de eventos, filtrada por los locales autorizados de AHORA.
-    const pagina = await paginaDeHistorial(db, config.instalacionId, preparados.map(visible), desde);
+    const preguntas = fuenteDePreguntas(db, { vinculoId: sesion.vinculo.id, erpLocalId: null, hoy: a, ahora: new Date(deps.ahora()) });
+    const pagina = await paginaDeHistorial(db, config.instalacionId, preparados.map(visible), desde, undefined, preguntas);
     let noLeidos = 0;
     for (const l of preparados) noLeidos += await contarNoLeidos(db, sesion.vinculo.id, l.localId, tiposVisibles(l.capacidades));
     return ok<RespuestaGeneral>({
       estado: "OK",
       noLeidos,
       eventos: pagina.filas.map((f) => ({ ...f.evento, local: { localId: f.erpLocalId, nombre: porId.get(f.erpLocalId)!.nombre } })),
+      guardadas: pagina.preguntas,
       siguiente: pagina.siguiente,
       preguntas: deps.ia?.ok === true,
       localesDemorados: preparados.filter((l) => l.sincronizacion === "DEMORADA").map((l) => l.localId),
