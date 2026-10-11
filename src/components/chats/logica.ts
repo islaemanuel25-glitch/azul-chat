@@ -10,6 +10,7 @@
 
 import type { EstadoSincronizacion, EventoGeneral, EventoPublico, LocalDeChats, RespuestaChats, RespuestaVentas } from "../../shared/chats/api.ts";
 import type { FallaCliente, RespuestaDePregunta, Resultado } from "./clienteChats.ts";
+import type { PreguntaGuardada } from "../../shared/chats/preguntas.ts";
 
 // ── La lista ────────────────────────────────────────────────────────────────
 
@@ -45,6 +46,37 @@ export function ordenCronologico<E extends EventoPublico>(eventos: readonly E[])
 export function unirPaginas<E extends EventoPublico>(actuales: readonly E[], anteriores: readonly E[]): E[] {
   const vistos = new Set(actuales.map((e) => e.id));
   return [...actuales, ...anteriores.filter((e) => !vistos.has(e.id))];
+}
+
+/** Tanda 6C: las preguntas guardadas de las páginas anteriores, sin repetir una. */
+export function unirGuardadas(actuales: readonly PreguntaGuardada[], anteriores: readonly PreguntaGuardada[]): PreguntaGuardada[] {
+  const vistas = new Set(actuales.map((p) => p.id));
+  return [...actuales, ...anteriores.filter((p) => !vistas.has(p.id))];
+}
+
+/**
+ * Tanda 6C: los elementos de una conversación en el orden del chat (del más
+ * antiguo arriba al más reciente abajo): eventos por fecha y preguntas
+ * guardadas por cuándo se preguntaron. A igual instante, el evento arriba y la
+ * pregunta abajo; entre dos del mismo tipo, por id. Es el orden del servidor
+ * (chats/historial.ts) dado vuelta.
+ */
+export type ElementoDeConversacion<E extends EventoPublico> =
+  | { readonly tipo: "EVENTO"; readonly fecha: string; readonly evento: E }
+  | { readonly tipo: "PREGUNTA"; readonly fecha: string; readonly guardada: PreguntaGuardada };
+
+export function elementosEnOrden<E extends EventoPublico>(eventos: readonly E[], guardadas: readonly PreguntaGuardada[]): ElementoDeConversacion<E>[] {
+  const todos: ElementoDeConversacion<E>[] = [
+    ...eventos.map((e) => ({ tipo: "EVENTO" as const, fecha: e.fecha, evento: e })),
+    ...guardadas.map((g) => ({ tipo: "PREGUNTA" as const, fecha: g.creadaEn, guardada: g })),
+  ];
+  const instante = (x: ElementoDeConversacion<E>) => Date.parse(x.fecha);
+  const id = (x: ElementoDeConversacion<E>) => (x.tipo === "EVENTO" ? x.evento.id : x.guardada.id);
+  return todos.sort((a, b) => {
+    if (instante(a) !== instante(b)) return instante(a) - instante(b);
+    if (a.tipo !== b.tipo) return a.tipo === "EVENTO" ? -1 : 1;
+    return compararIds(id(a), id(b));
+  });
 }
 
 /** El mayor Evento.id de esos eventos, o null. */
@@ -127,6 +159,8 @@ export type EstadoConversacion<E extends EventoPublico, I extends InfoLocal | In
       readonly fase: "LISTA";
       /** En el orden de la API: del más reciente al más antiguo. */
       readonly eventos: readonly E[];
+      /** Tanda 6C: las preguntas guardadas que trajeron las mismas páginas. */
+      readonly guardadas: readonly PreguntaGuardada[];
       readonly siguiente: string | null;
       readonly anteriores: "QUIETO" | "CARGANDO" | "SIN_RED";
       readonly info: I;
@@ -134,9 +168,9 @@ export type EstadoConversacion<E extends EventoPublico, I extends InfoLocal | In
 
 export type AccionConversacion<E extends EventoPublico, I extends InfoLocal | InfoGeneral> =
   | { readonly tipo: "CARGANDO" }
-  | { readonly tipo: "CARGADA"; readonly eventos: readonly E[]; readonly siguiente: string | null; readonly info: I }
+  | { readonly tipo: "CARGADA"; readonly eventos: readonly E[]; readonly guardadas?: readonly PreguntaGuardada[]; readonly siguiente: string | null; readonly info: I }
   | { readonly tipo: "PIDIENDO_ANTERIORES" }
-  | { readonly tipo: "ANTERIORES"; readonly eventos: readonly E[]; readonly siguiente: string | null }
+  | { readonly tipo: "ANTERIORES"; readonly eventos: readonly E[]; readonly guardadas?: readonly PreguntaGuardada[]; readonly siguiente: string | null }
   | { readonly tipo: "FALLA"; readonly falla: FallaCliente }
   /** POST leído salió bien: la lectura y los no leídos que dice el servidor. Solo para un Local. */
   | { readonly tipo: "LEIDO"; readonly localId: number; readonly leidoHasta: string; readonly noLeidos: number };
@@ -149,12 +183,18 @@ export function reducirConversacion<E extends EventoPublico, I extends InfoLocal
     case "CARGANDO":
       return { fase: "CARGANDO" };
     case "CARGADA":
-      return { fase: "LISTA", eventos: accion.eventos, siguiente: accion.siguiente, anteriores: "QUIETO", info: accion.info };
+      return { fase: "LISTA", eventos: accion.eventos, guardadas: accion.guardadas ?? [], siguiente: accion.siguiente, anteriores: "QUIETO", info: accion.info };
     case "PIDIENDO_ANTERIORES":
       return estado.fase === "LISTA" ? { ...estado, anteriores: "CARGANDO" } : estado;
     case "ANTERIORES":
       if (estado.fase !== "LISTA") return estado;
-      return { ...estado, eventos: unirPaginas(estado.eventos, accion.eventos), siguiente: accion.siguiente, anteriores: "QUIETO" };
+      return {
+        ...estado,
+        eventos: unirPaginas(estado.eventos, accion.eventos),
+        guardadas: unirGuardadas(estado.guardadas, accion.guardadas ?? []),
+        siguiente: accion.siguiente,
+        anteriores: "QUIETO",
+      };
     case "FALLA":
       if (accion.falla.estado === "CANCELADA") return estado;
       // Que no haya red al pedir páginas anteriores no dice nada del acceso:
@@ -272,6 +312,17 @@ export type AccionPreguntas =
   | { readonly tipo: "PREGUNTAR"; readonly id: number; readonly pregunta: string; readonly cuando: string }
   | { readonly tipo: "REINTENTAR"; readonly id: number }
   | { readonly tipo: "RESPUESTA"; readonly id: number; readonly resultado: Resultado<RespuestaDePregunta> };
+
+/**
+ * Tanda 6C: las preguntas de esta pantalla que el historial todavía no trae.
+ * Una que ya llegó guardada en una página (por su `guardadaId`) se ve ahí, en
+ * su lugar por hora, y no se repite al final.
+ */
+export function sinLasGuardadas(lista: readonly IntercambioDePregunta[], guardadas: readonly PreguntaGuardada[]): readonly IntercambioDePregunta[] {
+  if (guardadas.length === 0) return lista;
+  const ids = new Set(guardadas.map((g) => g.id));
+  return lista.filter((i) => !(i.estado.fase === "LISTA" && i.estado.respuesta.guardadaId !== undefined && ids.has(i.estado.respuesta.guardadaId)));
+}
 
 /** ¿Hay una pregunta esperando respuesta? Mientras tanto, no se manda otra. */
 export const hayPreguntaEnCurso = (lista: readonly IntercambioDePregunta[]) => lista.some((i) => i.estado.fase === "CARGANDO");

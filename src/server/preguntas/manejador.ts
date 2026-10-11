@@ -29,7 +29,11 @@
 // en ventas (como mucho 1 + la cantidad de locales con `ventas_resumen`);
 // eventos, solo la primera. Sin reintentos de nada: ni del ERP ni de la IA.
 //
-// Nada se guarda: ni la pregunta ni la respuesta. No marca leído.
+// Tanda 6C: una vez autorizada la persona, cada pregunta se GUARDA con la
+// respuesta que se le contesta (preguntas/guardadas.ts): por vínculo y por chat
+// (el Local, o General), para volver a verla en el historial. Si guardar falla,
+// se contesta igual. La respuesta lleva `guardadaId`, para que la pantalla no
+// la muestre dos veces cuando el historial ya la trae. No marca leído.
 
 import "server-only";
 
@@ -66,6 +70,7 @@ import {
   type Intencion,
   type LocalesDeHoy,
 } from "./intencion.ts";
+import { guardarPregunta } from "./guardadas.ts";
 import { sumarVentas, ventasDeUnLocal } from "./ventas.ts";
 
 /** El cuerpo: 300 caracteres de hasta 4 bytes, más las claves. */
@@ -88,10 +93,10 @@ export function leerPedidoPregunta(cuerpo: Record<string, unknown> | null): { pr
 }
 
 const contestar = (r: RespuestaPregunta, status = 200) => json(r, { status });
-const noEntiendo = () => contestar({ estado: "NO_ENTIENDO", ejemplos: EJEMPLOS_DE_PREGUNTAS });
+const NO_ENTENDIDA: RespuestaPregunta = { estado: "NO_ENTIENDO", ejemplos: EJEMPLOS_DE_PREGUNTAS };
 
 /** Lo que la autorización viva deja para el resto de la pregunta. */
-type Trabajo = { readonly tipo: "OK"; readonly locales: LocalesDeHoy; readonly instalacionId: string };
+type Trabajo = { readonly tipo: "OK"; readonly locales: LocalesDeHoy; readonly instalacionId: string; readonly vinculoId: string };
 
 export async function manejarPreguntar(request: Request, deps: DependenciasSesion): Promise<Response> {
   // 1. Forma.
@@ -112,6 +117,7 @@ export async function manejarPreguntar(request: Request, deps: DependenciasSesio
       datos: {
         tipo: "OK",
         instalacionId: a.contexto.config.instalacionId,
+        vinculoId: a.contexto.sesion.vinculo.id,
         locales: {
           eventos: a.autorizados.map((l) => ({ localId: l.localId, nombre: l.nombre, capacidades: l.capacidades })),
           ventas: a.conVentas.map((l) => ({ localId: l.localId, grupoId: l.grupoId, nombre: l.nombre })),
@@ -123,7 +129,23 @@ export async function manejarPreguntar(request: Request, deps: DependenciasSesio
     return falla({ estado: "SERVICIO_NO_DISPONIBLE" }, request, deps);
   }
   if (autorizacion.tipo !== "OK") return falla(fallaDeDelegacion(autorizacion), request, deps);
-  const { locales, instalacionId } = autorizacion.datos;
+  const { locales, instalacionId, vinculoId } = autorizacion.datos;
+  const cuando = new Date(deps.ahora());
+
+  // Tanda 6C: guardar la pregunta con su respuesta. Si la base falla, se contesta igual.
+  const guardar = async (respuesta: RespuestaPregunta, intencion: Intencion | null): Promise<string | null> => {
+    try {
+      const id = await guardarPregunta(db, { vinculoId, erpLocalId: pedido.localId, texto: pedido.pregunta, creadaEn: cuando, respuesta, intencion });
+      return id === null ? null : id.toString();
+    } catch {
+      deps.registrar({ evento: "sesion.falla_local", etapa: "base" });
+      return null;
+    }
+  };
+  const contestarGuardando = async (respuesta: RespuestaPregunta, intencion: Intencion | null, status = 200) => {
+    const guardadaId = await guardar(respuesta, intencion);
+    return json(guardadaId === null ? respuesta : { ...respuesta, guardadaId }, { status });
+  };
   const nombres = [...new Set([...locales.eventos.map((l) => l.nombre), ...locales.ventas.map((l) => l.nombre)])];
   let localActual: string | null = null;
   if (pedido.localId !== null) {
@@ -137,7 +159,7 @@ export async function manejarPreguntar(request: Request, deps: DependenciasSesio
   const mes = mesEnArgentina(ahora);
   const reserva = reservaPorPregunta(ahora);
   try {
-    if (!(await reservarPregunta(db, mes, reserva, ia.topeMicroUsd))) return contestar({ estado: "SALDO_AGOTADO" });
+    if (!(await reservarPregunta(db, mes, reserva, ia.topeMicroUsd))) return await contestarGuardando({ estado: "SALDO_AGOTADO" }, null);
   } catch {
     deps.registrar({ evento: "sesion.falla_local", etapa: "base" });
     return falla({ estado: "SERVICIO_NO_DISPONIBLE" }, request, deps);
@@ -167,18 +189,22 @@ export async function manejarPreguntar(request: Request, deps: DependenciasSesio
     tokensSalida: r.uso?.tokensSalida ?? null,
     costoMicroUsd: costo === null ? null : Number(costo),
   });
-  if (!r.ok && r.motivo === "NO_DISPONIBLE") return contestar({ estado: "IA_NO_DISPONIBLE" }, 503);
+  if (!r.ok && r.motivo === "NO_DISPONIBLE") return contestarGuardando({ estado: "IA_NO_DISPONIBLE" }, null, 503);
 
   // 5 y 6. El código valida y contesta.
   try {
     switch (intencion.tipo) {
       case "NO_ENTIENDO":
-        return noEntiendo();
+        return await contestarGuardando(NO_ENTENDIDA, intencion);
       case "EVENTOS":
-        return contestar(await eventosDePregunta(db, instalacionId, intencion));
+        return await contestarGuardando(await eventosDePregunta(db, instalacionId, intencion), intencion);
       case "VENTAS": {
         const v = await ventasDePregunta(request.headers, deps, intencion);
-        return "falla" in v ? falla(v.falla, request, deps) : v.respuesta.estado === "NO_ENTIENDO" ? noEntiendo() : contestar(v.respuesta);
+        if ("falla" in v) {
+          await guardar(v.falla, intencion); // solo se guardan ERP_NO_DISPONIBLE y ERP_CUPO_EXCEDIDO
+          return falla(v.falla, request, deps);
+        }
+        return await contestarGuardando(v.respuesta.estado === "NO_ENTIENDO" ? NO_ENTENDIDA : v.respuesta, intencion);
       }
     }
   } catch {

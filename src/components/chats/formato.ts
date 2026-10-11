@@ -118,6 +118,15 @@ export function etiquetaDeDia(iso: string, ahora: Date = new Date(), zona?: stri
   }
 }
 
+/**
+ * Tanda 6C: el pie de una respuesta guardada, que es una foto de ese momento:
+ * "Respuesta del 11/10 a las 21:02". No se recalcula al volver a verla.
+ */
+export function respuestaGuardadaDel(iso: string, zona?: string): string {
+  const dia = new Intl.DateTimeFormat(IDIOMA, { timeZone: zona, day: "numeric", month: "numeric" }).format(new Date(iso));
+  return `Respuesta del ${dia} a las ${formatearHora(iso, zona)}`;
+}
+
 /** La clave de día de un instante, para agrupar una conversación. */
 export function diaDe(iso: string, zona?: string): string {
   return claveDeDia(new Date(iso), zona);

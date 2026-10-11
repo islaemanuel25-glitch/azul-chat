@@ -108,7 +108,10 @@ export function marcarLeido(pedido: PedidoLeido) {
 }
 
 /** Tanda 6A: las respuestas de una pregunta que no son una falla de la API: se muestran como respuesta. */
-export type RespuestaDePregunta = Exclude<RespuestaPregunta, FallaChats>;
+export type RespuestaDePregunta = Exclude<RespuestaPregunta, FallaChats> & {
+  /** Tanda 6C: el id con que se guardó; si el historial ya la trae, no se muestra dos veces. */
+  readonly guardadaId?: string;
+};
 const ESTADOS_DE_PREGUNTA: readonly RespuestaDePregunta["estado"][] = ["VENTAS", "EVENTOS", "NO_ENTIENDO", "SALDO_AGOTADO", "IA_NO_DISPONIBLE"];
 
 /**

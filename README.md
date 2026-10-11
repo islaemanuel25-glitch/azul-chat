@@ -86,7 +86,9 @@ no toca a los demás.
   - `GET /api/salud` — healthcheck: 200 si la configuración es válida, la base
     contesta y está migrada. No llama al ERP ni escribe.
   - `GET /api/version` — el SHA del commit con que se construyó la imagen
-    (`APP_BUILD_ID`).
+    (`APP_BUILD_ID`), con `no-store`. Desde la Tanda 6C la página `/` se arma
+    en cada pedido y trae ese mismo commit, que es la referencia de la recarga
+    por versión (`docs/INTERFAZ.md`).
 - `src/components/` — interfaz. **No pueden importar `src/server`.**
   - `chats/` — la app móvil (Tanda 2C): la lista de chats, un Local, General y
     sus estados, el botón "Ventas" de un Local (Tanda 3A) y la recarga al
@@ -126,12 +128,14 @@ no toca a los demás.
     gasto del mes.
   - `preguntas/` — la ruta de preguntas: la intención que devuelve la IA, su
     validación y la respuesta que arma el código (ventas del ERP, eventos de la
-    base propia).
+    base propia). Desde la Tanda 6C, `guardadas.ts`: cada pregunta con su
+    respuesta, que vuelve en el historial si hoy todavía se puede ver.
   - `configuracion.ts`, `db.ts`, `log.ts`.
 - `prisma/` — esquema y migraciones de la base propia: `Instalacion`,
   `Vinculo`, `Sesion`, `Evento`, `CursorIngesta`, `LecturaLocal`,
-  `PushSuscripcion` y `AvisoLocal` (Tanda 5A), y `ConsumoIa` (Tanda 6A, el
-  gasto en IA por mes). Nada de
+  `PushSuscripcion` y `AvisoLocal` (Tanda 5A), `ConsumoIa` (Tanda 6A, el
+  gasto en IA por mes) y `Pregunta` (Tanda 6C, las preguntas con su
+  respuesta, por persona y chat, 90 días; `docs/CHATS.md`). Nada de
   conversaciones, mensajes ni auditoría: la conversación de un local y General
   se derivan de los eventos.
 - `test/` — `node:test`. `test/db/` usa una base descartable y un ERP de

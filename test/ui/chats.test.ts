@@ -39,6 +39,7 @@ import {
 import {
   decidirLecturaLocal,
   destinoDeFalla,
+  elementosEnOrden,
   ESPERA_TRAS_CUPO_MS,
   esperaTrasFalla,
   hayPreguntaEnCurso,
@@ -50,6 +51,8 @@ import {
   ordenCronologico,
   reducirConversacion,
   reducirVentas,
+  sinLasGuardadas,
+  unirGuardadas,
   unirPaginas,
   urlDeVista,
   type EstadoConversacion,
@@ -66,6 +69,7 @@ import {
   type RespuestaChats,
   type RespuestaVentas,
 } from "../../src/shared/chats/api.ts";
+import type { PreguntaGuardada } from "../../src/shared/chats/preguntas.ts";
 import { DATOS_ERP } from "../ayuda/servidorErp.ts";
 
 const ZONA = "America/Argentina/Buenos_Aires";
@@ -129,6 +133,7 @@ const INFO_LOCAL: InfoLocal = { tipo: "LOCAL", localId: 3, nombre: "Casiano", si
 const lista = (eventos: readonly EventoPublico[], extra: Partial<Extract<EstLocal, { fase: "LISTA" }>> = {}): EstLocal => ({
   fase: "LISTA",
   eventos,
+  guardadas: [],
   siguiente: null,
   anteriores: "QUIETO",
   info: INFO_LOCAL,
@@ -1069,5 +1074,77 @@ describe("6A. preguntas: la caja, la burbuja y las respuestas", () => {
       }),
     ]);
     assert.match(texto(html), /18:40 Día completo: todavía no puedo separar por producto\. Casiano · hoy Ningún pedido solicitado$/);
+  });
+});
+
+// ── Tanda 6C: las preguntas guardadas en el historial ───────────────────────
+
+describe("6C. las preguntas guardadas, intercaladas en la conversación", () => {
+  /** Una pregunta guardada: la del 11/10 que motivó la tanda, con su tarjeta de entonces. */
+  const guardada = (id: string, creadaEn: string, pregunta = "¿Cuánto vendió hoy?"): PreguntaGuardada => ({
+    id,
+    pregunta,
+    creadaEn,
+    respuesta: {
+      estado: "VENTAS",
+      alcance: "LOCAL",
+      periodo: { tipo: "hoy", desde: "2026-10-07", hasta: "2026-10-07" },
+      noSeparaPor: [],
+      ventas: { local: { id: 3, nombre: "Casiano" }, cantidadVentas: 2, totalVendido: "1500.00", mediosDePago: [{ medio: "EFECTIVO", etiqueta: "Efectivo", total: "1500.00", cantidadPagos: 2 }], advertencias: [] },
+    },
+  });
+  // 13:00 está entre E180 (12:00) y E181 (13:30); 13:30:15.250 empata con E181 y E182.
+  const P1 = guardada("1", "2026-10-07T13:00:00.000Z");
+  const P2 = guardada("2", "2026-10-07T13:30:15.250Z", "¿Y ahora?");
+
+  it("el orden del chat: por hora; a igual instante, el evento arriba y la pregunta abajo; entre iguales, por id", () => {
+    const orden = elementosEnOrden(PAGINA_API, [P2, P1]).map((x) => (x.tipo === "EVENTO" ? `e${x.evento.id}` : `p${x.guardada.id}`));
+    assert.deepEqual(orden, ["e1", "p1", "e2", "e3", "p2", "e4"]);
+  });
+
+  it("se dibujan en su lugar: burbuja con la hora, la tarjeta de entonces y cuándo fue la respuesta", () => {
+    const t = texto(cuerpoLocal(lista(PAGINA_API, { guardadas: [P2, P1] })));
+    assert.match(
+      t,
+      /Transferencia #180 recibida .*¿Cuánto vendió hoy\? 10:00 Ventas de hoy · Casiano \$ 1\.500,00 2 ventas Efectivo · \$ 1\.500,00 Respuesta del 7\/10 a las 10:00 .*Transferencia #181 recibida/,
+    );
+    assert.match(t, /Transferencia #182 recibida .*¿Y ahora\? 10:30 .*Respuesta del 7\/10 a las 10:30 .*Transferencia #183 recibida/);
+  });
+
+  it("una respuesta guardada es una foto: sin Reintentar, ni en las fallas", () => {
+    const fallas: PreguntaGuardada[] = [
+      { ...P1, id: "5", respuesta: { estado: "ERP_NO_DISPONIBLE" } },
+      { ...P1, id: "6", respuesta: { estado: "IA_NO_DISPONIBLE" } },
+      { ...P1, id: "7", respuesta: { estado: "ERP_CUPO_EXCEDIDO" } },
+    ];
+    const html = cuerpoLocal(lista([], { guardadas: fallas }));
+    assert.doesNotMatch(html, />Reintentar</);
+    assert.match(texto(html), /No se pudo consultar ERP Azul\..*La IA no respondió\..*Muchas consultas seguidas al ERP/);
+  });
+
+  it("un chat con preguntas guardadas y sin eventos no dice que está vacío", () => {
+    assert.doesNotMatch(cuerpoLocal(lista([], { guardadas: [P1] })), /Todavía no hay eventos/);
+    assert.match(cuerpoLocal(lista([])), /Todavía no hay eventos/);
+  });
+
+  it("cargar anteriores suma las preguntas de la página sin repetir; CARGADA las reemplaza", () => {
+    let e = reducirConversacion<EventoPublico, InfoLocal>({ fase: "CARGANDO" }, { tipo: "CARGADA", eventos: [E183], guardadas: [P2], siguiente: "c", info: INFO_LOCAL });
+    e = reducirConversacion(e, { tipo: "ANTERIORES", eventos: [E180], guardadas: [P2, P1], siguiente: null });
+    assert.equal(e.fase, "LISTA");
+    if (e.fase !== "LISTA") return;
+    assert.deepEqual(e.guardadas.map((g) => g.id), ["2", "1"]);
+    assert.deepEqual(unirGuardadas([P1], [P1, P2]).map((g) => g.id), ["1", "2"]);
+  });
+
+  it("una pregunta de esta pantalla que el historial ya trae (por su guardadaId) no se repite al final; las otras, sí", () => {
+    const respondida = (id: number, guardadaId?: string): IntercambioDePregunta => ({
+      id,
+      pregunta: "x",
+      cuando: "2026-10-07T21:40:00.000Z",
+      estado: { fase: "LISTA", respuesta: { estado: "NO_ENTIENDO", ejemplos: [], ...(guardadaId ? { guardadaId } : {}) } },
+    });
+    const enPantalla = [respondida(1, "2"), respondida(2, "99"), respondida(3), { id: 4, pregunta: "y", cuando: "2026-10-07T21:41:00.000Z", estado: { fase: "CARGANDO" } } as IntercambioDePregunta];
+    assert.deepEqual(sinLasGuardadas(enPantalla, [P1, P2]).map((i) => i.id), [2, 3, 4]);
+    assert.equal(sinLasGuardadas(enPantalla, []), enPantalla);
   });
 });
