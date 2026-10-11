@@ -77,8 +77,9 @@ no toca a los demás.
 
 - `src/app/` — Next.js App Router. Las rutas `api/` solo delegan:
   `salud`, `version`, `sesion` (GET, DELETE), `sesion/vincular` (POST) y los
-  chats: `chats`, `chats/local`, `chats/general` y `chats/ventas` (GET) y
-  `chats/leido` (POST), descritos en `docs/CHATS.md`; desde la Tanda 5A,
+  chats: `chats`, `chats/local`, `chats/general` y `chats/ventas` (GET),
+  `chats/leido` (POST) y, desde la Tanda 6A, `chats/preguntar` (POST),
+  descritos en `docs/CHATS.md`; desde la Tanda 5A,
   `push/clave` (GET) y `push/suscribir` (POST, DELETE), y
   `interno/sincronizar`, que NO es del navegador (solo el timer del VPS, por
   127.0.0.1 y con su secreto; a todo lo demás, 404). No hay proxy genérico.
@@ -89,8 +90,9 @@ no toca a los demás.
 - `src/components/` — interfaz. **No pueden importar `src/server`.**
   - `chats/` — la app móvil (Tanda 2C): la lista de chats, un Local, General y
     sus estados, el botón "Ventas" de un Local (Tanda 3A) y la recarga al
-    cambiar de versión (`version.ts`, Tanda 3B), con un único cliente HTTP
-    (`clienteChats.ts`) para las cinco rutas de chats y `/api/version`.
+    cambiar de versión (`version.ts`, Tanda 3B) y las preguntas en lenguaje
+    natural (`Preguntas.tsx`, Tanda 6A), con un único cliente HTTP
+    (`clienteChats.ts`) para las rutas de chats y `/api/version`.
     Descrita en `docs/INTERFAZ.md`.
   - `sesion/PanelSesion.tsx` — vincular, ver la sesión y cerrarla, y desde la
     Tanda 5A la fila "Notificaciones" (`push/`).
@@ -117,11 +119,19 @@ no toca a los demás.
   - `eventos/` — ingesta (una maquinaria, una definición por capacidad en
     `capacidades.ts`), eventos guardados de los cuatro tipos y lectura
     (`docs/EVENTOS.md`).
-  - `ventas/ventasResumen.ts` — "ventas" desde una sesión. Lo expone solo
-    `GET /api/chats/ventas`, con período fijo "hoy".
+  - `ventas/ventasResumen.ts` — "ventas" desde una sesión. Lo usan
+    `GET /api/chats/ventas`, con período fijo "hoy", y las preguntas.
+  - `ia/` — la IA de las preguntas (Tanda 6A): configuración, la llamada a
+    Gemini (una sola, por `fetch`, sin SDK), la tarifa con su fecha y el tope de
+    gasto del mes.
+  - `preguntas/` — la ruta de preguntas: la intención que devuelve la IA, su
+    validación y la respuesta que arma el código (ventas del ERP, eventos de la
+    base propia).
   - `configuracion.ts`, `db.ts`, `log.ts`.
 - `prisma/` — esquema y migraciones de la base propia: `Instalacion`,
-  `Vinculo`, `Sesion`, `Evento`, `CursorIngesta` y `LecturaLocal`. Nada de
+  `Vinculo`, `Sesion`, `Evento`, `CursorIngesta`, `LecturaLocal`,
+  `PushSuscripcion` y `AvisoLocal` (Tanda 5A), y `ConsumoIa` (Tanda 6A, el
+  gasto en IA por mes). Nada de
   conversaciones, mensajes ni auditoría: la conversación de un local y General
   se derivan de los eventos.
 - `test/` — `node:test`. `test/db/` usa una base descartable y un ERP de
@@ -179,7 +189,13 @@ Desde la Tanda 5A, opcionales (sin ellas el resto anda igual):
 - `AZUL_CHAT_TAREA_SECRET` — el secreto de la ruta que llama el timer de
   sincronización. Mínimo 32 caracteres y distinto de todos los demás.
 
-Cómo generarlas en el VPS sin imprimirlas: `docs/DEPLOY.md`.
+Desde la Tanda 6A, opcionales también:
+
+- `AZUL_CHAT_GEMINI_API_KEY` — la clave de Google Gemini, la MISMA que usa el
+  ERP. Sin ella no hay caja de preguntas. Distinta de los otros secretos.
+- `AZUL_CHAT_IA_TOPE_USD` — el tope de gasto en IA por mes (por defecto 5).
+
+Cómo generarlas (o copiarlas del ERP) en el VPS sin imprimirlas: `docs/DEPLOY.md`.
 
 Ninguna lleva `NEXT_PUBLIC_`.
 
@@ -207,6 +223,13 @@ sobre bytes UTF-8, con `marca` = Unix timestamp en segundos y `cuerpo` =
   cada capacidad se trae al menos cada 4. Con 9 o más locales por persona, o
   más de 6 personas a la vez (cupo de 120 por aplicación), hay que revisar la
   cuenta (`docs/DEPLOY.md`, "Sincronización en segundo plano").
+
+- Cada pregunta en lenguaje natural (Tanda 6A) gasta del cupo del ERP 1 + N:
+  una `mi_alcance` y, si es de ventas, una `ventas_resumen` por local (N = 1
+  para un local, o los locales con ventas para "todos"). Eventos, 1. La IA se
+  paga aparte, con tope mensual (`AZUL_CHAT_IA_TOPE_USD`); la tarifa y la
+  cuenta por pregunta están en `docs/CHATS.md`. La IA solo interpreta la
+  pregunta: no recibe ventas, eventos ni ids.
 
 - El cupo de vinculación vive en memoria del proceso (5 por IP y 15 en total
   por minuto, por debajo de los 20 canjes por minuto que el ERP da a la

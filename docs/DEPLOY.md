@@ -25,6 +25,9 @@ Internet ─► Cloudflare (Full strict) ─► nginx del host ─► 127.0.0.1:
 - **Redes propias**:
   - `azul-chat-interna` (app ↔ base) es `internal`: no tiene salida a internet.
   - `azul-chat-salida` es solo de la app, para hablar con el ERP y publicarse en 127.0.0.1.
+    Desde la Tanda 6A también sale por ella a `https://generativelanguage.googleapis.com`
+    (la IA de las preguntas). Es una red común de Docker: no hay que abrir nada,
+    pero si el host filtrara la salida, ese destino tiene que estar permitido.
 - **Ningún vínculo con el ERP en Docker.** Azul Chat no está en `erpazul_default`,
   no ve `erpazul_db` y no comparte volúmenes ni directorios. Habla con el ERP solo
   por HTTPS público, igual que cualquier cliente.
@@ -86,6 +89,17 @@ cualquiera, `/api/salud` contesta 503 y no se crean sesiones.
   contesta 404 a todo y no hay sincronización de fondo ni avisos.
   - El MISMO valor va en `~/.config/azul-chat/tarea.secreto` (permisos 600),
     que es de donde lo lee el timer.
+- **`AZUL_CHAT_GEMINI_API_KEY`** (Tanda 6A): la clave de Google Gemini para las
+  preguntas en lenguaje natural. **Es la MISMA que usa el ERP** (su
+  `GEMINI_API_KEY`); se copia de archivo a archivo sin imprimirla (abajo).
+  **Opcional**: sin ella no hay caja de preguntas y todo lo demás anda igual;
+  `/api/salud` no la mira. Tiene que ser distinta de los otros secretos de Azul
+  Chat, o la app la ignora.
+- **`AZUL_CHAT_IA_TOPE_USD`** (Tanda 6A): el tope de gasto en IA por mes
+  calendario de Argentina, en dólares con hasta dos decimales (`5`, `12.50`).
+  Por defecto 5; más de 1000 o un valor mal escrito deja la IA apagada (sin
+  caja). Alcanzado, cada pregunta contesta "Saldo de IA agotado" hasta el día 1.
+  El gasto del mes se ve en la tabla `ConsumoIa` (abajo).
 - **`APP_BUILD_ID`**: **no va en `app.env`.** Viene adentro de la imagen, con el
   SHA del commit (build-arg del workflow `Imagen`). Si un archivo de entorno lo
   definiera, `/api/version` diría un commit que no es el de la imagen.
@@ -136,6 +150,45 @@ grep -cE '^AZUL_CHAT_(VAPID_PUBLICA|VAPID_PRIVADA|VAPID_CONTACTO|TAREA_SECRET)=.
 Si `app.env` ya tenía esas líneas vacías (copiado del ejemplo), borrarlas antes
 de agregar: con dos líneas del mismo nombre gana la última, pero mejor una sola.
 Después, recrear la app para que lea el entorno: `$C up -d azul-chat-app`.
+
+### Preguntas en lenguaje natural (Tanda 6A)
+
+La clave de Gemini se copia del entorno del ERP (`/srv/produccion/erpazul/.env.prod`,
+variable `GEMINI_API_KEY`) a `app.env`, **sin que pase por la pantalla**: el
+valor va de un archivo al otro y lo único que se imprime es un conteo.
+
+```sh
+cd /srv/produccion/azul-chat
+umask 077
+# Si app.env ya tiene la línea vacía del ejemplo, sacarla antes (con dos, gana la última).
+sed -i '/^AZUL_CHAT_GEMINI_API_KEY=/d' app.env
+grep -m1 '^GEMINI_API_KEY=' /srv/produccion/erpazul/.env.prod \
+  | sed 's/^GEMINI_API_KEY=/AZUL_CHAT_GEMINI_API_KEY=/' >> app.env
+grep -q '^AZUL_CHAT_IA_TOPE_USD=' app.env || printf 'AZUL_CHAT_IA_TOPE_USD=5\n' >> app.env
+chmod 600 app.env
+
+# Comprobar SIN mostrar valores. La clave, sin comillas ni espacios: 1.
+grep -cE '^AZUL_CHAT_GEMINI_API_KEY=[A-Za-z0-9_-]{20,200}$' app.env   # 1
+grep -c '^AZUL_CHAT_IA_TOPE_USD=' app.env                             # 1
+```
+
+Si el primer conteo da 0, la línea del ERP tiene comillas o espacios: no
+"arreglarla" mirando el valor; sacar las comillas con `sed` sobre `app.env` y
+volver a contar. Después, recrear la app: `$C up -d azul-chat-app`.
+
+La migración es `20261011200000_consumo_ia`: crea la tabla `ConsumoIa` (una
+fila por mes con tokens, costo en millonésimas de dólar y preguntas). Entra con
+el paso 3 del DEPLOY, como todas.
+
+El gasto del mes, sin datos de nadie:
+
+```sh
+docker exec azul-chat-db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT mes, preguntas, \"costoMicroUsd\" / 1e6 AS usd FROM \"ConsumoIa\" ORDER BY mes"'
+```
+
+Cada pregunta deja en el log de la app una línea `ia.pregunta` con resultado,
+duración, tokens y costo; nunca la pregunta ni la clave. El costo de una
+pregunta y el cupo del ERP que gasta (1 + N) están en `docs/CHATS.md`.
 
 ## La imagen
 
@@ -367,6 +420,11 @@ volver a una imagen anterior es seguro, sin restaurar nada. Mientras corra la
 imagen anterior no hay sincronización de fondo (la ruta no existe: el timer
 recibe 404 y lo anota en el journal) ni avisos; conviene parar el timer
 (`systemctl --user stop azul-chat-sincronizar.timer`) hasta volver a la nueva.
+
+**`20261011200000_consumo_ia` (Tanda 6A).** Solo crea la tabla `ConsumoIa`,
+que la imagen anterior no lee: volver atrás es seguro, sin restaurar nada. Sin
+la imagen nueva no hay caja de preguntas; el gasto del mes queda guardado y se
+retoma al volver.
 
 **Primer despliegue.** No hay versión anterior: `$C stop azul-chat-app` (o
 `$C down`, que conserva `pgdata/`) y quitar el bloque de nginx. El ERP no se ve

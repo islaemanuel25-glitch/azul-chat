@@ -142,13 +142,16 @@ evento es el más reciente entre ellos, con su local.
 
 El historial de un local, 30 eventos por página, del más reciente al más
 antiguo. Devuelve `{ estado: "OK", local: { localId, nombre, esDeposito, ventas },
-sincronizacion, noLeidos, leidoHasta, eventos, siguiente }`. `siguiente` es el
+sincronizacion, noLeidos, leidoHasta, eventos, siguiente, preguntas }`. `siguiente` es el
 cursor de la página siguiente, o `null`.
 
 `local.ventas` (Tanda 3A) es `true` si el `mi_alcance` de ESA solicitud anuncia
 `ventas_resumen` en el local. Es un anuncio para mostrar el botón "Ventas", no
 una autorización: `GET /api/chats/ventas` lo vuelve a decidir. Abrir el chat no
 consulta ventas.
+
+`preguntas` (Tanda 6A, también en General) es `true` si el servidor tiene la
+IA configurada: es el anuncio de la caja de preguntas, no una autorización.
 
 Un local que no está en los autorizados de ahora —por no tener la capacidad o
 por no existir en el alcance— es `NO_AUTORIZADO` (403), sin distinguir cuál.
@@ -163,7 +166,7 @@ General es una **proyección**: la misma tabla de eventos, filtrada por los
 locales autorizados de ahora. No hay un "local General" ni se copia nada. Un
 evento de General es el mismo `Evento.id` que en su Local, con el mismo
 contenido, más `local: { localId, nombre }`. Devuelve `{ estado: "OK",
-noLeidos, eventos, siguiente, localesDemorados }`; `noLeidos` es la suma de los
+noLeidos, eventos, siguiente, localesDemorados, preguntas }`; `noLeidos` es la suma de los
 locales.
 
 ### POST /api/chats/leido
@@ -216,6 +219,90 @@ Nada se guarda: no toca `Evento`, `CursorIngesta` ni `LecturaLocal`, no
 sincroniza y no marca leído. Por solicitud: una `mi_alcance` y una
 `ventas_resumen`. Los candados están en `test/db/ventas.test.ts` y
 `test/unidad/ventasChats.test.ts`.
+
+### POST /api/chats/preguntar
+
+Tanda 6A. Una pregunta en lenguaje natural, desde un Local o desde General.
+Cuerpo `{ pregunta, localId? }`: `pregunta` de 1 a 300 caracteres (sin contar
+los espacios de los bordes), `localId` solo si se pregunta desde un Local; otra
+clave es `SOLICITUD_INVALIDA` (400). Exige sesión y el Origin exacto de
+`AZUL_CHAT_ORIGEN_PUBLICO` (`ORIGEN_NO_PERMITIDO`, 403), como marcar leído.
+
+**La IA solo interpreta.** Recibe la pregunta, la fecha de hoy en Argentina, el
+nombre del local desde el que se pregunta y los NOMBRES de los locales
+autorizados hoy. Nada más: ni ventas, ni eventos, ni ids. Devuelve UNA
+intención por salida estructurada, contra un esquema cerrado:
+`ventas` (un local o "todos"; hoy, ayer o rango), `eventos` (recibidas,
+recibidas con diferencias, enviadas, pedidos o cancelaciones; un local o
+"todos"; hoy, ayer o rango) o `no_entiendo`. Elige el local por su nombre, de
+una lista cerrada que el esquema le da (`enum`); el id lo pone el código. Todo
+lo que se muestra lo arma el código: ningún texto ni número de la respuesta sale
+del modelo.
+
+En orden:
+
+1. Forma, Origin y cuerpo. Sin la clave de la IA (o mal configurada):
+   `IA_NO_DISPONIBLE` (503) sin gastar nada; la interfaz ni muestra la caja,
+   porque `chats/local` y `chats/general` traen `preguntas: false`.
+2. `mi_alcance` vivo. El `localId`, si viene, tiene que estar en el alcance de
+   hoy (`NO_AUTORIZADO`, 403).
+3. El tope del mes (abajo): si no entra la reserva, `SALDO_AGOTADO` y no se
+   llama a la IA.
+4. La IA (`src/server/ia/gemini.ts`), una sola llamada, sin reintentos. Si no
+   contesta: `IA_NO_DISPONIBLE` (503).
+5. El código valida la intención (`src/server/preguntas/intencion.ts`): exactamente
+   las claves del esquema; el local, uno de los de hoy CON la capacidad que la
+   intención necesita (`ventas_resumen` o la del tipo de evento); fechas reales,
+   `desde` ≤ `hasta` y un rango de 31 días como mucho. Lo que no cierra es
+   `NO_ENTIENDO`, con ejemplos fijos de lo que sí se puede preguntar.
+6. La respuesta:
+   - **Ventas de un local**: una `ventas_resumen` (`ventasResumenDeSesion`, la
+     misma que `chats/ventas`), copiada campo por campo. Las fechas futuras las
+     decide el ERP: si rechaza el período, es `NO_ENTIENDO`.
+   - **Ventas de todos**: una `ventas_resumen` por cada local con la capacidad
+     hoy, y el código suma total, cantidad y cada medio de pago en centavos
+     enteros (sin coma flotante). Si alguno falla, la respuesta dice cuáles
+     (`fallidos`) y NO trae total (`total: null`): un total parcial no se
+     muestra como si fuera completo. Un rechazo por cupo corta las consultas que
+     faltan.
+   - **Eventos**: de la base propia, sin consultar al ERP. Solo de locales
+     autorizados hoy con la capacidad del tipo, histórico incluido, por día de
+     Argentina (`fechaOperacion`). La cantidad, los 10 más recientes y cuántos
+     más hay (`restantes`, "y N más").
+
+Estados: `VENTAS` (`alcance` `LOCAL` o `TODOS`), `EVENTOS`, `NO_ENTIENDO`,
+`SALDO_AGOTADO` (200), `IA_NO_DISPONIBLE` (503), y las fallas de siempre:
+`ERP_NO_DISPONIBLE` (503), `ERP_CUPO_EXCEDIDO` (429), `SIN_SESION`,
+`NO_AUTORIZADO`, `SOLICITUD_INVALIDA`, `ORIGEN_NO_PERMITIDO`,
+`SERVICIO_NO_DISPONIBLE`.
+
+**Cupo del ERP por pregunta: 1 + N.** Una `mi_alcance` siempre; más una
+`ventas_resumen` si es de un local, o N si es de todos (N = locales con ventas
+hoy). Eventos y `NO_ENTIENDO` gastan solo la `mi_alcance`. Con 5 locales, una
+pregunta de "todos" gasta 6 del cupo de 120 por persona por minuto.
+
+**El tope de gasto** (`src/server/ia/consumo.ts`, tabla `ConsumoIa`, una fila
+por mes de Argentina). Antes de llamar se reserva el peor caso de una pregunta
+(4000 tokens de entrada y 2048 de salida a la tarifa vigente: 10.680
+millonésimas de dólar con la de hoy) con UN `INSERT … ON CONFLICT DO UPDATE`
+condicionado a no pasar `AZUL_CHAT_IA_TOPE_USD`: dos preguntas a la vez no
+pasan el tope entre las dos. Después se ajusta al uso real que informa Google.
+Si Google no contestó, la reserva queda entera (no se sabe qué cobró). El tope
+vuelve a cero el día 1, a las 00:00 de Argentina.
+
+**La tarifa** (`src/server/ia/tarifa.ts`): modelo `gemini-3.6-flash`, el mismo
+del ERP. Según https://ai.google.dev/gemini-api/docs/pricing ("Last updated
+2026-10-09 UTC", leída el 2026-10-11): US$ 0,75 por millón de tokens de entrada
+y US$ 3,75 por millón de salida (el razonamiento cuenta como salida) hasta el
+2026-12-31; desde el 2027-01-01, US$ 1,50 y US$ 7,50. Los dos tramos están en el
+código con su fecha. Una pregunta típica (unos 800 tokens de entrada y 200 de
+salida) cuesta del orden de US$ 0,001 a 0,002; con el tope de US$ 5, unas
+3.000 a 4.000 preguntas por mes. No está medido contra Google: es la cuenta con
+la tarifa.
+
+No se guarda nada de la pregunta ni de la respuesta, no marca leído y no crea
+chips. El registro (`ia.pregunta`) lleva resultado, duración, tokens y costo;
+nunca la pregunta. Candados: `test/db/preguntas.test.ts`.
 
 ## El evento público
 
@@ -286,6 +373,8 @@ Solo un estado, sin mensaje, stack, URL interna, respuesta del ERP ni token:
   `mi_alcance` o, en ventas, en `ventas_resumen`. Sin historial, igual que el
   anterior; la interfaz lo dice con su propio texto.
 - `SERVICIO_NO_DISPONIBLE` (503): configuración o base.
+- En preguntas (Tanda 6A), además: `NO_ENTIENDO` y `SALDO_AGOTADO` (200) y
+  `IA_NO_DISPONIBLE` (503). No son fallas del ERP: el resto sigue andando.
 
 Un local demorado no es un error: es `sincronizacion: "DEMORADA"` dentro de una
 respuesta buena.
