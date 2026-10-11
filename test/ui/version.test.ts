@@ -401,3 +401,26 @@ describe("6D. cada respuesta trae el commit: quien se queda adentro de un chat t
     });
   });
 });
+
+// ── Tanda 6E: la versión, a la vista ────────────────────────────────────────
+
+describe("6E. la versión de la página se ve al pie del panel ☰", () => {
+  it("6E-1. 'Versión' y los primeros 7 caracteres del commit de la página; sin commit, nada", async () => {
+    const { createElement } = await import("react");
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const { VersionDeLaPagina } = await import("../../src/components/sesion/PanelSesion.tsx");
+    assert.equal(renderToStaticMarkup(createElement(VersionDeLaPagina, { commit: C })), '<p class="ac-version">Versión dda5b80</p>');
+    assert.equal(renderToStaticMarkup(createElement(VersionDeLaPagina, { commit: null })), "");
+    assert.equal(renderToStaticMarkup(createElement(VersionDeLaPagina, { commit: "dda5b80" })), "", "un commit a medias no se muestra");
+  });
+
+  it("6E-2. es el MISMO commit que usa la recarga: AzulChat le pasa al panel el `commit` de la página, y el panel lo pone después de los botones", async () => {
+    const { readFileSync } = await import("node:fs");
+    const leer = (f: string) => readFileSync(new URL(`../../${f}`, import.meta.url), "utf8");
+    const azul = leer("src/components/chats/AzulChat.tsx");
+    assert.match(azul, /<PanelSesion [^>]*commit=\{commit\}/);
+    assert.match(azul, /crearComprobadorDeVersion\(\{ propia: commit,/, "la recarga compara contra ese mismo commit");
+    const panel = leer("src/components/sesion/PanelSesion.tsx");
+    assert.match(panel, /Cerrar sesión\s*<\/button>\s*<\/div>\s*\{mensaje && <p className="ac-mensaje">\{mensaje\}<\/p>\}\s*<VersionDeLaPagina commit=\{commit\} \/>/);
+  });
+});

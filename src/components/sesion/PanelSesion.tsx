@@ -22,6 +22,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 
 import type { EstadoSesion, RespuestaCerrar, RespuestaVincular } from "../../shared/sesion/api.ts";
+import { SHA_COMPLETO } from "../../shared/version/cabecera.ts";
 import { FilaNotificaciones } from "../push/FilaNotificaciones.tsx";
 import { anotarCommitDe } from "../chats/version.ts";
 
@@ -42,11 +43,23 @@ const TEXTO_ALCANCE: Record<string, string> = {
   NINGUNO: "Ningún local",
 };
 
+/**
+ * Tanda 6E: la versión de ESTA página, para ver a simple vista si el teléfono
+ * tomó un despliegue nuevo: los primeros 7 caracteres del commit con que se
+ * armó (el mismo que usa la recarga por versión, chats/version.ts). No se le
+ * pide nada al servidor. Sin commit (desarrollo), nada. Exportado para los tests.
+ */
+export function VersionDeLaPagina({ commit }: { commit: string | null }) {
+  if (!commit || !SHA_COMPLETO.test(commit)) return null;
+  return <p className="ac-version">Versión {commit.slice(0, 7)}</p>;
+}
+
 export function PanelSesion({
   alVincular,
   alVerChats,
   motivo,
-}: { alVincular?: () => void; alVerChats?: () => void; motivo?: "VINCULO_INVALIDO" } = {}) {
+  commit = null,
+}: { alVincular?: () => void; alVerChats?: () => void; motivo?: "VINCULO_INVALIDO"; commit?: string | null } = {}) {
   const [estado, setEstado] = useState<EstadoSesion | null>(null);
   const [codigo, setCodigo] = useState("");
   const [trabajando, setTrabajando] = useState(false);
@@ -156,6 +169,7 @@ export function PanelSesion({
           </button>
         </div>
         {mensaje && <p className="ac-mensaje">{mensaje}</p>}
+        <VersionDeLaPagina commit={commit} />
       </section>
     );
   }

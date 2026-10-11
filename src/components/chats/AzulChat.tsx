@@ -104,7 +104,7 @@ export function AzulChat({ commit = null }: { commit?: string | null }) {
   if (modo.tipo === "SESION") {
     return (
       <ShellMovil titulo="Azul Chat">
-        <PanelSesion alVincular={entrar} alVerChats={entrar} {...(modo.motivo ? { motivo: modo.motivo } : {})} />
+        <PanelSesion alVincular={entrar} alVerChats={entrar} commit={commit} {...(modo.motivo ? { motivo: modo.motivo } : {})} />
       </ShellMovil>
     );
   }
