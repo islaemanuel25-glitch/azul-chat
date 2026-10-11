@@ -16,13 +16,26 @@
 //     sigue.
 //
 // La comparación es SEMÁNTICA: campo por campo sobre la forma conocida del
-// payload, nunca el texto del JSON, que PostgreSQL y JavaScript pueden
-// devolver con las claves en otro orden.
+// payload de cada tipo, nunca el texto del JSON, que PostgreSQL y JavaScript
+// pueden devolver con las claves en otro orden. Qué campos cuentan lo decide
+// cada tipo: en PEDIDO_SOLICITADO, otra cantidad de líneas con la misma clave
+// es lo esperado y cuenta como IGUAL (pedidosEnviosCancelaciones.ts).
 
 import "server-only";
 
+import {
+  esPayloadPedidoSolicitadoV1,
+  esPayloadTransferenciaCanceladaV1,
+  esPayloadTransferenciaEnviadaV1,
+  mismoPayloadPedidoSolicitado,
+  mismoPayloadTransferenciaCancelada,
+  mismoPayloadTransferenciaEnviada,
+  PAYLOAD_VERSION_PEDIDO_SOLICITADO,
+  PAYLOAD_VERSION_TRANSFERENCIA_CANCELADA,
+  PAYLOAD_VERSION_TRANSFERENCIA_ENVIADA,
+} from "./pedidosEnviosCancelaciones.ts";
 import type { FilaEvento } from "./transferenciaRecibida.ts";
-import { esPayloadTransferenciaRecibidaV1, PAYLOAD_VERSION_TRANSFERENCIA_RECIBIDA } from "./transferenciaRecibida.ts";
+import { esPayloadTransferenciaRecibidaV1, mismoPayloadTransferenciaRecibida, PAYLOAD_VERSION_TRANSFERENCIA_RECIBIDA } from "./transferenciaRecibida.ts";
 
 export type ClasificacionRepetido = "IGUAL" | "CONTENIDO_DIFERENTE" | "IDENTIDAD_CONTRADICTORIA";
 
@@ -36,22 +49,29 @@ export type EventoGuardado = {
   readonly payload: unknown;
 };
 
-/** ¿Los dos payloads cuentan lo mismo? Solo para v1 de TRANSFERENCIA_RECIBIDA, campo por campo. */
+/** Un comparador por tipo: la versión que sabe leer, su guardián y qué campos cuentan. */
+type Comparador = {
+  readonly version: number;
+  readonly es: (v: unknown) => boolean;
+  readonly mismo: (a: never, b: never) => boolean;
+};
+
+const COMPARADORES: Readonly<Record<string, Comparador>> = Object.freeze({
+  TRANSFERENCIA_RECIBIDA: { version: PAYLOAD_VERSION_TRANSFERENCIA_RECIBIDA, es: esPayloadTransferenciaRecibidaV1, mismo: mismoPayloadTransferenciaRecibida },
+  PEDIDO_SOLICITADO: { version: PAYLOAD_VERSION_PEDIDO_SOLICITADO, es: esPayloadPedidoSolicitadoV1, mismo: mismoPayloadPedidoSolicitado },
+  TRANSFERENCIA_ENVIADA: { version: PAYLOAD_VERSION_TRANSFERENCIA_ENVIADA, es: esPayloadTransferenciaEnviadaV1, mismo: mismoPayloadTransferenciaEnviada },
+  TRANSFERENCIA_CANCELADA: { version: PAYLOAD_VERSION_TRANSFERENCIA_CANCELADA, es: esPayloadTransferenciaCanceladaV1, mismo: mismoPayloadTransferenciaCancelada },
+});
+
+/** ¿Los dos payloads cuentan lo mismo? Con la versión que sabe leer el tipo, campo por campo. */
 function mismoPayload(guardado: EventoGuardado, nueva: FilaEvento): boolean {
   if (guardado.payloadVersion !== nueva.payloadVersion) return false;
-  if (nueva.payloadVersion !== PAYLOAD_VERSION_TRANSFERENCIA_RECIBIDA) return false;
+  const c = Object.prototype.hasOwnProperty.call(COMPARADORES, nueva.tipo) ? COMPARADORES[nueva.tipo] : undefined;
+  if (!c || nueva.payloadVersion !== c.version) return false;
   const a = guardado.payload;
   const b = nueva.payload;
-  if (!esPayloadTransferenciaRecibidaV1(a) || !esPayloadTransferenciaRecibidaV1(b)) return false;
-  return (
-    a.origen.id === b.origen.id &&
-    a.origen.nombre === b.origen.nombre &&
-    a.origen.esDeposito === b.origen.esDeposito &&
-    a.destino.id === b.destino.id &&
-    a.destino.nombre === b.destino.nombre &&
-    a.tieneDiferencias === b.tieneDiferencias &&
-    a.lineasConDiferencia === b.lineasConDiferencia
-  );
+  if (!c.es(a) || !c.es(b)) return false;
+  return c.mismo(a as never, b as never);
 }
 
 /** Compara lo que llegó con lo guardado bajo la misma clave externa. Pura. */

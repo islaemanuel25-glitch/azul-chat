@@ -49,7 +49,14 @@ import {
 } from "../../src/components/chats/logica.ts";
 import { CuerpoChats, type Estado as EstadoChats } from "../../src/components/chats/PantallaChats.tsx";
 import { TarjetaEvento } from "../../src/components/chats/Piezas.tsx";
-import { RUTAS_CHATS, type EventoGeneral, type EventoPublico, type RespuestaChats, type RespuestaVentas } from "../../src/shared/chats/api.ts";
+import {
+  RUTAS_CHATS,
+  type EventoGeneral,
+  type EventoPublico,
+  type EventoTransferenciaRecibidaPublico,
+  type RespuestaChats,
+  type RespuestaVentas,
+} from "../../src/shared/chats/api.ts";
 import { DATOS_ERP } from "../ayuda/servidorErp.ts";
 
 const ZONA = "America/Argentina/Buenos_Aires";
@@ -60,11 +67,17 @@ const nada = () => {};
 const DEPOSITO = { id: 9, nombre: "Depósito Central", esDeposito: true } as const;
 const CASIANO = { id: 3, nombre: "Casiano" } as const;
 
-const evento = (id: string, transferenciaId: number, fecha: string, extra: Partial<EventoPublico> = {}): EventoPublico =>
+const evento = (
+  id: string,
+  transferenciaId: number,
+  fecha: string,
+  extra: Partial<EventoTransferenciaRecibidaPublico> = {},
+): EventoTransferenciaRecibidaPublico =>
   ({
     id,
     tipo: "TRANSFERENCIA_RECIBIDA",
     fecha,
+    historico: false,
     transferenciaId,
     origen: DEPOSITO,
     destino: CASIANO,
@@ -73,7 +86,7 @@ const evento = (id: string, transferenciaId: number, fecha: string, extra: Parti
     ...extra,
   }) satisfies EventoPublico;
 
-const enLocal = (e: EventoPublico, localId: number, nombre: string): EventoGeneral =>
+const enLocal = (e: EventoTransferenciaRecibidaPublico, localId: number, nombre: string): EventoGeneral =>
   ({ ...e, destino: { id: localId, nombre }, local: { localId, nombre } }) satisfies EventoGeneral;
 
 // Los cuatro reales de Casiano: 181 y 182 en el mismo milisegundo.
@@ -609,5 +622,106 @@ describe("ventas de hoy: la barra y la tarjeta", () => {
     assert.equal(inits[0]?.method, undefined);
     assert.equal(inits[0]?.credentials, "same-origin");
     assert.equal(inits[0]?.cache, "no-store");
+  });
+});
+
+// ── Tanda 4B: pedidos, envíos y cancelaciones ───────────────────────────────
+//
+// Figma DpxKeDtugjdB8IfuGnHZcz, pantalla 01: "Pedido #91 solicitado" y
+// "Transferencia #184 enviada" en el MISMO componente de evento que una
+// recepción, sin colores nuevos. Los datos tienen la forma pública exacta
+// (`satisfies`), la que fija test/db/chats.test.ts contra el servidor.
+
+const P91 = {
+  id: "10",
+  tipo: "PEDIDO_SOLICITADO",
+  fecha: "2026-10-07T15:00:00.000Z",
+  historico: false,
+  pedidoId: 91,
+  origen: { id: 9, nombre: "Depósito Central" },
+  lineas: 3,
+} satisfies EventoPublico;
+const T184 = {
+  id: "11",
+  tipo: "TRANSFERENCIA_ENVIADA",
+  fecha: "2026-10-07T16:00:00.000Z",
+  historico: false,
+  transferenciaId: 184,
+  origen: { id: 9, nombre: "Depósito Central" },
+  lineas: 1,
+} satisfies EventoPublico;
+const C184 = {
+  id: "12",
+  tipo: "TRANSFERENCIA_CANCELADA",
+  fecha: "2026-10-07T17:00:00.000Z",
+  historico: false,
+  transferenciaId: 184,
+  origen: { id: 9, nombre: "Depósito Central" },
+} satisfies EventoPublico;
+
+describe("Tanda 4B: las tres tarjetas nuevas", () => {
+  it("PEDIDO_SOLICITADO: 'Pedido #N solicitado' · 'A {origen}' · '{k} líneas' · hora", () => {
+    assert.equal(resumenDeEvento(P91), "Pedido #91 solicitado");
+    assert.equal(texto(dibujar(createElement(TarjetaEvento, { evento: P91, zona: ZONA }))), "Pedido #91 solicitado A Depósito Central · 3 líneas · 12:00");
+  });
+
+  it("TRANSFERENCIA_ENVIADA: 'Transferencia #N enviada' · 'Desde {origen}' · '1 línea' · hora", () => {
+    assert.equal(resumenDeEvento(T184), "Transferencia #184 enviada");
+    assert.equal(texto(dibujar(createElement(TarjetaEvento, { evento: T184, zona: ZONA }))), "Transferencia #184 enviada Desde Depósito Central · 1 línea · 13:00");
+  });
+
+  it("TRANSFERENCIA_CANCELADA: 'Transferencia #N cancelada' · 'Desde {origen}' · hora, sin líneas", () => {
+    assert.equal(resumenDeEvento(C184), "Transferencia #184 cancelada");
+    assert.equal(texto(dibujar(createElement(TarjetaEvento, { evento: C184, zona: ZONA }))), "Transferencia #184 cancelada Desde Depósito Central · 14:00");
+  });
+
+  it("el mismo componente y sin alerta: solo una recepción con diferencias lleva borde y marca; ninguna lleva acciones", () => {
+    for (const e of [P91, T184, C184]) {
+      const html = dibujar(createElement(TarjetaEvento, { evento: e, zona: ZONA }));
+      assert.match(html, /^<article class="ac-evento">/, e.tipo);
+      assert.doesNotMatch(html, /ac-evento--diferencias|⚠|<button|<a |Ver detalle|Abrir en ERP/, e.tipo);
+    }
+    assert.match(dibujar(createElement(TarjetaEvento, { evento: E182, zona: ZONA })), /^<article class="ac-evento ac-evento--diferencias">/);
+  });
+
+  it("en General, cada una lleva su local arriba", () => {
+    const html = dibujar(createElement(TarjetaEvento, { evento: { ...P91, local: { localId: 3, nombre: "Casiano" } }, local: "Casiano", zona: ZONA }));
+    assert.equal(texto(html), "Casiano Pedido #91 solicitado A Depósito Central · 3 líneas · 12:00");
+  });
+
+  it("la lista resume el último evento con los mismos textos, también en General con su local", () => {
+    const datos: ChatsOk = {
+      ...CHATS,
+      general: { noLeidos: 0, ultimoEvento: { ...T184, local: { localId: 3, nombre: "Casiano" } } },
+      locales: [{ localId: 3, nombre: "Casiano", esDeposito: false, ultimoEvento: P91, noLeidos: 0, sincronizacion: "AL_DIA" }],
+    };
+    const t = texto(cuerpoChats({ fase: "LISTA", datos }));
+    assert.match(t, /General Casiano: Transferencia #184 enviada/);
+    assert.match(t, /Casiano Pedido #91 solicitado/);
+    const conCancelada = texto(cuerpoChats({ fase: "LISTA", datos: { ...datos, locales: [{ ...datos.locales[0]!, ultimoEvento: C184 }] } }));
+    assert.match(conCancelada, /Casiano Transferencia #184 cancelada/);
+  });
+});
+
+describe("Tanda 4B: marcar leído cuenta solo lo que no es historia", () => {
+  const info = (leidoHasta: string, noLeidos: number): InfoLocal => ({ ...INFO_LOCAL, leidoHasta, noLeidos });
+  /** 30 pedidos del backfill de una capacidad nueva: historia, con ids mayores que lo leído y que los nuevos. */
+  const historia = Array.from({ length: 30 }, (_, k) => ({
+    ...P91,
+    id: String(100 + k),
+    pedidoId: 200 + k,
+    fecha: new Date(Date.parse("2026-10-08T01:00:00.000Z") + k * 60_000).toISOString(),
+    historico: true,
+  })).reverse();
+  const nuevos = [evento("6", 501, "2026-10-07T20:01:00.000Z"), evento("5", 500, "2026-10-07T20:00:00.000Z")];
+
+  it("con solo historia de ids altos a la vista, no marca aunque haya 30 mostrados por encima de lo leído", () => {
+    const e = lista(historia, { info: info("4", 2), siguiente: "c1" });
+    assert.deepEqual(decidirLecturaLocal(e), { tipo: "FALTAN", nuevosMostrados: 0, noLeidos: 2 });
+  });
+
+  it("con los 2 nuevos a la vista, marca hasta el mayor de ELLOS, no hasta el mayor id de la historia", () => {
+    const e = lista([...historia, ...nuevos], { info: info("4", 2) });
+    assert.deepEqual(decidirLecturaLocal(e), { tipo: "MARCAR", marca: { localId: 3, hastaEventoId: "6" } });
   });
 });

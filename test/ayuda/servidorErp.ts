@@ -152,6 +152,27 @@ export const FIXTURES_ERP_25172FE = JSON.parse(
   miAlcance: Record<"encargado" | "cajero" | "adminGlobal", IntercambioErp>;
 };
 
+/** Los casos que el ERP grabó para cada capacidad de eventos de la Tanda 4A. */
+export type CasosEventosTanda4a = Record<"pagina1" | "pagina2" | "vacia" | "sinPermiso" | "limiteFueraDeRango" | "completa", IntercambioErp>;
+
+/**
+ * `pedidos_eventos`, `envios_eventos`, `cancelaciones_eventos` y `mi_alcance`
+ * con esas capacidades, del ERP en producción (erpmanual 76b9a71, PR #167).
+ * Es una COPIA SIN TOCAR de `docs/integraciones/azul-chat/erp-eventos-tanda-4a.json`
+ * de ese commit (sha256 65dfb952…0685, el mismo byte a byte): lo generó
+ * `scripts/pruebas-db/azulChatEventosTanda4a.mjs` del ERP EJECUTANDO su puerta
+ * (`atenderSolicitudAzulChat`) contra una base descartable, en cf44d68 (ver su
+ * `_origen`; el código de las tres capacidades no cambió hasta 76b9a71). No se
+ * edita a mano: se vuelve a copiar.
+ */
+export const FIXTURES_ERP_76B9A71 = JSON.parse(readFileSync(path.join(import.meta.dirname, "../fixtures/erp-76b9a71.json"), "utf8")) as {
+  ahora: string;
+  pedidos_eventos: CasosEventosTanda4a;
+  envios_eventos: CasosEventosTanda4a;
+  cancelaciones_eventos: CasosEventosTanda4a;
+  miAlcance: Record<"encargado", IntercambioErp>;
+};
+
 /** El cuerpo de un pedido del fixture con un token de verdad en lugar de la máscara, como bytes. */
 export function pedidoConToken(i: IntercambioErp, token: string): string {
   return JSON.stringify(i.pedido).replace('"<token>"', JSON.stringify(token));

@@ -6,11 +6,11 @@
 import type { EventoGeneral, EventoPublico, RespuestaVentas } from "../../shared/chats/api.ts";
 import {
   cantidadDeVentas,
-  detalleDeDiferencias,
-  formatearHora,
+  esAlerta,
   formatearMonto,
   iniciales,
   lineaDeMedioDePago,
+  metaDeEvento,
   resumenDeEvento,
   tituloDeVentas,
 } from "./formato.ts";
@@ -82,25 +82,26 @@ export function EstadoErpNoDisponible({ alReintentar }: { alReintentar: () => vo
 }
 
 /**
- * Una transferencia recibida, como burbuja de la conversación. En General
- * lleva arriba el local al que pertenece. Lo secundario —líneas con
- * diferencias, de dónde vino, la hora— va en una sola línea chica.
+ * Un evento, como burbuja de la conversación: el MISMO componente para los
+ * cuatro tipos (recibida, pedido, enviada, cancelada), sin colores nuevos. En
+ * General lleva arriba el local al que pertenece. Lo secundario —origen,
+ * líneas, la hora— va en una sola línea chica (formato.ts, metaDeEvento). Solo
+ * una recepción con diferencias lleva marca y borde de alerta. Sin acciones.
  */
 export function TarjetaEvento({ evento, local, zona }: { evento: EventoPublico | EventoGeneral; local?: string; zona?: string }) {
-  const detalle = detalleDeDiferencias(evento);
-  const meta = [detalle, `Desde ${evento.origen.nombre}`, formatearHora(evento.fecha, zona)].filter(Boolean).join(" · ");
+  const alerta = esAlerta(evento);
   return (
-    <article className={evento.tieneDiferencias ? "ac-evento ac-evento--diferencias" : "ac-evento"}>
+    <article className={alerta ? "ac-evento ac-evento--diferencias" : "ac-evento"}>
       {local && <p className="ac-evento__local">{local}</p>}
       <p className="ac-evento__titulo">
-        {evento.tieneDiferencias && (
+        {alerta && (
           <span className="ac-evento__marca" aria-hidden="true">
             ⚠
           </span>
         )}
         {resumenDeEvento(evento)}
       </p>
-      <p className="ac-evento__meta">{meta}</p>
+      <p className="ac-evento__meta">{metaDeEvento(evento, zona)}</p>
     </article>
   );
 }

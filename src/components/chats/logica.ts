@@ -62,22 +62,29 @@ export type Marca = { readonly localId: number; readonly hastaEventoId: string }
  * deja leídos todos los ids menores de ese local. Por eso solo se marca cuando
  * todos los no leídos que informó la respuesta están a la vista:
  *
- *   · `nuevosMostrados` = eventos mostrados con Evento.id > leidoHasta,
- *     comparados como BigInt (nunca la cantidad total de eventos: en pantalla
- *     puede haber historia ya leída);
+ *   · `nuevosMostrados` = eventos mostrados NO HISTÓRICOS con Evento.id >
+ *     leidoHasta, comparados como BigInt (nunca la cantidad total de eventos:
+ *     en pantalla puede haber historia ya leída, o historia sin leer);
  *   · si son menos que `noLeidos`, quedan no leídos sin cargar: NO se marca y
  *     la pantalla avisa que hay más;
  *   · si alcanzan, se marca hasta el mayor de ellos.
  *
- * Por qué alcanzar el número basta: dentro de un local los eventos se ingieren
- * en el orden del cursor del ERP (fecha de recepción y transferencia,
- * estrictamente creciente), así que los ids crecen con el orden en que se ven,
- * y la historia del backfill tiene ids menores que cualquier evento nuevo. Los
- * no leídos son entonces los N más recientes del local; si hay N mostrados por
- * encima de lo leído, son esos. `noLeidos` y `leidoHasta` son los de la
- * respuesta que abrió la conversación: lo que llegue después tiene ids mayores,
- * no está a la vista y no queda cubierto. test/db/chats.test.ts lo ejerce
- * contra el servidor.
+ * Es la MISMA regla que cuenta el servidor (eventos/lectura.ts): no histórico
+ * y id mayor que lo leído, de los tipos visibles (la API solo devuelve esos).
+ * Por qué hace falta mirar `historico` (Tanda 4B): cada capacidad tiene su
+ * propio backfill, y la historia de una capacidad nueva se ingiere DESPUÉS que
+ * lo nuevo de otra, con ids mayores. Sin mirar `historico`, cien pedidos viejos
+ * con ids altos contarían como "nuevos mostrados" y se marcaría leído antes de
+ * que los no leídos reales estuvieran a la vista.
+ *
+ * Por qué alcanzar el número basta: el servidor cuenta exactamente los no
+ * históricos con id > leidoHasta, y la conversación muestra esos mismos
+ * eventos (la API no manda tipos que la persona no ve). Si hay N mostrados que
+ * cumplen la regla y el servidor contó N, son todos: marcar hasta el mayor no
+ * deja ninguno no leído sin ver. `noLeidos` y `leidoHasta` son los de la
+ * respuesta que abrió la conversación: lo que llegue después tiene ids
+ * mayores, no está a la vista y no queda cubierto. test/db/chats.test.ts lo
+ * ejerce contra el servidor.
  */
 export type DecisionDeLectura =
   /** No hay nada sin leer en esta respuesta (o ya se marcó). */
@@ -89,7 +96,7 @@ export type DecisionDeLectura =
 export function decidirLecturaLocal<E extends EventoPublico>(estado: EstadoConversacion<E, InfoLocal>): DecisionDeLectura {
   if (estado.fase !== "LISTA" || estado.info.noLeidos <= 0) return { tipo: "NADA" };
   const leido = BigInt(estado.info.leidoHasta);
-  const nuevos = estado.eventos.filter((e) => BigInt(e.id) > leido);
+  const nuevos = estado.eventos.filter((e) => !e.historico && BigInt(e.id) > leido);
   if (nuevos.length < estado.info.noLeidos) return { tipo: "FALTAN", nuevosMostrados: nuevos.length, noLeidos: estado.info.noLeidos };
   return { tipo: "MARCAR", marca: { localId: estado.info.localId, hastaEventoId: mayorId(nuevos)! } };
 }

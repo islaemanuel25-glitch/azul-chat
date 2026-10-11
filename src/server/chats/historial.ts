@@ -3,8 +3,11 @@
 // LEER LOS EVENTOS GUARDADOS DE LOCALES YA AUTORIZADOS, COMO LOS VE LA INTERFAZ.
 //
 // Ninguna función de acá decide quién puede ver qué: reciben la lista de
-// locales que `autorizacion.ts` sacó de `mi_alcance` vivo, y TODAS las
-// consultas filtran por esa lista y por la instalación.
+// locales que `autorizacion.ts` sacó de `mi_alcance` vivo, cada uno con los
+// tipos de evento que la persona puede ver de él (Tanda 4B), y TODAS las
+// consultas filtran por esa lista —local Y tipo— y por la instalación. Un
+// PEDIDO_SOLICITADO guardado no se le muestra a quien no tiene
+// `pedidos_eventos` anunciado en ese local, aunque vea sus transferencias.
 //
 // ── DOS ÓRDENES, DOS USOS ──────────────────────────────────────────────────
 //
@@ -26,10 +29,15 @@
 
 import "server-only";
 
-import type { Prisma, PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient, TipoEvento } from "@prisma/client";
 
 import type { EventoPublico } from "../../shared/chats/api.ts";
 import { esInstanteIso } from "../../shared/erp/contrato.ts";
+import {
+  esPayloadPedidoSolicitadoV1,
+  esPayloadTransferenciaCanceladaV1,
+  esPayloadTransferenciaEnviadaV1,
+} from "../eventos/pedidosEnviosCancelaciones.ts";
 import { esPayloadTransferenciaRecibidaV1 } from "../eventos/transferenciaRecibida.ts";
 
 /** Eventos por página de historial. */
@@ -69,47 +77,82 @@ export function decodificarCursor(texto: unknown): PosicionHistorial | null {
   return { fecha: new Date(o.f as string), id };
 }
 
-const SELECT_PUBLICO = { id: true, tipo: true, erpLocalId: true, erpReferenciaId: true, fechaOperacion: true, payload: true } as const;
+const SELECT_PUBLICO = { id: true, tipo: true, erpLocalId: true, erpReferenciaId: true, fechaOperacion: true, payload: true, historico: true } as const;
 type FilaPublica = Prisma.EventoGetPayload<{ select: typeof SELECT_PUBLICO }>;
 
-/** Una fila → lo que ve la interfaz. Sin instalación, clave externa, versión, histórico ni fecha de ingesta. */
+/** Un evento guardado que no se puede leer no se muestra a medias. */
+const ilegible = (): never => {
+  throw new Error("evento guardado ilegible");
+};
+
+/**
+ * Una fila → lo que ve la interfaz. Sin instalación, clave externa, versión ni
+ * fecha de ingesta; de `historico`, solo el booleano (para no contar historia
+ * como no leída). De cada tipo, solo lo que se muestra.
+ */
 export function aEventoPublico(f: FilaPublica): EventoPublico {
-  if (f.tipo !== "TRANSFERENCIA_RECIBIDA" || !esPayloadTransferenciaRecibidaV1(f.payload)) {
-    // Un evento guardado que no se puede leer no se muestra a medias.
-    throw new Error("evento guardado ilegible");
-  }
+  const base = { id: f.id.toString(), fecha: f.fechaOperacion.toISOString(), historico: f.historico };
   const p = f.payload;
-  return {
-    id: f.id.toString(),
-    tipo: "TRANSFERENCIA_RECIBIDA",
-    fecha: f.fechaOperacion.toISOString(),
-    transferenciaId: f.erpReferenciaId,
-    origen: { id: p.origen.id, nombre: p.origen.nombre, esDeposito: p.origen.esDeposito },
-    destino: { id: p.destino.id, nombre: p.destino.nombre },
-    tieneDiferencias: p.tieneDiferencias,
-    lineasConDiferencia: p.lineasConDiferencia,
-  };
+  switch (f.tipo) {
+    case "TRANSFERENCIA_RECIBIDA":
+      if (!esPayloadTransferenciaRecibidaV1(p)) return ilegible();
+      return {
+        ...base,
+        tipo: "TRANSFERENCIA_RECIBIDA",
+        transferenciaId: f.erpReferenciaId,
+        origen: { id: p.origen.id, nombre: p.origen.nombre, esDeposito: p.origen.esDeposito },
+        destino: { id: p.destino.id, nombre: p.destino.nombre },
+        tieneDiferencias: p.tieneDiferencias,
+        lineasConDiferencia: p.lineasConDiferencia,
+      };
+    case "PEDIDO_SOLICITADO":
+      if (!esPayloadPedidoSolicitadoV1(p)) return ilegible();
+      return { ...base, tipo: "PEDIDO_SOLICITADO", pedidoId: f.erpReferenciaId, origen: { id: p.origen.id, nombre: p.origen.nombre }, lineas: p.lineas };
+    case "TRANSFERENCIA_ENVIADA":
+      if (!esPayloadTransferenciaEnviadaV1(p)) return ilegible();
+      return {
+        ...base,
+        tipo: "TRANSFERENCIA_ENVIADA",
+        transferenciaId: f.erpReferenciaId,
+        origen: { id: p.origen.id, nombre: p.origen.nombre },
+        lineas: p.lineas,
+      };
+    case "TRANSFERENCIA_CANCELADA":
+      if (!esPayloadTransferenciaCanceladaV1(p)) return ilegible();
+      return { ...base, tipo: "TRANSFERENCIA_CANCELADA", transferenciaId: f.erpReferenciaId, origen: { id: p.origen.id, nombre: p.origen.nombre } };
+  }
 }
 
 type Db = Pick<PrismaClient, "evento">;
 
+/** Un local autorizado ahora, con los tipos de evento que la persona puede ver de él (autorizacion.ts). */
+export type LocalVisible = { readonly localId: number; readonly tipos: readonly TipoEvento[] };
+
+/** El filtro de visibilidad: de cada local, solo sus tipos visibles. */
+const visibles = (locales: readonly LocalVisible[]): Prisma.EventoWhereInput[] =>
+  locales.filter((l) => l.tipos.length > 0).map((l) => ({ erpLocalId: l.localId, tipo: { in: [...l.tipos] } }));
+
 /**
  * Una página del historial de esos locales (ya autorizados), del más reciente
- * al más antiguo, estrictamente después de `desde` en ese orden.
+ * al más antiguo, estrictamente después de `desde` en ese orden. De cada local,
+ * solo los tipos que la persona puede ver hoy.
  */
 export async function paginaDeHistorial(
   db: Db,
   instalacionId: string,
-  localIds: readonly number[],
+  locales: readonly LocalVisible[],
   desde: PosicionHistorial | null,
   porPagina = EVENTOS_POR_PAGINA,
 ): Promise<{ filas: { readonly evento: EventoPublico; readonly erpLocalId: number }[]; siguiente: string | null }> {
-  if (localIds.length === 0) return { filas: [], siguiente: null };
+  const permitidos = visibles(locales);
+  if (permitidos.length === 0) return { filas: [], siguiente: null };
   const filas = await db.evento.findMany({
     where: {
       instalacionId,
-      erpLocalId: { in: [...localIds] },
-      ...(desde ? { OR: [{ fechaOperacion: { lt: desde.fecha } }, { fechaOperacion: desde.fecha, id: { lt: desde.id } }] } : {}),
+      AND: [
+        { OR: permitidos },
+        ...(desde ? [{ OR: [{ fechaOperacion: { lt: desde.fecha } }, { fechaOperacion: desde.fecha, id: { lt: desde.id } }] }] : []),
+      ],
     },
     orderBy: [{ fechaOperacion: "desc" }, { id: "desc" }],
     take: porPagina + 1,
@@ -123,10 +166,11 @@ export async function paginaDeHistorial(
   };
 }
 
-/** El último evento visible de cada local (por fecha y, a igual fecha, por id), o null. */
-export async function ultimoEventoDe(db: Db, instalacionId: string, localId: number): Promise<EventoPublico | null> {
+/** El último evento visible de un local (por fecha y, a igual fecha, por id), de sus tipos visibles, o null. */
+export async function ultimoEventoDe(db: Db, instalacionId: string, local: LocalVisible): Promise<EventoPublico | null> {
+  if (local.tipos.length === 0) return null;
   const f = await db.evento.findFirst({
-    where: { instalacionId, erpLocalId: localId },
+    where: { instalacionId, erpLocalId: local.localId, tipo: { in: [...local.tipos] } },
     orderBy: [{ fechaOperacion: "desc" }, { id: "desc" }],
     select: SELECT_PUBLICO,
   });

@@ -52,19 +52,35 @@ export function esPayloadTransferenciaRecibidaV1(v: unknown): v is PayloadTransf
   );
 }
 
-/** Los datos de la fila, sin instalación ni marca de histórico (los pone la ingesta). */
-export type FilaEvento = {
+/** ¿Dos payloads v1 cuentan lo mismo? Todos los campos cuentan (repetido.ts). */
+export function mismoPayloadTransferenciaRecibida(a: PayloadTransferenciaRecibidaV1, b: PayloadTransferenciaRecibidaV1): boolean {
+  return (
+    a.origen.id === b.origen.id &&
+    a.origen.nombre === b.origen.nombre &&
+    a.origen.esDeposito === b.origen.esDeposito &&
+    a.destino.id === b.destino.id &&
+    a.destino.nombre === b.destino.nombre &&
+    a.tieneDiferencias === b.tieneDiferencias &&
+    a.lineasConDiferencia === b.lineasConDiferencia
+  );
+}
+
+/**
+ * Los datos de la fila, sin instalación ni marca de histórico (los pone la
+ * ingesta). Común a todos los tipos; `P` es el payload de cada uno.
+ */
+export type FilaEvento<P extends object = object> = {
   readonly tipo: TipoEvento;
   readonly claveExterna: string;
   readonly erpLocalId: number;
   readonly erpReferenciaId: number;
   readonly fechaOperacion: Date;
   readonly payloadVersion: number;
-  readonly payload: PayloadTransferenciaRecibidaV1;
+  readonly payload: P;
 };
 
 /** Un evento ya validado por el contrato → la fila. Revienta si el payload no da v1: no se guarda algo a medias. */
-export function aFilaEvento(e: EventoTransferenciaRecibida): FilaEvento {
+export function aFilaEvento(e: EventoTransferenciaRecibida): FilaEvento<PayloadTransferenciaRecibidaV1> {
   const payload: PayloadTransferenciaRecibidaV1 = {
     origen: { id: e.origen.id, nombre: e.origen.nombre, esDeposito: e.origen.esDeposito },
     destino: { id: e.destino.id, nombre: e.destino.nombre },

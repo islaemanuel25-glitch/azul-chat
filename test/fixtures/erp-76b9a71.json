@@ -1,0 +1,1076 @@
+{
+  "_origen": {
+    "generadoPor": "scripts/pruebas-db/azulChatEventosTanda4a.mjs",
+    "commit": "cf44d6806faf633ac070406884c6d4b481487bef",
+    "nota": "Pedidos y respuestas reales de la puerta del ERP (atenderSolicitudAzulChat) contra una base descartable. No se edita a mano: se regenera."
+  },
+  "ahora": "2026-10-11T00:50:25.102Z",
+  "pedidos_eventos": {
+    "pagina1": {
+      "pedido": {
+        "capacidad": "pedidos_eventos",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 2
+        },
+        "parametros": {
+          "limite": 2
+        }
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "pedidos_eventos",
+            "version": 1,
+            "local": {
+              "id": 2,
+              "nombre": "Local A"
+            },
+            "grupoId": 1,
+            "hasta": "2026-10-11T00:49:25.102Z",
+            "eventos": [
+              {
+                "tipo": "PEDIDO_SOLICITADO",
+                "eventoId": "PEDIDO_SOLICITADO:9:2026-10-10T23:47:23.528Z",
+                "pedidoId": 9,
+                "fechaSolicitud": "2026-10-10T23:47:23.528Z",
+                "origen": {
+                  "id": 1,
+                  "nombre": "Depósito"
+                },
+                "lineas": 1
+              },
+              {
+                "tipo": "PEDIDO_SOLICITADO",
+                "eventoId": "PEDIDO_SOLICITADO:6:2026-10-10T23:48:23.528Z",
+                "pedidoId": 6,
+                "fechaSolicitud": "2026-10-10T23:48:23.528Z",
+                "origen": {
+                  "id": 1,
+                  "nombre": "Depósito"
+                },
+                "lineas": 1
+              }
+            ],
+            "siguiente": {
+              "fechaSolicitud": "2026-10-10T23:48:23.528Z",
+              "pedidoId": 6
+            },
+            "hayMas": true
+          }
+        }
+      }
+    },
+    "pagina2": {
+      "pedido": {
+        "capacidad": "pedidos_eventos",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 2
+        },
+        "parametros": {
+          "limite": 2,
+          "desde": {
+            "fechaSolicitud": "2026-10-10T23:48:23.528Z",
+            "pedidoId": 6
+          }
+        }
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "pedidos_eventos",
+            "version": 1,
+            "local": {
+              "id": 2,
+              "nombre": "Local A"
+            },
+            "grupoId": 1,
+            "hasta": "2026-10-11T00:49:25.102Z",
+            "eventos": [
+              {
+                "tipo": "PEDIDO_SOLICITADO",
+                "eventoId": "PEDIDO_SOLICITADO:7:2026-10-10T23:48:23.528Z",
+                "pedidoId": 7,
+                "fechaSolicitud": "2026-10-10T23:48:23.528Z",
+                "origen": {
+                  "id": 1,
+                  "nombre": "Depósito"
+                },
+                "lineas": 1
+              },
+              {
+                "tipo": "PEDIDO_SOLICITADO",
+                "eventoId": "PEDIDO_SOLICITADO:8:2026-10-10T23:48:23.528Z",
+                "pedidoId": 8,
+                "fechaSolicitud": "2026-10-10T23:48:23.528Z",
+                "origen": {
+                  "id": 1,
+                  "nombre": "Depósito"
+                },
+                "lineas": 1
+              }
+            ],
+            "siguiente": {
+              "fechaSolicitud": "2026-10-10T23:48:23.528Z",
+              "pedidoId": 8
+            },
+            "hayMas": true
+          }
+        }
+      }
+    },
+    "vacia": {
+      "pedido": {
+        "capacidad": "pedidos_eventos",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 3
+        },
+        "parametros": {
+          "desde": {
+            "fechaSolicitud": "2026-10-11T00:48:23.105Z",
+            "pedidoId": 3
+          }
+        }
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "pedidos_eventos",
+            "version": 1,
+            "local": {
+              "id": 3,
+              "nombre": "Local B"
+            },
+            "grupoId": 1,
+            "hasta": "2026-10-11T00:49:25.102Z",
+            "eventos": [],
+            "siguiente": {
+              "fechaSolicitud": "2026-10-11T00:48:23.105Z",
+              "pedidoId": 3
+            },
+            "hayMas": false
+          }
+        }
+      }
+    },
+    "sinPermiso": {
+      "pedido": {
+        "capacidad": "pedidos_eventos",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 2
+        },
+        "parametros": {}
+      },
+      "respuesta": {
+        "status": 403,
+        "cuerpo": {
+          "ok": false,
+          "codigo": "NO_AUTORIZADO",
+          "error": "El usuario no está autorizado para esta consulta."
+        }
+      }
+    },
+    "limiteFueraDeRango": {
+      "pedido": {
+        "capacidad": "pedidos_eventos",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 2
+        },
+        "parametros": {
+          "limite": 101
+        }
+      },
+      "respuesta": {
+        "status": 400,
+        "cuerpo": {
+          "ok": false,
+          "codigo": "SOLICITUD_INVALIDA",
+          "error": "La solicitud no tiene la forma esperada."
+        }
+      }
+    },
+    "completa": {
+      "pedido": {
+        "capacidad": "pedidos_eventos",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 2
+        },
+        "parametros": {
+          "limite": 100
+        }
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "pedidos_eventos",
+            "version": 1,
+            "local": {
+              "id": 2,
+              "nombre": "Local A"
+            },
+            "grupoId": 1,
+            "hasta": "2026-10-11T00:49:25.102Z",
+            "eventos": [
+              {
+                "tipo": "PEDIDO_SOLICITADO",
+                "eventoId": "PEDIDO_SOLICITADO:9:2026-10-10T23:47:23.528Z",
+                "pedidoId": 9,
+                "fechaSolicitud": "2026-10-10T23:47:23.528Z",
+                "origen": {
+                  "id": 1,
+                  "nombre": "Depósito"
+                },
+                "lineas": 1
+              },
+              {
+                "tipo": "PEDIDO_SOLICITADO",
+                "eventoId": "PEDIDO_SOLICITADO:6:2026-10-10T23:48:23.528Z",
+                "pedidoId": 6,
+                "fechaSolicitud": "2026-10-10T23:48:23.528Z",
+                "origen": {
+                  "id": 1,
+                  "nombre": "Depósito"
+                },
+                "lineas": 1
+              },
+              {
+                "tipo": "PEDIDO_SOLICITADO",
+                "eventoId": "PEDIDO_SOLICITADO:7:2026-10-10T23:48:23.528Z",
+                "pedidoId": 7,
+                "fechaSolicitud": "2026-10-10T23:48:23.528Z",
+                "origen": {
+                  "id": 1,
+                  "nombre": "Depósito"
+                },
+                "lineas": 1
+              },
+              {
+                "tipo": "PEDIDO_SOLICITADO",
+                "eventoId": "PEDIDO_SOLICITADO:8:2026-10-10T23:48:23.528Z",
+                "pedidoId": 8,
+                "fechaSolicitud": "2026-10-10T23:48:23.528Z",
+                "origen": {
+                  "id": 1,
+                  "nombre": "Depósito"
+                },
+                "lineas": 1
+              },
+              {
+                "tipo": "PEDIDO_SOLICITADO",
+                "eventoId": "PEDIDO_SOLICITADO:1:2026-10-11T00:48:23.035Z",
+                "pedidoId": 1,
+                "fechaSolicitud": "2026-10-11T00:48:23.035Z",
+                "origen": {
+                  "id": 1,
+                  "nombre": "Depósito"
+                },
+                "lineas": 3
+              },
+              {
+                "tipo": "PEDIDO_SOLICITADO",
+                "eventoId": "PEDIDO_SOLICITADO:5:2026-10-11T00:48:23.385Z",
+                "pedidoId": 5,
+                "fechaSolicitud": "2026-10-11T00:48:23.385Z",
+                "origen": {
+                  "id": 1,
+                  "nombre": "Depósito"
+                },
+                "lineas": 1
+              }
+            ],
+            "siguiente": {
+              "fechaSolicitud": "2026-10-11T00:48:23.385Z",
+              "pedidoId": 5
+            },
+            "hayMas": false
+          }
+        }
+      }
+    }
+  },
+  "envios_eventos": {
+    "pagina1": {
+      "pedido": {
+        "capacidad": "envios_eventos",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 2
+        },
+        "parametros": {
+          "limite": 2
+        }
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "envios_eventos",
+            "version": 1,
+            "local": {
+              "id": 2,
+              "nombre": "Local A"
+            },
+            "grupoId": 1,
+            "hasta": "2026-10-11T00:49:25.102Z",
+            "eventos": [
+              {
+                "tipo": "TRANSFERENCIA_ENVIADA",
+                "eventoId": "TRANSFERENCIA_ENVIADA:11:2026-10-10T23:47:23.528Z",
+                "transferenciaId": 11,
+                "fechaEnvio": "2026-10-10T23:47:23.528Z",
+                "origen": {
+                  "id": 1,
+                  "nombre": "Depósito"
+                },
+                "lineas": 1,
+                "pedidoId": null
+              },
+              {
+                "tipo": "TRANSFERENCIA_ENVIADA",
+                "eventoId": "TRANSFERENCIA_ENVIADA:5:2026-10-10T23:48:23.528Z",
+                "transferenciaId": 5,
+                "fechaEnvio": "2026-10-10T23:48:23.528Z",
+                "origen": {
+                  "id": 1,
+                  "nombre": "Depósito"
+                },
+                "lineas": 1,
+                "pedidoId": null
+              }
+            ],
+            "siguiente": {
+              "fechaEnvio": "2026-10-10T23:48:23.528Z",
+              "transferenciaId": 5
+            },
+            "hayMas": true
+          }
+        }
+      }
+    },
+    "pagina2": {
+      "pedido": {
+        "capacidad": "envios_eventos",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 2
+        },
+        "parametros": {
+          "limite": 2,
+          "desde": {
+            "fechaEnvio": "2026-10-10T23:48:23.528Z",
+            "transferenciaId": 5
+          }
+        }
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "envios_eventos",
+            "version": 1,
+            "local": {
+              "id": 2,
+              "nombre": "Local A"
+            },
+            "grupoId": 1,
+            "hasta": "2026-10-11T00:49:25.102Z",
+            "eventos": [
+              {
+                "tipo": "TRANSFERENCIA_ENVIADA",
+                "eventoId": "TRANSFERENCIA_ENVIADA:7:2026-10-10T23:48:23.528Z",
+                "transferenciaId": 7,
+                "fechaEnvio": "2026-10-10T23:48:23.528Z",
+                "origen": {
+                  "id": 1,
+                  "nombre": "Depósito"
+                },
+                "lineas": 1,
+                "pedidoId": null
+              },
+              {
+                "tipo": "TRANSFERENCIA_ENVIADA",
+                "eventoId": "TRANSFERENCIA_ENVIADA:9:2026-10-10T23:48:23.528Z",
+                "transferenciaId": 9,
+                "fechaEnvio": "2026-10-10T23:48:23.528Z",
+                "origen": {
+                  "id": 1,
+                  "nombre": "Depósito"
+                },
+                "lineas": 1,
+                "pedidoId": null
+              }
+            ],
+            "siguiente": {
+              "fechaEnvio": "2026-10-10T23:48:23.528Z",
+              "transferenciaId": 9
+            },
+            "hayMas": true
+          }
+        }
+      }
+    },
+    "vacia": {
+      "pedido": {
+        "capacidad": "envios_eventos",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 3
+        },
+        "parametros": {
+          "desde": {
+            "fechaEnvio": "2026-10-11T00:48:23.160Z",
+            "transferenciaId": 3
+          }
+        }
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "envios_eventos",
+            "version": 1,
+            "local": {
+              "id": 3,
+              "nombre": "Local B"
+            },
+            "grupoId": 1,
+            "hasta": "2026-10-11T00:49:25.102Z",
+            "eventos": [],
+            "siguiente": {
+              "fechaEnvio": "2026-10-11T00:48:23.160Z",
+              "transferenciaId": 3
+            },
+            "hayMas": false
+          }
+        }
+      }
+    },
+    "sinPermiso": {
+      "pedido": {
+        "capacidad": "envios_eventos",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 2
+        },
+        "parametros": {}
+      },
+      "respuesta": {
+        "status": 403,
+        "cuerpo": {
+          "ok": false,
+          "codigo": "NO_AUTORIZADO",
+          "error": "El usuario no está autorizado para esta consulta."
+        }
+      }
+    },
+    "limiteFueraDeRango": {
+      "pedido": {
+        "capacidad": "envios_eventos",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 2
+        },
+        "parametros": {
+          "limite": 101
+        }
+      },
+      "respuesta": {
+        "status": 400,
+        "cuerpo": {
+          "ok": false,
+          "codigo": "SOLICITUD_INVALIDA",
+          "error": "La solicitud no tiene la forma esperada."
+        }
+      }
+    },
+    "completa": {
+      "pedido": {
+        "capacidad": "envios_eventos",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 2
+        },
+        "parametros": {
+          "limite": 100
+        }
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "envios_eventos",
+            "version": 1,
+            "local": {
+              "id": 2,
+              "nombre": "Local A"
+            },
+            "grupoId": 1,
+            "hasta": "2026-10-11T00:49:25.102Z",
+            "eventos": [
+              {
+                "tipo": "TRANSFERENCIA_ENVIADA",
+                "eventoId": "TRANSFERENCIA_ENVIADA:11:2026-10-10T23:47:23.528Z",
+                "transferenciaId": 11,
+                "fechaEnvio": "2026-10-10T23:47:23.528Z",
+                "origen": {
+                  "id": 1,
+                  "nombre": "Depósito"
+                },
+                "lineas": 1,
+                "pedidoId": null
+              },
+              {
+                "tipo": "TRANSFERENCIA_ENVIADA",
+                "eventoId": "TRANSFERENCIA_ENVIADA:5:2026-10-10T23:48:23.528Z",
+                "transferenciaId": 5,
+                "fechaEnvio": "2026-10-10T23:48:23.528Z",
+                "origen": {
+                  "id": 1,
+                  "nombre": "Depósito"
+                },
+                "lineas": 1,
+                "pedidoId": null
+              },
+              {
+                "tipo": "TRANSFERENCIA_ENVIADA",
+                "eventoId": "TRANSFERENCIA_ENVIADA:7:2026-10-10T23:48:23.528Z",
+                "transferenciaId": 7,
+                "fechaEnvio": "2026-10-10T23:48:23.528Z",
+                "origen": {
+                  "id": 1,
+                  "nombre": "Depósito"
+                },
+                "lineas": 1,
+                "pedidoId": null
+              },
+              {
+                "tipo": "TRANSFERENCIA_ENVIADA",
+                "eventoId": "TRANSFERENCIA_ENVIADA:9:2026-10-10T23:48:23.528Z",
+                "transferenciaId": 9,
+                "fechaEnvio": "2026-10-10T23:48:23.528Z",
+                "origen": {
+                  "id": 1,
+                  "nombre": "Depósito"
+                },
+                "lineas": 1,
+                "pedidoId": null
+              },
+              {
+                "tipo": "TRANSFERENCIA_ENVIADA",
+                "eventoId": "TRANSFERENCIA_ENVIADA:1:2026-10-11T00:48:23.045Z",
+                "transferenciaId": 1,
+                "fechaEnvio": "2026-10-11T00:48:23.045Z",
+                "origen": {
+                  "id": 1,
+                  "nombre": "Depósito"
+                },
+                "lineas": 2,
+                "pedidoId": 1
+              },
+              {
+                "tipo": "TRANSFERENCIA_ENVIADA",
+                "eventoId": "TRANSFERENCIA_ENVIADA:2:2026-10-11T00:48:23.143Z",
+                "transferenciaId": 2,
+                "fechaEnvio": "2026-10-11T00:48:23.143Z",
+                "origen": {
+                  "id": 1,
+                  "nombre": "Depósito"
+                },
+                "lineas": 1,
+                "pedidoId": null
+              },
+              {
+                "tipo": "TRANSFERENCIA_ENVIADA",
+                "eventoId": "TRANSFERENCIA_ENVIADA:4:2026-10-11T00:48:23.391Z",
+                "transferenciaId": 4,
+                "fechaEnvio": "2026-10-11T00:48:23.391Z",
+                "origen": {
+                  "id": 1,
+                  "nombre": "Depósito"
+                },
+                "lineas": 1,
+                "pedidoId": null
+              },
+              {
+                "tipo": "TRANSFERENCIA_ENVIADA",
+                "eventoId": "TRANSFERENCIA_ENVIADA:6:2026-10-11T00:48:23.564Z",
+                "transferenciaId": 6,
+                "fechaEnvio": "2026-10-11T00:48:23.564Z",
+                "origen": {
+                  "id": 1,
+                  "nombre": "Depósito"
+                },
+                "lineas": 1,
+                "pedidoId": null
+              },
+              {
+                "tipo": "TRANSFERENCIA_ENVIADA",
+                "eventoId": "TRANSFERENCIA_ENVIADA:8:2026-10-11T00:48:23.627Z",
+                "transferenciaId": 8,
+                "fechaEnvio": "2026-10-11T00:48:23.627Z",
+                "origen": {
+                  "id": 1,
+                  "nombre": "Depósito"
+                },
+                "lineas": 1,
+                "pedidoId": null
+              },
+              {
+                "tipo": "TRANSFERENCIA_ENVIADA",
+                "eventoId": "TRANSFERENCIA_ENVIADA:10:2026-10-11T00:48:23.696Z",
+                "transferenciaId": 10,
+                "fechaEnvio": "2026-10-11T00:48:23.696Z",
+                "origen": {
+                  "id": 1,
+                  "nombre": "Depósito"
+                },
+                "lineas": 1,
+                "pedidoId": null
+              },
+              {
+                "tipo": "TRANSFERENCIA_ENVIADA",
+                "eventoId": "TRANSFERENCIA_ENVIADA:12:2026-10-11T00:48:23.767Z",
+                "transferenciaId": 12,
+                "fechaEnvio": "2026-10-11T00:48:23.767Z",
+                "origen": {
+                  "id": 1,
+                  "nombre": "Depósito"
+                },
+                "lineas": 1,
+                "pedidoId": null
+              },
+              {
+                "tipo": "TRANSFERENCIA_ENVIADA",
+                "eventoId": "TRANSFERENCIA_ENVIADA:14:2026-10-11T00:48:24.334Z",
+                "transferenciaId": 14,
+                "fechaEnvio": "2026-10-11T00:48:24.334Z",
+                "origen": {
+                  "id": 1,
+                  "nombre": "Depósito"
+                },
+                "lineas": 1,
+                "pedidoId": null
+              }
+            ],
+            "siguiente": {
+              "fechaEnvio": "2026-10-11T00:48:24.334Z",
+              "transferenciaId": 14
+            },
+            "hayMas": false
+          }
+        }
+      }
+    }
+  },
+  "cancelaciones_eventos": {
+    "pagina1": {
+      "pedido": {
+        "capacidad": "cancelaciones_eventos",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 2
+        },
+        "parametros": {
+          "limite": 2
+        }
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "cancelaciones_eventos",
+            "version": 1,
+            "local": {
+              "id": 2,
+              "nombre": "Local A"
+            },
+            "grupoId": 1,
+            "hasta": "2026-10-11T00:49:25.102Z",
+            "eventos": [
+              {
+                "tipo": "TRANSFERENCIA_CANCELADA",
+                "eventoId": "TRANSFERENCIA_CANCELADA:12:2026-10-10T23:47:23.528Z",
+                "transferenciaId": 12,
+                "fechaCancelacion": "2026-10-10T23:47:23.528Z",
+                "origen": {
+                  "id": 1,
+                  "nombre": "Depósito"
+                },
+                "pedidoId": null
+              },
+              {
+                "tipo": "TRANSFERENCIA_CANCELADA",
+                "eventoId": "TRANSFERENCIA_CANCELADA:6:2026-10-10T23:48:23.528Z",
+                "transferenciaId": 6,
+                "fechaCancelacion": "2026-10-10T23:48:23.528Z",
+                "origen": {
+                  "id": 1,
+                  "nombre": "Depósito"
+                },
+                "pedidoId": null
+              }
+            ],
+            "siguiente": {
+              "fechaCancelacion": "2026-10-10T23:48:23.528Z",
+              "transferenciaId": 6
+            },
+            "hayMas": true
+          }
+        }
+      }
+    },
+    "pagina2": {
+      "pedido": {
+        "capacidad": "cancelaciones_eventos",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 2
+        },
+        "parametros": {
+          "limite": 2,
+          "desde": {
+            "fechaCancelacion": "2026-10-10T23:48:23.528Z",
+            "transferenciaId": 6
+          }
+        }
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "cancelaciones_eventos",
+            "version": 1,
+            "local": {
+              "id": 2,
+              "nombre": "Local A"
+            },
+            "grupoId": 1,
+            "hasta": "2026-10-11T00:49:25.102Z",
+            "eventos": [
+              {
+                "tipo": "TRANSFERENCIA_CANCELADA",
+                "eventoId": "TRANSFERENCIA_CANCELADA:8:2026-10-10T23:48:23.528Z",
+                "transferenciaId": 8,
+                "fechaCancelacion": "2026-10-10T23:48:23.528Z",
+                "origen": {
+                  "id": 1,
+                  "nombre": "Depósito"
+                },
+                "pedidoId": null
+              },
+              {
+                "tipo": "TRANSFERENCIA_CANCELADA",
+                "eventoId": "TRANSFERENCIA_CANCELADA:10:2026-10-10T23:48:23.528Z",
+                "transferenciaId": 10,
+                "fechaCancelacion": "2026-10-10T23:48:23.528Z",
+                "origen": {
+                  "id": 1,
+                  "nombre": "Depósito"
+                },
+                "pedidoId": null
+              }
+            ],
+            "siguiente": {
+              "fechaCancelacion": "2026-10-10T23:48:23.528Z",
+              "transferenciaId": 10
+            },
+            "hayMas": true
+          }
+        }
+      }
+    },
+    "vacia": {
+      "pedido": {
+        "capacidad": "cancelaciones_eventos",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 3
+        },
+        "parametros": {
+          "desde": {
+            "fechaCancelacion": "2026-10-10T23:48:23.528Z",
+            "transferenciaId": 6
+          }
+        }
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "cancelaciones_eventos",
+            "version": 1,
+            "local": {
+              "id": 3,
+              "nombre": "Local B"
+            },
+            "grupoId": 1,
+            "hasta": "2026-10-11T00:49:25.102Z",
+            "eventos": [],
+            "siguiente": {
+              "fechaCancelacion": "2026-10-10T23:48:23.528Z",
+              "transferenciaId": 6
+            },
+            "hayMas": false
+          }
+        }
+      }
+    },
+    "sinPermiso": {
+      "pedido": {
+        "capacidad": "cancelaciones_eventos",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 2
+        },
+        "parametros": {}
+      },
+      "respuesta": {
+        "status": 403,
+        "cuerpo": {
+          "ok": false,
+          "codigo": "NO_AUTORIZADO",
+          "error": "El usuario no está autorizado para esta consulta."
+        }
+      }
+    },
+    "limiteFueraDeRango": {
+      "pedido": {
+        "capacidad": "cancelaciones_eventos",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 2
+        },
+        "parametros": {
+          "limite": 101
+        }
+      },
+      "respuesta": {
+        "status": 400,
+        "cuerpo": {
+          "ok": false,
+          "codigo": "SOLICITUD_INVALIDA",
+          "error": "La solicitud no tiene la forma esperada."
+        }
+      }
+    },
+    "completa": {
+      "pedido": {
+        "capacidad": "cancelaciones_eventos",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 2
+        },
+        "parametros": {
+          "limite": 100
+        }
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "cancelaciones_eventos",
+            "version": 1,
+            "local": {
+              "id": 2,
+              "nombre": "Local A"
+            },
+            "grupoId": 1,
+            "hasta": "2026-10-11T00:49:25.102Z",
+            "eventos": [
+              {
+                "tipo": "TRANSFERENCIA_CANCELADA",
+                "eventoId": "TRANSFERENCIA_CANCELADA:12:2026-10-10T23:47:23.528Z",
+                "transferenciaId": 12,
+                "fechaCancelacion": "2026-10-10T23:47:23.528Z",
+                "origen": {
+                  "id": 1,
+                  "nombre": "Depósito"
+                },
+                "pedidoId": null
+              },
+              {
+                "tipo": "TRANSFERENCIA_CANCELADA",
+                "eventoId": "TRANSFERENCIA_CANCELADA:6:2026-10-10T23:48:23.528Z",
+                "transferenciaId": 6,
+                "fechaCancelacion": "2026-10-10T23:48:23.528Z",
+                "origen": {
+                  "id": 1,
+                  "nombre": "Depósito"
+                },
+                "pedidoId": null
+              },
+              {
+                "tipo": "TRANSFERENCIA_CANCELADA",
+                "eventoId": "TRANSFERENCIA_CANCELADA:8:2026-10-10T23:48:23.528Z",
+                "transferenciaId": 8,
+                "fechaCancelacion": "2026-10-10T23:48:23.528Z",
+                "origen": {
+                  "id": 1,
+                  "nombre": "Depósito"
+                },
+                "pedidoId": null
+              },
+              {
+                "tipo": "TRANSFERENCIA_CANCELADA",
+                "eventoId": "TRANSFERENCIA_CANCELADA:10:2026-10-10T23:48:23.528Z",
+                "transferenciaId": 10,
+                "fechaCancelacion": "2026-10-10T23:48:23.528Z",
+                "origen": {
+                  "id": 1,
+                  "nombre": "Depósito"
+                },
+                "pedidoId": null
+              },
+              {
+                "tipo": "TRANSFERENCIA_CANCELADA",
+                "eventoId": "TRANSFERENCIA_CANCELADA:2:2026-10-11T00:48:23.263Z",
+                "transferenciaId": 2,
+                "fechaCancelacion": "2026-10-11T00:48:23.263Z",
+                "origen": {
+                  "id": 1,
+                  "nombre": "Depósito"
+                },
+                "pedidoId": null
+              },
+              {
+                "tipo": "TRANSFERENCIA_CANCELADA",
+                "eventoId": "TRANSFERENCIA_CANCELADA:4:2026-10-11T00:48:23.421Z",
+                "transferenciaId": 4,
+                "fechaCancelacion": "2026-10-11T00:48:23.421Z",
+                "origen": {
+                  "id": 1,
+                  "nombre": "Depósito"
+                },
+                "pedidoId": null
+              }
+            ],
+            "siguiente": {
+              "fechaCancelacion": "2026-10-11T00:48:23.421Z",
+              "transferenciaId": 4
+            },
+            "hayMas": false
+          }
+        }
+      }
+    }
+  },
+  "miAlcance": {
+    "encargado": {
+      "pedido": {
+        "capacidad": "mi_alcance",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "parametros": {}
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "mi_alcance",
+            "version": 1,
+            "usuario": {
+              "id": 1,
+              "nombre": "encargado-a"
+            },
+            "alcance": {
+              "modo": "LOCAL"
+            },
+            "locales": [
+              {
+                "id": 2,
+                "nombre": "Local A",
+                "grupoId": 1,
+                "esDeposito": false,
+                "activo": true,
+                "capacidades": [
+                  "ventas_resumen",
+                  "transferencias_eventos",
+                  "pedidos_eventos",
+                  "envios_eventos",
+                  "cancelaciones_eventos"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

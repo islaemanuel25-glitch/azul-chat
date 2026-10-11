@@ -8,8 +8,10 @@
 //   POST /api/chats/leido                    marcar leído, explícito
 //   GET  /api/chats/ventas?localId=          las ventas de hoy de un local (Tanda 3A)
 //
-// Las cuatro primeras: sesión → `mi_alcance` vivo, UNA vez → locales con
-// `transferencias_eventos` → recién ahí la base. La base no autoriza nada.
+// Las cuatro primeras: sesión → `mi_alcance` vivo, UNA vez → locales con al
+// menos una capacidad de eventos, y de cada uno los tipos de esas capacidades
+// (Tanda 4B) → recién ahí la base, filtrada por local Y tipo. La base no
+// autoriza nada.
 // Ventas: sesión → `mi_alcance` vivo → local con `ventas_resumen` → el ERP;
 // no toca Evento ni LecturaLocal.
 //
@@ -41,9 +43,20 @@ import { cookieBorrada } from "../sesion/cookie.ts";
 import type { ResultadoDelegado } from "../sesion/delegacion.ts";
 import type { DependenciasSesion } from "../sesion/dependencias.ts";
 import { ventasResumenDeSesion } from "../ventas/ventasResumen.ts";
-import { conAutorizacionViva, type Autorizacion, type LocalAutorizado } from "./autorizacion.ts";
-import { decodificarCursor, leerIdEvento, masReciente, paginaDeHistorial, ultimoEventoDe, type PosicionHistorial } from "./historial.ts";
+import { conAutorizacionViva, tiposVisibles, type Autorizacion, type LocalAutorizado, type LocalDeEventos } from "./autorizacion.ts";
+import {
+  decodificarCursor,
+  leerIdEvento,
+  masReciente,
+  paginaDeHistorial,
+  ultimoEventoDe,
+  type LocalVisible,
+  type PosicionHistorial,
+} from "./historial.ts";
 import { sincronizarAutorizados, type LocalSincronizado } from "./sincronizacion.ts";
+
+/** Un local con las capacidades que siguen en esta respuesta → qué se puede leer de él. */
+const visible = (l: LocalDeEventos): LocalVisible => ({ localId: l.localId, tipos: tiposVisibles(l.capacidades) });
 
 /** Marcas por POST: más que los locales que tiene cualquier negocio. */
 export const MAX_MARCAS = 50;
@@ -134,8 +147,8 @@ export function manejarChats(request: Request, deps: DependenciasSesion): Promis
         localId: l.localId,
         nombre: l.nombre,
         esDeposito: l.esDeposito,
-        ultimoEvento: await ultimoEventoDe(db, config.instalacionId, l.localId),
-        noLeidos: await contarNoLeidos(db, sesion.vinculo.id, l.localId),
+        ultimoEvento: await ultimoEventoDe(db, config.instalacionId, visible(l)),
+        noLeidos: await contarNoLeidos(db, sesion.vinculo.id, l.localId, tiposVisibles(l.capacidades)),
         sincronizacion: l.sincronizacion,
       });
     }
@@ -186,12 +199,12 @@ export function manejarLocal(request: Request, deps: DependenciasSesion): Promis
     const local = s.locales[0];
     if (!local) return localNoAutorizado(); // el ERP lo negó al sincronizar
     const { db, config, sesion } = a.contexto;
-    const pagina = await paginaDeHistorial(db, config.instalacionId, [localId], desde);
+    const pagina = await paginaDeHistorial(db, config.instalacionId, [visible(local)], desde);
     return ok<RespuestaLocal>({
       estado: "OK",
       local: { localId, nombre: local.nombre, esDeposito: local.esDeposito, ventas: a.conVentas.some((l) => l.localId === localId) },
       sincronizacion: local.sincronizacion,
-      noLeidos: await contarNoLeidos(db, sesion.vinculo.id, localId),
+      noLeidos: await contarNoLeidos(db, sesion.vinculo.id, localId, tiposVisibles(local.capacidades)),
       leidoHasta: ((await leerLectura(db, sesion.vinculo.id, localId)) ?? 0n).toString(),
       eventos: pagina.filas.map((f) => f.evento),
       siguiente: pagina.siguiente,
@@ -212,9 +225,9 @@ export function manejarGeneral(request: Request, deps: DependenciasSesion): Prom
     const { db, config, sesion } = a.contexto;
     const porId = new Map<number, LocalSincronizado>(s.locales.map((l) => [l.localId, l]));
     // General es una proyección: la misma tabla de eventos, filtrada por los locales autorizados de AHORA.
-    const pagina = await paginaDeHistorial(db, config.instalacionId, [...porId.keys()], desde);
+    const pagina = await paginaDeHistorial(db, config.instalacionId, s.locales.map(visible), desde);
     let noLeidos = 0;
-    for (const l of s.locales) noLeidos += await contarNoLeidos(db, sesion.vinculo.id, l.localId);
+    for (const l of s.locales) noLeidos += await contarNoLeidos(db, sesion.vinculo.id, l.localId, tiposVisibles(l.capacidades));
     return ok<RespuestaGeneral>({
       estado: "OK",
       noLeidos,
@@ -255,14 +268,16 @@ export async function manejarLeido(request: Request, deps: DependenciasSesion): 
   if (!marcas) return falla({ estado: "SOLICITUD_INVALIDA" }, request, deps);
   return responder<RespuestaLeido>(request, deps, async (a) => {
     // TODOS los locales tienen que estar autorizados ahora; si uno no, no se marca ninguno.
-    if (!marcas.every((m) => a.autorizados.some((l) => l.localId === m.localId))) return localNoAutorizado();
+    const locales = marcas.map((m) => a.autorizados.find((l) => l.localId === m.localId));
+    if (!locales.every((l) => l !== undefined)) return localNoAutorizado();
     const { db, sesion } = a.contexto;
     const lecturas = await db.$transaction(async (tx) => {
       const salida: { localId: number; leidoHasta: string; noLeidos: number }[] = [];
-      for (const m of marcas) {
+      for (const [i, m] of marcas.entries()) {
         // Se recorta al mayor Evento.id DE ESE LOCAL y nunca retrocede (eventos/lectura.ts).
         const leido = await avanzarLectura(tx, sesion.vinculo.id, m.localId, m.hasta);
-        salida.push({ localId: m.localId, leidoHasta: leido.toString(), noLeidos: await contarNoLeidos(tx, sesion.vinculo.id, m.localId) });
+        const noLeidos = await contarNoLeidos(tx, sesion.vinculo.id, m.localId, tiposVisibles(locales[i]!.capacidades));
+        salida.push({ localId: m.localId, leidoHasta: leido.toString(), noLeidos });
       }
       return salida;
     });

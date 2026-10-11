@@ -1,9 +1,15 @@
 // src/server/eventos/ingesta.ts
 //
-// LA INGESTA DE TRANSFERENCIA_RECIBIDA DE UN LOCAL: TRAER, VALIDAR Y GUARDAR
+// LA INGESTA DE UNA CAPACIDAD DE EVENTOS EN UN LOCAL: TRAER, VALIDAR Y GUARDAR
 // UNA VEZ.
 //
-// `sincronizarTransferenciasLocal` NO decide si alguien puede ver ese local:
+// Desde la Tanda 4B es UNA maquinaria para las cuatro capacidades
+// (`sincronizarEventosLocal`, con la definición de capacidades.ts). Un cursor
+// por (local, capacidad). `sincronizarTransferenciasLocal` es la de siempre,
+// con la definición de `transferencias_eventos`; test/db/huellaTransferencias
+// fija que se ingiera exactamente igual que antes de generalizar.
+//
+// `sincronizarEventosLocal` NO decide si alguien puede ver ese local:
 // recibe el local ya autorizado (eso lo decide la capa de arriba con
 // `mi_alcance` vivo) y una función que llama al ERP con la delegación de quien
 // pregunta. El ERP vuelve a autorizar esa llamada igual.
@@ -43,18 +49,20 @@ import "server-only";
 import { Prisma, type PrismaClient } from "@prisma/client";
 
 import {
-  CAPACIDAD_TRANSFERENCIAS_EVENTOS,
-  esCursorTransferencias,
+  cursorDe,
+  esCursorDe,
   type CursorTransferencias,
+  type DatosEventos,
   type DatosTransferenciasEventos,
   type FalloErp,
   type FalloLocal,
   type ResultadoConsulta,
 } from "../../shared/erp/contrato.ts";
-import type { EntradaTransferenciasEventos } from "../erp/transferenciasEventos.ts";
-import { validarPagina, type MotivoPaginaInvalida } from "./pagina.ts";
+import type { EntradaEventos } from "../erp/eventos.ts";
+import { INGESTA_TRANSFERENCIAS, type DefinicionIngesta } from "./capacidades.ts";
+import { validarPaginaDe, type MotivoPaginaInvalida } from "./pagina.ts";
 import { clasificarRepetido } from "./repetido.ts";
-import { aFilaEvento, type FilaEvento } from "./transferenciaRecibida.ts";
+import type { FilaEvento } from "./transferenciaRecibida.ts";
 
 /** Lo que dura un arriendo. Más que el timeout del cliente ERP (10 s): una llamada colgada no lo pierde. */
 export const DURACION_ARRIENDO_MS = 30_000;
@@ -63,7 +71,10 @@ export const LIMITE_POR_PAGINA = 100;
 /** Páginas por sincronización: una historia larga se completa en varias visitas, sin gastar el cupo del ERP de una vez. */
 export const MAX_PAGINAS_POR_SINCRONIZACION = 3;
 
-export type ConsultarPagina = (entrada: EntradaTransferenciasEventos) => Promise<ResultadoConsulta<DatosTransferenciasEventos>>;
+/** Una página de una capacidad, con la delegación de quien pregunta. */
+export type ConsultarPaginaDe<D, C> = (entrada: EntradaEventos<C>) => Promise<ResultadoConsulta<D>>;
+/** La de `transferencias_eventos`. */
+export type ConsultarPagina = ConsultarPaginaDe<DatosTransferenciasEventos, CursorTransferencias>;
 
 export type ResultadoSincronizacion =
   /** Se guardó al menos una página. `hayMas`: el ERP tiene más, para la próxima visita. */
@@ -89,19 +100,21 @@ export type ResultadoSincronizacion =
   /** La base de Azul Chat falló. Sin mensaje: puede llevar cualquier cosa. */
   | { readonly tipo: "FALLA_LOCAL"; readonly paginas: number; readonly eventosNuevos: number };
 
-export type EntradaSincronizacion = {
+export type EntradaSincronizacionDe<D, C> = {
   readonly db: PrismaClient;
   readonly instalacionId: string;
   /** El local YA AUTORIZADO por la capa de arriba, con el grupo que el ERP acepta. */
   readonly alcance: { readonly grupoId: number; readonly localId: number };
   /** Llama al ERP con la delegación de quien pregunta. */
-  readonly consultar: ConsultarPagina;
+  readonly consultar: ConsultarPaginaDe<D, C>;
   readonly ahora: () => number;
   /** Un id único por ejecución, para el arriendo. */
   readonly generarId: () => string;
   readonly limitePorPagina?: number;
   readonly maxPaginas?: number;
 };
+
+export type EntradaSincronizacion = EntradaSincronizacionDe<DatosTransferenciasEventos, CursorTransferencias>;
 
 class ArriendoPerdido extends Error {}
 
@@ -164,14 +177,23 @@ type Ciclo =
   | { tipo: "PAGINA"; eventosNuevos: number; contenidoDiferente: number; hayMas: boolean; backfillCompleto: boolean }
   | Exclude<ResultadoSincronizacion, { tipo: "SINCRONIZADO" }>;
 
-export async function sincronizarTransferenciasLocal(entrada: EntradaSincronizacion): Promise<ResultadoSincronizacion> {
+/** La de siempre: `transferencias_eventos` → TRANSFERENCIA_RECIBIDA. */
+export function sincronizarTransferenciasLocal(entrada: EntradaSincronizacion): Promise<ResultadoSincronizacion> {
+  return sincronizarEventosLocal(INGESTA_TRANSFERENCIAS, entrada);
+}
+
+/** Una capacidad de eventos en un local: hasta `maxPaginas` páginas, cada una su propia transacción. */
+export async function sincronizarEventosLocal<K extends string, E, C>(
+  definicion: DefinicionIngesta<K, E, C>,
+  entrada: EntradaSincronizacionDe<DatosEventos<K, E, C>, C>,
+): Promise<ResultadoSincronizacion> {
   const maxPaginas = entrada.maxPaginas ?? MAX_PAGINAS_POR_SINCRONIZACION;
   let paginas = 0;
   let eventosNuevos = 0;
   let contenidoDiferente = 0;
   let ultimo: Extract<Ciclo, { tipo: "PAGINA" }> | null = null;
   while (paginas < maxPaginas) {
-    const c = await unaPagina(entrada);
+    const c = await unaPagina(definicion, entrada);
     if (c.tipo !== "PAGINA") {
       // Lo guardado en páginas anteriores queda: cada página es su propia transacción.
       return { ...c, paginas, eventosNuevos };
@@ -192,11 +214,15 @@ export async function sincronizarTransferenciasLocal(entrada: EntradaSincronizac
   };
 }
 
-async function unaPagina(e: EntradaSincronizacion): Promise<Ciclo> {
+async function unaPagina<K extends string, E, C>(
+  definicion: DefinicionIngesta<K, E, C>,
+  e: EntradaSincronizacionDe<DatosEventos<K, E, C>, C>,
+): Promise<Ciclo> {
+  const { contrato } = definicion;
   const { db, instalacionId } = e;
   const erpLocalId = e.alcance.localId;
   const limite = e.limitePorPagina ?? LIMITE_POR_PAGINA;
-  const clave = { instalacionId, erpLocalId, capacidad: CAPACIDAD_TRANSFERENCIAS_EVENTOS };
+  const clave = { instalacionId, erpLocalId, capacidad: contrato.capacidad };
   const yo = e.generarId();
 
   // 1. El arriendo.
@@ -242,9 +268,9 @@ async function unaPagina(e: EntradaSincronizacion): Promise<Ciclo> {
   };
 
   // 2. El cursor guardado, tal cual vino del ERP.
-  let desde: CursorTransferencias | null = null;
+  let desde: C | null = null;
   if (fila.cursor !== null) {
-    if (!esCursorTransferencias(fila.cursor)) {
+    if (!esCursorDe(contrato, fila.cursor)) {
       await soltarConError("RESPUESTA_INVALIDA");
       return { tipo: "RESPUESTA_INVALIDA", motivo: "CURSOR_GUARDADO_INVALIDO", paginas: 0, eventosNuevos: 0 };
     }
@@ -258,13 +284,14 @@ async function unaPagina(e: EntradaSincronizacion): Promise<Ciclo> {
   }
 
   // 3. La página, entera.
-  const pagina = validarPagina(r.datos, { localId: erpLocalId, desde, limite });
+  const pagina = validarPaginaDe(contrato, r.datos, { localId: erpLocalId, desde, limite }, definicion.delLocal);
   if (!pagina.ok) {
     await soltarConError(pagina.codigo);
     return { tipo: "RESPUESTA_INVALIDA", motivo: pagina.motivo, paginas: 0, eventosNuevos: 0 };
   }
   const { datos } = pagina;
-  const nuevas = datos.eventos.map(aFilaEvento);
+  // El local de cada evento es el de la respuesta, que ya se comprobó igual al pedido.
+  const nuevas = datos.eventos.map((ev) => definicion.aFila(ev, datos.local.id));
 
   // 4. Guardar, solo con el arriendo propio.
   try {
@@ -279,7 +306,7 @@ async function unaPagina(e: EntradaSincronizacion): Promise<Ciclo> {
       await tx.cursorIngesta.update({
         where: { id: fila.id },
         data: {
-          cursor: datos.siguiente === null ? Prisma.DbNull : { fechaRecepcion: datos.siguiente.fechaRecepcion, transferenciaId: datos.siguiente.transferenciaId },
+          cursor: datos.siguiente === null ? Prisma.DbNull : (cursorDe(contrato, datos.siguiente) as Prisma.InputJsonObject),
           ultimaSincronizacionEn: ahora,
           ...(completa ? { backfillCompletoEn: ahora } : {}),
           // Diagnóstico, no error: la página es válida y se guardó.

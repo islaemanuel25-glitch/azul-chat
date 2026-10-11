@@ -2,12 +2,15 @@
 //
 // EL CLIENTE DE AZUL CHAT HACIA EL ERP. Server-side, y NO genérico.
 //
-// Conoce DOS rutas del ERP, fijas, y CUATRO operaciones:
+// Conoce DOS rutas del ERP, fijas, y SIETE operaciones:
 //
 //   · canjear(codigo)                         → POST /api/integraciones/azul-chat/vinculo/canjear
 //   · miAlcance(token)                        → POST /api/integraciones/azul-chat/consultar
 //   · ventasResumen(token, entrada)           → POST /api/integraciones/azul-chat/consultar
 //   · transferenciasEventos(token, entrada)   → POST /api/integraciones/azul-chat/consultar
+//   · pedidosEventos(token, entrada)          → POST /api/integraciones/azul-chat/consultar
+//   · enviosEventos(token, entrada)           → POST /api/integraciones/azul-chat/consultar
+//   · cancelacionesEventos(token, entrada)    → POST /api/integraciones/azul-chat/consultar
 //
 // No recibe URLs, rutas, métodos, cabeceras ni nombres de capacidad de quien lo
 // usa: no hay forma de pedirle que llame otra cosa. Una capacidad nueva es un
@@ -42,7 +45,16 @@ import { randomUUID } from "node:crypto";
 import {
   esCodigoErrorErp,
   esDatosMiAlcance,
+  CONTRATO_CANCELACIONES_EVENTOS,
+  CONTRATO_ENVIOS_EVENTOS,
+  CONTRATO_PEDIDOS_EVENTOS,
+  esDatosCancelacionesEventos,
+  esDatosEnviosEventos,
+  esDatosPedidosEventos,
   esDatosTransferenciasEventos,
+  type DatosCancelacionesEventos,
+  type DatosEnviosEventos,
+  type DatosPedidosEventos,
   esDatosVentasResumen,
   type CodigoErrorLocal,
   type DatosMiAlcance,
@@ -57,6 +69,7 @@ import { construirCuerpoCanje, esDatosCanje, type DatosCanje } from "./canje.ts"
 import { leerConfigErp, type Entorno } from "./config.ts";
 import { APLICACION, CABECERAS, marcaDeTiempo } from "./firma.ts";
 import { construirCuerpoMiAlcance } from "./miAlcance.ts";
+import { construirCuerpoEventos } from "./eventos.ts";
 import { construirCuerpoTransferenciasEventos } from "./transferenciasEventos.ts";
 import { construirCuerpoVentasResumen } from "./ventasResumen.ts";
 
@@ -95,6 +108,12 @@ export type ClienteErp = {
    * `entrada` = `{ alcance, desde?, limite? }`, con `desde` tal como lo devolvió el ERP.
    */
   transferenciasEventos(token: string, entrada: unknown): Promise<ResultadoConsulta<DatosTransferenciasEventos>>;
+  /** Una página de los pedidos que SOLICITÓ un local (Tanda 4B). Misma entrada, con el cursor de esta capacidad. */
+  pedidosEventos(token: string, entrada: unknown): Promise<ResultadoConsulta<DatosPedidosEventos>>;
+  /** Una página de las transferencias ENVIADAS a un local (Tanda 4B). */
+  enviosEventos(token: string, entrada: unknown): Promise<ResultadoConsulta<DatosEnviosEventos>>;
+  /** Una página de las transferencias a un local que se CANCELARON (Tanda 4B). */
+  cancelacionesEventos(token: string, entrada: unknown): Promise<ResultadoConsulta<DatosCancelacionesEventos>>;
 };
 
 /** Lee el cuerpo de la respuesta sin pasarse de `max` bytes, en UTF-8 estricto. */
@@ -268,5 +287,23 @@ export function crearClienteErp(deps: DependenciasCliente = {}): ClienteErp {
         const cuerpo = construirCuerpoTransferenciasEventos(token, entrada);
         return cuerpo ? { ok: true, cuerpo } : { ok: false, codigo: "SOLICITUD_INVALIDA" };
       }, esDatosTransferenciasEventos),
+
+    pedidosEventos: (token: string, entrada: unknown) =>
+      llamar("pedidos_eventos", RUTA_CONSULTAR, (): CuerpoArmado => {
+        const cuerpo = construirCuerpoEventos(CONTRATO_PEDIDOS_EVENTOS, token, entrada);
+        return cuerpo ? { ok: true, cuerpo } : { ok: false, codigo: "SOLICITUD_INVALIDA" };
+      }, esDatosPedidosEventos),
+
+    enviosEventos: (token: string, entrada: unknown) =>
+      llamar("envios_eventos", RUTA_CONSULTAR, (): CuerpoArmado => {
+        const cuerpo = construirCuerpoEventos(CONTRATO_ENVIOS_EVENTOS, token, entrada);
+        return cuerpo ? { ok: true, cuerpo } : { ok: false, codigo: "SOLICITUD_INVALIDA" };
+      }, esDatosEnviosEventos),
+
+    cancelacionesEventos: (token: string, entrada: unknown) =>
+      llamar("cancelaciones_eventos", RUTA_CONSULTAR, (): CuerpoArmado => {
+        const cuerpo = construirCuerpoEventos(CONTRATO_CANCELACIONES_EVENTOS, token, entrada);
+        return cuerpo ? { ok: true, cuerpo } : { ok: false, codigo: "SOLICITUD_INVALIDA" };
+      }, esDatosCancelacionesEventos),
   });
 }

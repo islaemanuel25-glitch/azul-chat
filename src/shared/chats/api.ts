@@ -25,19 +25,59 @@ export type EstadoSincronizacion =
   /** Traer lo nuevo falló en esta solicitud: se muestra lo que ya estaba guardado. */
   | "DEMORADA";
 
-/** Un evento, como lo ve la interfaz. Hoy, solo TRANSFERENCIA_RECIBIDA. */
-export type EventoPublico = {
+/** Lo común a todo evento, como lo ve la interfaz. */
+type BaseEventoPublico = {
   /** El id de Azul Chat (secuencia de ingesta), como texto: es un BigInt. */
   readonly id: string;
-  readonly tipo: "TRANSFERENCIA_RECIBIDA";
-  /** Cuándo pasó en el ERP (fecha de recepción), ISO con milisegundos. */
+  /** Cuándo pasó en el ERP (la fecha del hecho de cada tipo), ISO con milisegundos. */
   readonly fecha: string;
+  /**
+   * Entró con el backfill de su capacidad: es historia y NUNCA cuenta como no
+   * leído, aunque su id sea mayor que lo leído (Tanda 4B: la historia de una
+   * capacidad nueva entra después que lo nuevo de otra). Solo el booleano.
+   */
+  readonly historico: boolean;
+};
+
+/** Una transferencia que RECIBIÓ el local. */
+export type EventoTransferenciaRecibidaPublico = BaseEventoPublico & {
+  readonly tipo: "TRANSFERENCIA_RECIBIDA";
   readonly transferenciaId: number;
   readonly origen: { readonly id: number; readonly nombre: string; readonly esDeposito: boolean };
   readonly destino: { readonly id: number; readonly nombre: string };
   readonly tieneDiferencias: boolean;
   readonly lineasConDiferencia: number;
 };
+
+/** Un pedido que SOLICITÓ el local, a `origen` (Tanda 4B). `lineas`: las que tenía cuando se conoció. */
+export type EventoPedidoSolicitadoPublico = BaseEventoPublico & {
+  readonly tipo: "PEDIDO_SOLICITADO";
+  readonly pedidoId: number;
+  readonly origen: { readonly id: number; readonly nombre: string };
+  readonly lineas: number;
+};
+
+/** Una transferencia que `origen` le ENVIÓ al local (Tanda 4B). */
+export type EventoTransferenciaEnviadaPublico = BaseEventoPublico & {
+  readonly tipo: "TRANSFERENCIA_ENVIADA";
+  readonly transferenciaId: number;
+  readonly origen: { readonly id: number; readonly nombre: string };
+  readonly lineas: number;
+};
+
+/** Una transferencia de `origen` al local que se CANCELÓ (Tanda 4B). */
+export type EventoTransferenciaCanceladaPublico = BaseEventoPublico & {
+  readonly tipo: "TRANSFERENCIA_CANCELADA";
+  readonly transferenciaId: number;
+  readonly origen: { readonly id: number; readonly nombre: string };
+};
+
+/** Un evento, como lo ve la interfaz: uno de los cuatro tipos. */
+export type EventoPublico =
+  | EventoTransferenciaRecibidaPublico
+  | EventoPedidoSolicitadoPublico
+  | EventoTransferenciaEnviadaPublico
+  | EventoTransferenciaCanceladaPublico;
 
 /** Un evento de General: además, el local al que pertenece, con su nombre de HOY. */
 export type EventoGeneral = EventoPublico & { readonly local: { readonly localId: number; readonly nombre: string } };

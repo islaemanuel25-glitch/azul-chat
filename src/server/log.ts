@@ -14,7 +14,14 @@ import "server-only";
 export type RegistroConsultaErp = {
   readonly evento: "erp.consulta";
   readonly requestId: string;
-  readonly operacion: "canjear" | "mi_alcance" | "ventas_resumen" | "transferencias_eventos";
+  readonly operacion:
+    | "canjear"
+    | "mi_alcance"
+    | "ventas_resumen"
+    | "transferencias_eventos"
+    | "pedidos_eventos"
+    | "envios_eventos"
+    | "cancelaciones_eventos";
   /** Milisegundos desde que se empezó a armar la llamada. */
   readonly duracionMs: number;
   /** Status HTTP del ERP, o `null` si no hubo respuesta (timeout, red, config). */

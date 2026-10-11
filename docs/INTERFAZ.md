@@ -29,6 +29,19 @@ grande se centra en una columna de 480 px; no hay un diseño de escritorio.
   con diferencias". Si tiene diferencias, "1 línea con diferencia" o "N líneas
   con diferencias": el dato cuenta líneas del remito, no productos. Además, de
   dónde vino y la hora. Sin ids ni datos técnicos.
+- **Pedidos, envíos y cancelaciones (Tanda 4B).** El MISMO componente de
+  evento (`TarjetaEvento`), sin colores nuevos (Figma pantalla 01: "Pedido #91
+  solicitado" y "Transferencia #184 enviada"). Título y, debajo, una sola línea
+  chica separada por " · ":
+  - "Pedido #N solicitado" · "A {origen}" · "{k} línea(s)" · hora;
+  - "Transferencia #N enviada" · "Desde {origen}" · "{k} línea(s)" · hora;
+  - "Transferencia #N cancelada" · "Desde {origen}" · hora.
+
+  "1 línea" en singular, "N líneas" en plural. El borde y la marca de alerta
+  son SOLO de "recibida con diferencias". En la lista de chats el último evento
+  se resume con estos mismos títulos (`resumenDeEvento`, en `formato.ts`), y en
+  General cada uno lleva su local arriba. Nada de "Ver detalle", "Abrir en ERP"
+  ni acciones.
 - **Ventas de hoy (Tanda 3A).** En un Local cuyo `GET /api/chats/local` trae
   `local.ventas: true`, abajo hay una barra fija con UN solo chip, "Ventas"
   (Figma nodo 1:142). Sin el anuncio no hay barra; General no la tiene nunca.
@@ -89,10 +102,12 @@ mayor id que se ve": si hay más no leídos que los que entraron en pantalla, lo
 que faltan quedarían leídos sin haberse visto.
 
 **Un Local.** Después de dibujar (desde un efecto), la interfaz cuenta los
-eventos mostrados con `Evento.id` mayor que `leidoHasta`, comparando como
-BigInt, nunca la cantidad total de eventos en pantalla, que puede incluir
-historia ya leída. Usa el `leidoHasta` y el `noLeidos` de la respuesta que abrió
-la conversación (`decidirLecturaLocal`, en `components/chats/logica.ts`):
+eventos mostrados NO HISTÓRICOS (`historico: false`) con `Evento.id` mayor que
+`leidoHasta`, comparando como BigInt, nunca la cantidad total de eventos en
+pantalla, que puede incluir historia ya leída o historia sin leer. Es la misma
+regla con la que cuenta el servidor. Usa el `leidoHasta` y el `noLeidos` de la
+respuesta que abrió la conversación (`decidirLecturaLocal`, en
+`components/chats/logica.ts`):
 
 - si esa cuenta es menor que `noLeidos`, NO marca. La pantalla dice "Hay más
   eventos sin leer", junto a "Cargar anteriores";
@@ -101,15 +116,22 @@ la conversación (`decidirLecturaLocal`, en `components/chats/logica.ts`):
 - con 30 o menos no leídos todo entra en la primera página y marca enseguida,
   como siempre.
 
-Por qué alcanzar el número basta: dentro de un local los eventos se ingieren en
-el orden del cursor del ERP (fecha de recepción y transferencia, estrictamente
-creciente), así que los ids crecen en el mismo orden en que se ven, y la
-historia del backfill tiene ids menores que cualquier evento nuevo. Los no
-leídos de la respuesta son los N más recientes del local; si hay N mostrados
-por encima de lo leído, son esos. Lo que llega después de abrir tiene ids
-mayores, no está a la vista y no queda cubierto: sigue sin leer. Lo ejercen
-`test/ui/chats.test.ts` y, contra el servidor, `test/db/chats.test.ts` (40
-nuevos, 30 en la primera página).
+Por qué hace falta mirar `historico` (Tanda 4B): cada capacidad de eventos
+tiene su propio backfill, y la historia de una capacidad recién anunciada se
+ingiere DESPUÉS que lo nuevo de otra, con ids MAYORES. Sin mirar `historico`,
+45 pedidos viejos con ids altos en la primera página contarían como "nuevos
+mostrados" y se marcaría leído con los no leídos reales sin cargar.
+
+Por qué alcanzar el número basta: el servidor cuenta exactamente los no
+históricos con id mayor que lo leído, de los tipos que la persona ve, y la
+conversación muestra esos mismos eventos. Si hay N mostrados que cumplen la
+regla y el servidor contó N, son todos: marcar hasta el mayor de ELLOS (no
+hasta el mayor id de la pantalla) no deja ninguno sin ver. Lo que llega
+después de abrir tiene ids mayores, no está a la vista y no queda cubierto:
+sigue sin leer. Lo ejercen `test/ui/chats.test.ts` y, contra el servidor,
+`test/db/chats.test.ts` (40 nuevos con 30 en la primera página; y desde la
+Tanda 4B, el backfill de pedidos con 45 ids altos más 2 recepciones nuevas:
+`noLeidos` = 2 y no se marca hasta que las 2 están a la vista).
 
 Si el POST falla, la conversación sigue a la vista y no se cuenta como leído:
 el "N sin leer" del encabezado cambia solo con una respuesta buena.
@@ -191,7 +213,11 @@ estaba. No hay scroll infinito ni refresco automático.
   desde un solo lugar, la lectura del Local, que General no usa.
 - `test/db/chats.test.ts`: el caso real de 40 no leídos con 30 en la primera
   página, contra el servidor: no se marca hasta tenerlos a la vista, y lo que
-  llega después sigue sin leer.
+  llega después sigue sin leer. Y el de la Tanda 4B: backfill de una capacidad
+  nueva con ids altos más 2 nuevos reales.
+- `test/ui/chats.test.ts` (Tanda 4B): las tres tarjetas nuevas con sus textos
+  exactos, sin alerta ni acciones, con su local en General, y la lista
+  resumiendo el último evento con los mismos títulos.
 - `test/frontera/secretoSoloServidor.test.ts`: el navegador solo llama a rutas
   propias (`/api/sesion…`, `/api/chats…` y, exacta, `/api/version`), con una
   consulta solo detrás de una constante que vale una ruta propia.

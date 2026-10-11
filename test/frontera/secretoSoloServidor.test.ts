@@ -135,16 +135,26 @@ describe("el cliente ERP no es genérico", () => {
     assert.deepEqual(violacionesHttp({ ...base, "src/components/x/C.tsx": "// fetch('https://x')\nexport const c = 1;\n" }), []);
   });
 
-  it("la capacidad pedida al ERP es ventas_resumen o mi_alcance, nada más", () => {
+  it("las capacidades que Azul Chat le pide al ERP son estas seis, nada más", () => {
     // Una capacidad nueva entra a propósito, con su constructor y sus tests: este candado se actualiza ese día.
-    // mi_alcance entró en la tanda de sesión (ERP 8920516).
+    // mi_alcance entró en la tanda de sesión (ERP 8920516). Hasta la Tanda 4B este
+    // candado miraba solo src/server, y `transferencias_eventos` (Tanda 2), que
+    // vive en src/shared/erp/contrato.ts, se le escapaba sin que se pusiera rojo:
+    // ahora mira src entero. Las tres de eventos de la Tanda 4B, también ahí.
     const capacidades = new Set<string>();
-    for (const f of archivosDelRepo(RAIZ, "src/server").filter((x) => ES_CODIGO.test(x))) {
+    for (const f of archivosDelRepo(RAIZ, "src").filter((x) => ES_CODIGO.test(x))) {
       for (const m of sinComentarios(readFileSync(f, "utf8")).matchAll(/CAPACIDAD_[A-Z_]+\s*=\s*"([^"]+)"/g)) {
         if (m[1]) capacidades.add(m[1]);
       }
     }
-    assert.deepEqual([...capacidades].sort(), ["mi_alcance", "ventas_resumen"]);
+    assert.deepEqual([...capacidades].sort(), [
+      "cancelaciones_eventos",
+      "envios_eventos",
+      "mi_alcance",
+      "pedidos_eventos",
+      "transferencias_eventos",
+      "ventas_resumen",
+    ]);
   });
 });
 

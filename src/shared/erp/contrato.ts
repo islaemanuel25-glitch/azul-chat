@@ -300,7 +300,7 @@ export function claveDeTransferenciaRecibida(transferenciaId: number, fechaRecep
 
 /** Exactamente `{ fechaRecepcion, transferenciaId }`: es lo que se le vuelve a mandar al ERP, que rechaza una clave de más. */
 export function esCursorTransferencias(v: unknown): v is CursorTransferencias {
-  return esObjeto(v) && soloClaves(v, ["fechaRecepcion", "transferenciaId"]) && esInstanteIso(v.fechaRecepcion) && esEnteroPositivo(v.transferenciaId);
+  return esCursorDe(CONTRATO_TRANSFERENCIAS_EVENTOS, v);
 }
 
 /** a < b en el orden de los eventos. Los instantes ISO con milisegundos en UTC ordenan como texto. */
@@ -331,29 +331,266 @@ function esEventoTransferenciaRecibida(v: unknown): v is EventoTransferenciaReci
  * guarda: la ingesta copia solo los campos de acá.
  */
 export function esDatosTransferenciasEventos(v: unknown): v is DatosTransferenciasEventos {
+  return esDatosEventosDe(CONTRATO_TRANSFERENCIAS_EVENTOS, v);
+}
+
+// ── Las capacidades de eventos, escritas una vez (Tanda 4B) ──────────────────
+//
+// Contrato de erpmanual 76b9a71, `lib/integraciones/azul-chat/cursorDeEventos.js`:
+// `transferencias_eventos`, `pedidos_eventos`, `envios_eventos` y
+// `cancelaciones_eventos` recorren cada una SU columna de fecha con el MISMO
+// cursor. Lo único que cambia entre ellas es cómo se llaman la fecha y el id
+// (en los eventos y en `desde`/`siguiente`) y la forma de cada evento:
+//
+//   · orden total por (fecha, id), ascendente;
+//   · `siguiente` es la posición del último evento devuelto; sin eventos, el
+//     mismo `desde` que se pidió (o null). Se manda tal cual como `desde`;
+//   · `desde` lleva EXACTAMENTE esas dos claves: el ERP rechaza una de más;
+//   · nada más nuevo que `hasta` (= ahora − 60 s en las cuatro);
+//   · `eventoId` = <TIPO>:<id>:<fecha ISO>, que distingue un id reutilizado
+//     por reset-operativo.
+//
+// Fixture: `test/fixtures/erp-76b9a71.json`, copiado sin tocar de erpmanual
+// (`docs/integraciones/azul-chat/erp-eventos-tanda-4a.json`).
+
+/** Una posición en el orden de una capacidad de eventos, sin los nombres de sus claves. */
+export type PosicionEvento = { readonly fecha: string; readonly id: number };
+
+/** a < b en el orden de los eventos. Los instantes ISO con milisegundos en UTC ordenan como texto. */
+export function posicionAnterior(a: PosicionEvento, b: PosicionEvento): boolean {
+  return a.fecha < b.fecha || (a.fecha === b.fecha && a.id < b.id);
+}
+
+/**
+ * Lo que distingue a una capacidad de eventos de otra: su nombre, cómo se
+ * llaman la fecha y el id, y el guardián de su evento (que incluye la clave).
+ * `E` es el evento y `C` el cursor, `{ [campoFecha]: string, [campoId]: number }`.
+ */
+export type ContratoEventos<K extends string, E, C> = {
+  readonly capacidad: K;
+  readonly tipo: string;
+  readonly campoFecha: keyof C & keyof E & string;
+  readonly campoId: keyof C & keyof E & string;
+  readonly esEvento: (v: unknown) => v is E;
+};
+
+/** `datos` de una capacidad de eventos, versión 1. */
+export type DatosEventos<K extends string, E, C> = {
+  readonly capacidad: K;
+  readonly version: 1;
+  readonly local: { readonly id: number; readonly nombre: string };
+  readonly grupoId: number;
+  readonly hasta: string;
+  readonly eventos: readonly E[];
+  readonly siguiente: C | null;
+  readonly hayMas: boolean;
+};
+
+/** La posición de un evento (o de un cursor) de esa capacidad. */
+export function posicionDe<K extends string, E, C>(c: ContratoEventos<K, E, C>, x: E | C): PosicionEvento {
+  const o = x as Record<string, unknown>;
+  return { fecha: o[c.campoFecha] as string, id: o[c.campoId] as number };
+}
+
+/** El cursor de esa capacidad: exactamente sus dos claves, la fecha como instante ISO y el id entero positivo. */
+export function esCursorDe<K extends string, E, C>(c: ContratoEventos<K, E, C>, v: unknown): v is C {
+  return esObjeto(v) && soloClaves(v, [c.campoFecha, c.campoId]) && esInstanteIso(v[c.campoFecha]) && esEnteroPositivo(v[c.campoId]);
+}
+
+/** El cursor armado de cero con las dos claves, en el orden del ERP: lo que se guarda y lo que se manda. */
+export function cursorDe<K extends string, E, C>(c: ContratoEventos<K, E, C>, x: E | C): C {
+  const p = posicionDe(c, x);
+  return { [c.campoFecha]: p.fecha, [c.campoId]: p.id } as C;
+}
+
+/** La clave que el ERP le da a cada evento: <TIPO>:<id>:<fecha ISO>. */
+export function claveDeEvento(tipo: string, id: number, fecha: string): string {
+  return `${tipo}:${id}:${fecha}`;
+}
+
+/**
+ * La forma de `datos`, y lo que el contrato hace verificable DENTRO de una
+ * página: cada evento bien formado, su clave igual a la que arma el ERP, el
+ * orden estricto, ninguno más nuevo que `hasta`, y `siguiente` igual al último
+ * evento cuando hay eventos. Lo que depende del pedido lo mira la ingesta
+ * (src/server/eventos/pagina.ts).
+ */
+export function esDatosEventosDe<K extends string, E, C>(c: ContratoEventos<K, E, C>, v: unknown): v is DatosEventos<K, E, C> {
   if (!esObjeto(v)) return false;
-  if (v.capacidad !== CAPACIDAD_TRANSFERENCIAS_EVENTOS || v.version !== 1) return false;
+  if (v.capacidad !== c.capacidad || v.version !== 1) return false;
   const { local } = v;
   if (!esObjeto(local) || !esEnteroPositivo(local.id) || !esTexto(local.nombre)) return false;
   if (!esEnteroPositivo(v.grupoId) || !esInstanteIso(v.hasta)) return false;
   if (typeof v.hayMas !== "boolean") return false;
-  if (v.siguiente !== null && !esCursorTransferencias(v.siguiente)) return false;
-  if (!Array.isArray(v.eventos) || !v.eventos.every(esEventoTransferenciaRecibida)) return false;
+  if (v.siguiente !== null && !esCursorDe(c, v.siguiente)) return false;
+  if (!Array.isArray(v.eventos) || !v.eventos.every((e) => c.esEvento(e))) return false;
 
-  const eventos = v.eventos as readonly EventoTransferenciaRecibida[];
+  const eventos = v.eventos as readonly E[];
   const hasta = v.hasta;
-  let anterior: CursorTransferencias | null = null;
+  let anterior: PosicionEvento | null = null;
   for (const e of eventos) {
-    const pos = { fechaRecepcion: e.fechaRecepcion, transferenciaId: e.transferenciaId };
-    if (anterior && !cursorAnterior(anterior, pos)) return false;
-    if (e.fechaRecepcion > hasta) return false;
+    const pos = posicionDe(c, e);
+    if (anterior && !posicionAnterior(anterior, pos)) return false;
+    if (pos.fecha > hasta) return false;
     anterior = pos;
   }
   if (anterior) {
-    const s = v.siguiente as CursorTransferencias | null;
-    if (!s || s.fechaRecepcion !== anterior.fechaRecepcion || s.transferenciaId !== anterior.transferenciaId) return false;
+    const s = v.siguiente === null ? null : posicionDe(c, v.siguiente as C);
+    if (!s || s.fecha !== anterior.fecha || s.id !== anterior.id) return false;
   }
   // `hayMas` sale de haber leído una fila de más: sin eventos no puede haber más.
   if (v.hayMas && eventos.length === 0) return false;
   return true;
+}
+
+export const CONTRATO_TRANSFERENCIAS_EVENTOS: ContratoEventos<typeof CAPACIDAD_TRANSFERENCIAS_EVENTOS, EventoTransferenciaRecibida, CursorTransferencias> =
+  Object.freeze({
+    capacidad: CAPACIDAD_TRANSFERENCIAS_EVENTOS,
+    tipo: TIPO_TRANSFERENCIA_RECIBIDA,
+    campoFecha: "fechaRecepcion",
+    campoId: "transferenciaId",
+    esEvento: esEventoTransferenciaRecibida,
+  });
+
+/** El origen de un evento de las capacidades de la Tanda 4A del ERP: id y nombre, nada más. */
+export type OrigenEvento = { readonly id: number; readonly nombre: string };
+
+const esOrigen = (v: unknown): v is OrigenEvento => esObjeto(v) && esEnteroPositivo(v.id) && esTexto(v.nombre);
+const esIdOpcional = (v: unknown): v is number | null => v === null || esEnteroPositivo(v);
+
+// ── pedidos_eventos → PEDIDO_SOLICITADO ──────────────────────────────────────
+//
+// erpmanual 76b9a71, `pedidosEventos.js`. Un evento del local que PIDIÓ (el
+// local de la respuesta; el evento no trae destino). `lineas` es la cantidad
+// de líneas del pedido AL LEERLO: dos lecturas del mismo evento pueden traer
+// números distintos con la misma clave. Un pedido cancelado se BORRA en el ERP:
+// no hay evento de cancelación de pedido.
+
+export const CAPACIDAD_PEDIDOS_EVENTOS = "pedidos_eventos";
+export const TIPO_PEDIDO_SOLICITADO = "PEDIDO_SOLICITADO";
+
+export type CursorPedidos = { readonly fechaSolicitud: string; readonly pedidoId: number };
+
+export type EventoPedidoSolicitado = {
+  readonly tipo: typeof TIPO_PEDIDO_SOLICITADO;
+  readonly eventoId: string;
+  readonly pedidoId: number;
+  readonly fechaSolicitud: string;
+  /** Quien despacha lo pedido (normalmente el depósito). */
+  readonly origen: OrigenEvento;
+  readonly lineas: number;
+};
+
+function esEventoPedidoSolicitado(v: unknown): v is EventoPedidoSolicitado {
+  if (!esObjeto(v) || v.tipo !== TIPO_PEDIDO_SOLICITADO) return false;
+  if (!esEnteroPositivo(v.pedidoId) || !esInstanteIso(v.fechaSolicitud)) return false;
+  if (v.eventoId !== claveDeEvento(TIPO_PEDIDO_SOLICITADO, v.pedidoId, v.fechaSolicitud)) return false;
+  return esOrigen(v.origen) && esEnteroNoNegativo(v.lineas);
+}
+
+export const CONTRATO_PEDIDOS_EVENTOS: ContratoEventos<typeof CAPACIDAD_PEDIDOS_EVENTOS, EventoPedidoSolicitado, CursorPedidos> = Object.freeze({
+  capacidad: CAPACIDAD_PEDIDOS_EVENTOS,
+  tipo: TIPO_PEDIDO_SOLICITADO,
+  campoFecha: "fechaSolicitud",
+  campoId: "pedidoId",
+  esEvento: esEventoPedidoSolicitado,
+});
+
+export type DatosPedidosEventos = DatosEventos<typeof CAPACIDAD_PEDIDOS_EVENTOS, EventoPedidoSolicitado, CursorPedidos>;
+
+// ── envios_eventos → TRANSFERENCIA_ENVIADA ───────────────────────────────────
+//
+// erpmanual 76b9a71, `enviosEventos.js`. Un evento del local DESTINO (el de la
+// respuesta). `pedidoId` es el pedido del que vino, o null (venta interna).
+
+export const CAPACIDAD_ENVIOS_EVENTOS = "envios_eventos";
+export const TIPO_TRANSFERENCIA_ENVIADA = "TRANSFERENCIA_ENVIADA";
+
+export type CursorEnvios = { readonly fechaEnvio: string; readonly transferenciaId: number };
+
+export type EventoTransferenciaEnviada = {
+  readonly tipo: typeof TIPO_TRANSFERENCIA_ENVIADA;
+  readonly eventoId: string;
+  readonly transferenciaId: number;
+  readonly fechaEnvio: string;
+  readonly origen: OrigenEvento;
+  readonly lineas: number;
+  readonly pedidoId: number | null;
+};
+
+function esEventoTransferenciaEnviada(v: unknown): v is EventoTransferenciaEnviada {
+  if (!esObjeto(v) || v.tipo !== TIPO_TRANSFERENCIA_ENVIADA) return false;
+  if (!esEnteroPositivo(v.transferenciaId) || !esInstanteIso(v.fechaEnvio)) return false;
+  if (v.eventoId !== claveDeEvento(TIPO_TRANSFERENCIA_ENVIADA, v.transferenciaId, v.fechaEnvio)) return false;
+  return esOrigen(v.origen) && esEnteroNoNegativo(v.lineas) && esIdOpcional(v.pedidoId);
+}
+
+export const CONTRATO_ENVIOS_EVENTOS: ContratoEventos<typeof CAPACIDAD_ENVIOS_EVENTOS, EventoTransferenciaEnviada, CursorEnvios> = Object.freeze({
+  capacidad: CAPACIDAD_ENVIOS_EVENTOS,
+  tipo: TIPO_TRANSFERENCIA_ENVIADA,
+  campoFecha: "fechaEnvio",
+  campoId: "transferenciaId",
+  esEvento: esEventoTransferenciaEnviada,
+});
+
+export type DatosEnviosEventos = DatosEventos<typeof CAPACIDAD_ENVIOS_EVENTOS, EventoTransferenciaEnviada, CursorEnvios>;
+
+// ── cancelaciones_eventos → TRANSFERENCIA_CANCELADA ──────────────────────────
+//
+// erpmanual 76b9a71, `cancelacionesEventos.js`. Un evento del local DESTINO.
+// Una cancelación anterior al 2026-08-20 no tiene fecha y no sale.
+
+export const CAPACIDAD_CANCELACIONES_EVENTOS = "cancelaciones_eventos";
+export const TIPO_TRANSFERENCIA_CANCELADA = "TRANSFERENCIA_CANCELADA";
+
+export type CursorCancelaciones = { readonly fechaCancelacion: string; readonly transferenciaId: number };
+
+export type EventoTransferenciaCancelada = {
+  readonly tipo: typeof TIPO_TRANSFERENCIA_CANCELADA;
+  readonly eventoId: string;
+  readonly transferenciaId: number;
+  readonly fechaCancelacion: string;
+  readonly origen: OrigenEvento;
+  readonly pedidoId: number | null;
+};
+
+function esEventoTransferenciaCancelada(v: unknown): v is EventoTransferenciaCancelada {
+  if (!esObjeto(v) || v.tipo !== TIPO_TRANSFERENCIA_CANCELADA) return false;
+  if (!esEnteroPositivo(v.transferenciaId) || !esInstanteIso(v.fechaCancelacion)) return false;
+  if (v.eventoId !== claveDeEvento(TIPO_TRANSFERENCIA_CANCELADA, v.transferenciaId, v.fechaCancelacion)) return false;
+  return esOrigen(v.origen) && esIdOpcional(v.pedidoId);
+}
+
+export const CONTRATO_CANCELACIONES_EVENTOS: ContratoEventos<
+  typeof CAPACIDAD_CANCELACIONES_EVENTOS,
+  EventoTransferenciaCancelada,
+  CursorCancelaciones
+> = Object.freeze({
+  capacidad: CAPACIDAD_CANCELACIONES_EVENTOS,
+  tipo: TIPO_TRANSFERENCIA_CANCELADA,
+  campoFecha: "fechaCancelacion",
+  campoId: "transferenciaId",
+  esEvento: esEventoTransferenciaCancelada,
+});
+
+export type DatosCancelacionesEventos = DatosEventos<typeof CAPACIDAD_CANCELACIONES_EVENTOS, EventoTransferenciaCancelada, CursorCancelaciones>;
+
+/** Las cuatro capacidades de eventos, en el orden del catálogo del ERP. */
+export const CAPACIDADES_EVENTOS = Object.freeze([
+  CAPACIDAD_TRANSFERENCIAS_EVENTOS,
+  CAPACIDAD_PEDIDOS_EVENTOS,
+  CAPACIDAD_ENVIOS_EVENTOS,
+  CAPACIDAD_CANCELACIONES_EVENTOS,
+] as const);
+
+export type CapacidadEventos = (typeof CAPACIDADES_EVENTOS)[number];
+
+export function esDatosPedidosEventos(v: unknown): v is DatosPedidosEventos {
+  return esDatosEventosDe(CONTRATO_PEDIDOS_EVENTOS, v);
+}
+export function esDatosEnviosEventos(v: unknown): v is DatosEnviosEventos {
+  return esDatosEventosDe(CONTRATO_ENVIOS_EVENTOS, v);
+}
+export function esDatosCancelacionesEventos(v: unknown): v is DatosCancelacionesEventos {
+  return esDatosEventosDe(CONTRATO_CANCELACIONES_EVENTOS, v);
 }

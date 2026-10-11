@@ -8,6 +8,8 @@ import { readdirSync } from "node:fs";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 
+import { PrismaClient } from "@prisma/client";
+
 import { crearBaseDescartable, crearBaseVacia, type BaseDescartable } from "../ayuda/baseDescartable.ts";
 
 const RAIZ = path.resolve(import.meta.dirname, "../..");
@@ -102,6 +104,54 @@ describe("la migración", () => {
       "Vinculo.tokenCifrado",
       "Vinculo.vinculadoEn",
     ]);
+  });
+
+  it("Tanda 4B: la migración de pedidos, envíos y cancelaciones aplica sobre una base CON datos y no los toca", async () => {
+    // La base como está en producción antes de la Tanda 4B: las dos migraciones
+    // anteriores aplicadas, con un evento, su cursor y una lectura. Recién ahí
+    // `migrate deploy`, como en un despliegue.
+    const prisma = path.join(RAIZ, "node_modules/.bin/prisma");
+    const NUEVA = "20261011120000_eventos_pedidos_envios_cancelaciones";
+    const anteriores = readdirSync(path.join(RAIZ, "prisma/migrations"), { withFileTypes: true })
+      .filter((d) => d.isDirectory() && d.name < NUEVA)
+      .map((d) => d.name)
+      .sort();
+    assert.deepEqual(anteriores, ["20261006180000_identidad_y_sesion", "20261007120000_eventos_ingesta_y_lectura"]);
+    const vieja = await crearBaseVacia("azulchat_previa");
+    const db = new PrismaClient({ datasourceUrl: vieja.url });
+    const correr = (args: string[]) => execFileSync(prisma, args, { cwd: RAIZ, stdio: "pipe", env: { ...process.env, DATABASE_URL: vieja.url } });
+    try {
+      for (const m of anteriores) {
+        correr(["db", "execute", "--url", vieja.url, "--file", `prisma/migrations/${m}/migration.sql`]);
+        correr(["migrate", "resolve", "--applied", m]);
+      }
+      await db.$executeRawUnsafe(`INSERT INTO "Instalacion" (id) VALUES ('instalacion-prueba')`);
+      await db.$executeRawUnsafe(`INSERT INTO "Vinculo" (id, "instalacionId", "erpUsuarioId", "erpVinculoId", "tokenCifrado", "erpCanjeadoEn")
+                                  VALUES ('00000000-0000-0000-0000-000000000001', 'instalacion-prueba', 7, 41, '${CIFRADO_DE_FORMA}', now())`);
+      await db.$executeRawUnsafe(`INSERT INTO "Evento" ("instalacionId", tipo, "claveExterna", "erpLocalId", "erpReferenciaId", "fechaOperacion", "payloadVersion", payload, historico)
+                                  VALUES ('instalacion-prueba', 'TRANSFERENCIA_RECIBIDA', 'TRANSFERENCIA_RECIBIDA:180:2026-10-07T12:00:00.000Z', 3, 180, '2026-10-07 12:00:00.000', 1, '{"a":1}', true)`);
+      await db.$executeRawUnsafe(`INSERT INTO "CursorIngesta" (id, "instalacionId", "erpLocalId", capacidad, cursor, "backfillCompletoEn")
+                                  VALUES (gen_random_uuid(), 'instalacion-prueba', 3, 'transferencias_eventos', '{"fechaRecepcion":"2026-10-07T12:00:00.000Z","transferenciaId":180}', now())`);
+      await db.$executeRawUnsafe(`INSERT INTO "LecturaLocal" ("vinculoId", "erpLocalId", "leidoHastaEventoId", "actualizadoEn") VALUES ('00000000-0000-0000-0000-000000000001', 3, 1, now())`);
+      const volcar = () =>
+        db.$queryRawUnsafe<{ x: string }[]>(
+          `SELECT json_build_object('e', (SELECT json_agg(t) FROM "Evento" t), 'c', (SELECT json_agg(t) FROM "CursorIngesta" t),
+                                    'l', (SELECT json_agg(t) FROM "LecturaLocal" t))::text AS x`,
+        );
+      const antes = await volcar();
+
+      correr(["migrate", "deploy"]);
+
+      assert.deepEqual(await volcar(), antes, "ni una fila cambió");
+      const tipos = await db.$queryRawUnsafe<{ t: string }[]>(`SELECT unnest(enum_range(NULL::"TipoEvento"))::text AS t`);
+      assert.deepEqual(
+        tipos.map((x) => x.t),
+        ["TRANSFERENCIA_RECIBIDA", "PEDIDO_SOLICITADO", "TRANSFERENCIA_ENVIADA", "TRANSFERENCIA_CANCELADA"],
+      );
+    } finally {
+      await db.$disconnect();
+      await vieja.borrar();
+    }
   });
 
   it("la migración coincide con schema.prisma (sin deriva)", async () => {

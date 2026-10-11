@@ -10,10 +10,13 @@ y `POST /api/integraciones/azul-chat/consultar`. En V1 esa integración es
 
 El contrato es el del ERP desplegado, copiado de su código y no de memoria. Los
 fixtures salen de ejecutar ese código: `test/fixtures/erp-8920516.json` (canje,
-`mi_alcance`, errores) y `test/fixtures/erp-25172fe.json` (`transferencias_eventos`
-y las capacidades por local de `mi_alcance`), este último regenerable con
-`scripts/generar-fixture-erp.mjs`. Los eventos del ERP, su ingesta y la lectura
-están en `docs/EVENTOS.md`.
+`mi_alcance`, errores), `test/fixtures/erp-25172fe.json` (`transferencias_eventos`
+y las capacidades por local de `mi_alcance`), este regenerable con
+`scripts/generar-fixture-erp.mjs`, y `test/fixtures/erp-76b9a71.json`
+(`pedidos_eventos`, `envios_eventos` y `cancelaciones_eventos`, Tanda 4B),
+copia sin tocar del fixture que generó el ERP en ese commit. Los eventos del
+ERP —recepciones, pedidos solicitados, envíos y cancelaciones—, su ingesta y la
+lectura están en `docs/EVENTOS.md`.
 
 ## Arquitectura
 
@@ -91,14 +94,17 @@ no toca a los demás.
 - `src/shared/` — tipos y validaciones que puede usar la interfaz. Sin secretos ni red.
 - `src/server/` — solo servidor. Cada archivo importa `server-only`.
   - `erp/` — configuración, firma, constructores de cuerpo (`canje`,
-    `miAlcance`, `ventasResumen`) y el cliente firmado, sin reintentos.
+    `miAlcance`, `ventasResumen` y, uno común a las cuatro capacidades de
+    eventos, `eventos.ts`) y el cliente firmado, sin reintentos.
   - `seguridad/cifradoToken.ts` — AES-256-GCM del token.
   - `http/` — Origin, cupo, lectura del cuerpo y respuestas.
   - `sesion/` — cookie, repositorio, vincular, estado, cerrar y el paso de la
     sesión al token (`delegacion.ts`).
   - `chats/` — autorización viva por capacidad, sincronización con frecuencia
     mínima, historial paginado y las cinco rutas de chats.
-  - `eventos/` — ingesta, eventos guardados y lectura (`docs/EVENTOS.md`).
+  - `eventos/` — ingesta (una maquinaria, una definición por capacidad en
+    `capacidades.ts`), eventos guardados de los cuatro tipos y lectura
+    (`docs/EVENTOS.md`).
   - `ventas/ventasResumen.ts` — "ventas" desde una sesión. Lo expone solo
     `GET /api/chats/ventas`, con período fijo "hoy".
   - `configuracion.ts`, `db.ts`, `log.ts`.
