@@ -47,6 +47,7 @@ const CLAVE = randomBytes(32).toString("base64");
 const SECRETO_TAREA = `tarea-${randomBytes(24).toString("base64url")}`;
 const VAPID = webpush.generateVAPIDKeys();
 const ADMIN = 9;
+const ENCARGADO = 11;
 const CASIANO = { id: 3, nombre: "Casiano" };
 const DEPOSITO = { id: 9, nombre: "Depósito Central" };
 const MA = FIXTURES_ERP_25172FE.miAlcance;
@@ -315,7 +316,7 @@ describe("los avisos push", () => {
     vencer();
     const s = nuevaSuscripcion();
     assert.equal((await suscribir(cookie, s)).status, 200);
-    await sincronizar(); // backfill hecho al abrir; la corrida fija la marca de avisos
+    await sincronizar(); // la corrida trae el backfill (abrir la app no ingiere, Tanda 5B) y fija la marca de avisos
     assert.equal(enviados.length, 0, "el backfill no se avisa");
     vencer();
     return { cookie, s };
@@ -379,8 +380,21 @@ describe("los avisos push", () => {
 
   it("lo que la persona ya leyó en la app no se avisa", async () => {
     const { cookie } = await preparado();
+    // Desde la Tanda 5B solo la corrida ingiere, y avisa en la misma pasada. Para
+    // que la persona lea ANTES de que se le avise, lo trae la corrida de OTRA
+    // persona (el encargado, sin teléfono) mientras la suya no pudo completarse
+    // (su mi_alcance falló esa vez). Pasa así con cualquier orden de personas.
+    await vincular(ENCARGADO);
+    erp.alcances.set(ENCARGADO, structuredClone(MA.encargado.respuesta.cuerpo.datos) as Rompible<DatosMiAlcance>);
+    const alcanceAdmin = erp.alcances.get(ADMIN)!;
+    erp.alcances.delete(ADMIN);
     erp.eventosPorLocal.get(CASIANO.id)!.push(recepcion({ local: CASIANO, transferenciaId: 404, fecha: "2026-10-08T10:00:00.000Z" }));
-    // Abre la app: la ingesta al abrir lo trae, y lo marca leído.
+    const r = await sincronizar();
+    assert.equal(r.cuerpo!.conFalla, 1, "la corrida del admin no se completó");
+    assert.equal(await base.db.evento.count({ where: { erpReferenciaId: 404 } }), 1, "el 404 lo trajo la del encargado");
+    assert.equal(enviados.length, 0);
+    erp.alcances.set(ADMIN, alcanceAdmin);
+    // Abre la app: lo ve, y lo marca leído.
     const l = await manejarLocal(new Request(`${ORIGEN}/api/chats/local?localId=${CASIANO.id}`, { headers: conCookie(cookie) }), deps());
     const datos = (await l.json()) as { eventos: { id: string }[] };
     const hasta = datos.eventos.map((e) => BigInt(e.id)).reduce((a, b) => (a > b ? a : b)).toString();
@@ -397,12 +411,18 @@ describe("los avisos push", () => {
     assert.equal(enviados.length, 0);
   });
 
-  it("lo ingerido al abrir la app (no por la tarea) también se avisa, una vez, si no se leyó", async () => {
+  it("abrir la app no trae nada del ERP (Tanda 5B): lo nuevo lo trae la corrida, y lo avisa una vez", async () => {
     const { cookie } = await preparado();
     erp.eventosPorLocal.get(CASIANO.id)!.push(recepcion({ local: CASIANO, transferenciaId: 404, fecha: "2026-10-08T10:00:00.000Z" }));
+    erp.recibidas.length = 0;
     await manejarChats(new Request(`${ORIGEN}/api/chats`, { headers: conCookie(cookie) }), deps());
+    assert.deepEqual(erp.cuerposA("consultar").map((c) => c.capacidad), ["mi_alcance"], "solo autoriza");
+    assert.equal(await base.db.evento.count({ where: { erpReferenciaId: 404 } }), 0);
     await sincronizar();
     assert.deepEqual(enviados.map((e) => e.aviso.cuerpo), ["Casiano: Transferencia #404 recibida"]);
+    vencer();
+    await sincronizar();
+    assert.equal(enviados.length, 1);
   });
 
   it("un local que mi_alcance ya no autoriza no se avisa", async () => {

@@ -22,7 +22,7 @@ import { createElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { marcarLeido, pedirChats, pedirGeneral, pedirLocal, pedirVentas, RUTAS_DEL_CLIENTE } from "../../src/components/chats/clienteChats.ts";
-import { AccionesDelLocal, CuerpoConversacion, ListaDeEventos, PantallaGeneral } from "../../src/components/chats/Conversacion.tsx";
+import { AccionesDelLocal, CuerpoConversacion, ListaDeEventos, PantallaGeneral, PantallaLocal } from "../../src/components/chats/Conversacion.tsx";
 import {
   cantidadDeVentas,
   detalleDeDiferencias,
@@ -36,6 +36,9 @@ import {
 import {
   decidirLecturaLocal,
   destinoDeFalla,
+  ESPERA_TRAS_CUPO_MS,
+  esperaTrasFalla,
+  tituloDeLocal,
   filasDeChats,
   leerVista,
   ordenCronologico,
@@ -47,8 +50,8 @@ import {
   type EstadoVentas,
   type InfoLocal,
 } from "../../src/components/chats/logica.ts";
-import { CuerpoChats, type Estado as EstadoChats } from "../../src/components/chats/PantallaChats.tsx";
-import { TarjetaEvento } from "../../src/components/chats/Piezas.tsx";
+import { CuerpoChats, FilaChat, type Estado as EstadoChats } from "../../src/components/chats/PantallaChats.tsx";
+import { TarjetaEvento, TEXTO_CUPO_ERP } from "../../src/components/chats/Piezas.tsx";
 import {
   RUTAS_CHATS,
   type EventoGeneral,
@@ -576,7 +579,7 @@ describe("ventas de hoy: la barra y la tarjeta", () => {
 
   it("3A-UI-8. error: la tarjeta de 1:329 con \"Reintentar\", que pide de nuevo solo al tocarla", () => {
     let pedidos = 0;
-    const html = acciones(true, { fase: "FALLA" }, () => pedidos++);
+    const html = acciones(true, { fase: "FALLA", cupo: false }, () => pedidos++);
     assert.match(html, /<article class="ac-ventas ac-ventas--falla" role="alert">/);
     assert.ok(texto(html).startsWith("No se pudo consultar ERP Azul. Reintentar"));
     assert.equal(pedidos, 0, "dibujar no pide nada");
@@ -593,12 +596,12 @@ describe("ventas de hoy: la barra y la tarjeta", () => {
     e = reducirVentas(e, { tipo: "PEDIR" });
     assert.deepEqual(e, { fase: "CARGANDO" }, "la tarjeta anterior se descarta");
     e = reducirVentas(e, { tipo: "RESPUESTA", resultado: { ok: false, falla: { estado: "ERP_NO_DISPONIBLE" } } });
-    assert.deepEqual(e, { fase: "FALLA" });
+    assert.deepEqual(e, { fase: "FALLA", cupo: false });
     // Reintentar es un PEDIR más, y una respuesta tardía sin pedido en curso no cambia nada.
-    assert.deepEqual(reducirVentas(e, { tipo: "RESPUESTA", resultado: { ok: true, datos: VENTAS } }), { fase: "FALLA" });
+    assert.deepEqual(reducirVentas(e, { tipo: "RESPUESTA", resultado: { ok: true, datos: VENTAS } }), { fase: "FALLA", cupo: false });
     assert.deepEqual(reducirVentas(reducirVentas(e, { tipo: "PEDIR" }), { tipo: "RESPUESTA", resultado: { ok: true, datos: VENTAS } }), { fase: "LISTA", ventas: VENTAS });
     for (const falla of [{ estado: "RED" }, { estado: "NO_AUTORIZADO" }, { estado: "SERVICIO_NO_DISPONIBLE" }] as const) {
-      assert.deepEqual(reducirVentas({ fase: "CARGANDO" }, { tipo: "RESPUESTA", resultado: { ok: false, falla } }), { fase: "FALLA" }, falla.estado);
+      assert.deepEqual(reducirVentas({ fase: "CARGANDO" }, { tipo: "RESPUESTA", resultado: { ok: false, falla } }), { fase: "FALLA", cupo: false }, falla.estado);
     }
     // Cancelada (se pidió de nuevo o se salió del chat): no es un error que mostrar.
     assert.deepEqual(reducirVentas({ fase: "CARGANDO" }, { tipo: "RESPUESTA", resultado: { ok: false, falla: { estado: "CANCELADA" } } }), { fase: "QUIETO" });
@@ -723,5 +726,114 @@ describe("Tanda 4B: marcar leído cuenta solo lo que no es historia", () => {
   it("con los 2 nuevos a la vista, marca hasta el mayor de ELLOS, no hasta el mayor id de la historia", () => {
     const e = lista([...historia, ...nuevos], { info: info("4", 2) });
     assert.deepEqual(decidirLecturaLocal(e), { tipo: "MARCAR", marca: { localId: 3, hastaEventoId: "6" } });
+  });
+});
+
+// ── Tanda 5B: el cupo del ERP en la interfaz ────────────────────────────────
+
+describe("(d) Tanda 5B: el rechazo por cupo del ERP", () => {
+  const CUPO = { estado: "ERP_CUPO_EXCEDIDO" } as const;
+  /** El botón de una acción de estado, con sus atributos. */
+  const boton = (html: string) => /<button[^>]*class="ac-boton"[^>]*>[^<]*<\/button>/.exec(html)?.[0] ?? "";
+
+  it("tiene su propio mensaje, no 'ERP Azul no responde': en la lista, en un Local y en General, y sin historial detrás", () => {
+    assert.equal(TEXTO_CUPO_ERP, "Muchas consultas seguidas al ERP. Probá de nuevo en un minuto.");
+    assert.equal(destinoDeFalla(CUPO), "CUPO_ERP");
+    const e = reducirConversacion(lista(PAGINA_API), { tipo: "FALLA", falla: CUPO });
+    assert.deepEqual(e, { fase: "FALLA", falla: CUPO }, "P1 igual: no queda ningún evento en el estado");
+    for (const html of [cuerpoLocal(e), cuerpoChats({ fase: "FALLA", falla: CUPO })]) {
+      assert.equal(texto(html), `${TEXTO_CUPO_ERP} Reintentar`);
+      assert.doesNotMatch(texto(html), /no responde|Transferencia/);
+    }
+  });
+
+  it("Reintentar queda deshabilitado mientras dura la espera, y habilitado sin ella", () => {
+    const e: EstLocal = { fase: "FALLA", falla: CUPO };
+    const enEspera = (v: boolean) =>
+      dibujar(
+        createElement(CuerpoConversacion<EventoPublico, InfoLocal>, { estado: e, vacio: "", alReintentar: nada, enEspera: v, alVolver: nada, alCargarAnteriores: nada }),
+      );
+    assert.match(boton(enEspera(true)), /disabled=""/);
+    assert.doesNotMatch(boton(enEspera(false)), /disabled/);
+    const chatsEnEspera = dibujar(
+      createElement(CuerpoChats, { estado: { fase: "FALLA", falla: CUPO }, filtro: "TODOS", alCambiarFiltro: nada, alAbrir: nada, alReintentar: nada, enEspera: true }),
+    );
+    assert.match(boton(chatsEnEspera), /disabled=""/);
+    // La espera no toca a las demás fallas: "ERP Azul no responde" sigue con su Reintentar de siempre.
+    const otra = dibujar(
+      createElement(CuerpoConversacion<EventoPublico, InfoLocal>, {
+        estado: { fase: "FALLA", falla: { estado: "ERP_NO_DISPONIBLE" } },
+        vacio: "",
+        alReintentar: nada,
+        enEspera: true,
+        alVolver: nada,
+        alCargarAnteriores: nada,
+      }),
+    );
+    assert.doesNotMatch(boton(otra), /disabled/);
+  });
+
+  it("la espera es de 20 s y solo después de un rechazo por cupo: es un límite a la persona, no un reintento", () => {
+    assert.equal(ESPERA_TRAS_CUPO_MS, 20_000);
+    assert.equal(esperaTrasFalla(CUPO, 1_000), 21_000);
+    for (const f of [{ estado: "ERP_NO_DISPONIBLE" }, { estado: "RED" }, { estado: "SERVICIO_NO_DISPONIBLE" }, { estado: "NO_AUTORIZADO" }, { estado: "CANCELADA" }] as const) {
+      assert.equal(esperaTrasFalla(f, 1_000), null, f.estado);
+    }
+  });
+
+  it("Ventas: el mismo mensaje, y Reintentar y el chip en espera", () => {
+    assert.deepEqual(reducirVentas({ fase: "CARGANDO" }, { tipo: "RESPUESTA", resultado: { ok: false, falla: CUPO } }), { fase: "FALLA", cupo: true });
+    const html = dibujar(createElement(AccionesDelLocal, { anuncia: true, estado: { fase: "FALLA", cupo: true }, alPedir: nada, enEspera: true }));
+    assert.ok(texto(html).startsWith(`${TEXTO_CUPO_ERP} Reintentar`));
+    assert.match(/<button[^>]*class="ac-pastilla-accion"[^>]*>/.exec(html)?.[0] ?? "", /disabled=""/);
+    assert.match(chip(html), /disabled=""/);
+    const libre = dibujar(createElement(AccionesDelLocal, { anuncia: true, estado: { fase: "FALLA", cupo: true }, alPedir: nada }));
+    assert.doesNotMatch(chip(libre), /disabled/);
+  });
+
+  it("el cliente lee ERP_CUPO_EXCEDIDO (429) por su código", async () => {
+    const original = globalThis.fetch;
+    try {
+      globalThis.fetch = (async () => new Response(JSON.stringify(CUPO), { status: 429, headers: { "content-type": "application/json" } })) as typeof fetch;
+      assert.deepEqual(await pedirChats(), { ok: false, falla: CUPO });
+      assert.deepEqual(await pedirLocal(3, null), { ok: false, falla: CUPO });
+      assert.deepEqual(await pedirVentas(3), { ok: false, falla: CUPO });
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+});
+
+describe("(d) Tanda 5B: el título del chat con el nombre que ya se conocía", () => {
+  const pantalla = (props: { nombreConocido?: string }) =>
+    dibujar(createElement(PantallaLocal, { localId: 3, alVolver: nada, alPerderSesion: nada, ...props }));
+  const titulo = (html: string) => /<h1[^>]*>([^<]*)<\/h1>/.exec(html)?.[1];
+
+  it("mientras carga (o si la carga falla) usa el de la lista, que viaja en la URL; sin él, 'Chat'", () => {
+    assert.equal(titulo(pantalla({ nombreConocido: "Casiano" })), "Casiano");
+    assert.equal(titulo(pantalla({})), "Chat");
+    assert.equal(tituloDeLocal(null, "Casiano"), "Casiano");
+    assert.equal(tituloDeLocal(null, undefined), "Chat");
+    assert.equal(tituloDeLocal("Casiano Centro", "Casiano"), "Casiano Centro", "cuando la API contesta, manda su nombre");
+  });
+
+  it("la fila de la lista abre el local con su nombre, y el nombre va y vuelve por la URL", () => {
+    let abierta: unknown = null;
+    const fila = FilaChat({ fila: { tipo: "LOCAL", local: CHATS.locales[0]! }, alAbrir: (v) => (abierta = v), ahora: AHORA, zona: ZONA });
+    const boton = (fila.props as { children: ReactElement<{ onClick: () => void }> }).children;
+    boton.props.onClick();
+    assert.deepEqual(abierta, { tipo: "LOCAL", localId: 3, nombre: "Casiano" });
+    const v = { tipo: "LOCAL", localId: 9, nombre: "Depósito Central" } as const;
+    assert.equal(urlDeVista(v), "/?vista=local&localId=9&nombre=Dep%C3%B3sito+Central");
+    assert.deepEqual(leerVista(urlDeVista(v).slice(1)), v);
+  });
+
+  it("un nombre en la URL que no tiene forma de nombre se ignora: el local sigue, el título no", () => {
+    for (const malo of ["", "   ", "x".repeat(81), "Casiano\u0000", "Casiano\nCentro"]) {
+      const q = new URLSearchParams({ vista: "local", localId: "3", nombre: malo }).toString();
+      assert.deepEqual(leerVista(q), { tipo: "LOCAL", localId: 3 }, JSON.stringify(malo));
+    }
+    // Y la URL de un aviso push (sin nombre) sigue igual que siempre.
+    assert.deepEqual(leerVista("vista=local&localId=3"), { tipo: "LOCAL", localId: 3 });
   });
 });

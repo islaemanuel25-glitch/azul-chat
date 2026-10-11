@@ -7,7 +7,9 @@
 // nombrar lo que falta; el código no lo puede mostrar).
 //
 // Además: nada de refresco automático (la sincronización ocurre cuando se pide;
-// la única excepción, desde la Tanda 3B, es recargar al cambiar de versión),
+// las únicas excepciones son recargar al cambiar de versión, desde la Tanda 3B,
+// y el temporizador que LEVANTA la espera de "Reintentar" tras un rechazo por
+// cupo, desde la 5B: deshabilita, no pide nada),
 // nada guardado en el navegador, `fetch` solo en los dos clientes HTTP de la
 // interfaz, y ningún rastro de la delegación del ERP.
 
@@ -97,6 +99,17 @@ const PIEZAS_DE_LA_RECARGA: readonly { readonly patron: RegExp; readonly archivo
   },
 ];
 
+/**
+ * Tanda 5B: el ÚNICO temporizador de la interfaz. Después de un rechazo por
+ * cupo del ERP, "Reintentar" queda deshabilitado 20 s; un temporizador lo
+ * vuelve a habilitar y NADA MÁS: no pide, no recarga. Vive en un solo archivo,
+ * es uno solo y tiene exactamente esta forma.
+ */
+const TEMPORIZADOR_DE_LA_ESPERA = {
+  archivo: "src/components/chats/esperaCupo.ts",
+  forma: /setTimeout\(\(\) => setHasta\(null\), Math\.max\(0, hasta - Date\.now\(\)\)\)/,
+};
+
 function problemas(archivos: Record<string, string>): string[] {
   const p: string[] = [];
   for (const [archivo, codigo] of Object.entries(archivos)) {
@@ -105,7 +118,13 @@ function problemas(archivos: Record<string, string>): string[] {
     if (codigo.includes(TEXTO_PERMITIDO.texto) && archivo !== TEXTO_PERMITIDO.archivo) p.push(`${archivo}: "${TEXTO_PERMITIDO.texto}" fuera de su lugar`);
     // El campo de preguntas del diseño: en los chats no hay dónde escribir.
     if (archivo.startsWith("src/components/chats/") && /<(input|textarea)\b/.test(codigo)) p.push(`${archivo}: campo de texto en los chats`);
-    if (/\b(setInterval|setTimeout|requestIdleCallback)\b|\brefetchInterval\b|WebSocket|EventSource/.test(codigo)) p.push(`${archivo}: refresco automático`);
+    const temporizadores = codigo.match(/\b(setInterval|setTimeout|requestIdleCallback)\b|\brefetchInterval\b|WebSocket|EventSource/g) ?? [];
+    const laEspera =
+      archivo === TEMPORIZADOR_DE_LA_ESPERA.archivo &&
+      temporizadores.length === 1 &&
+      temporizadores[0] === "setTimeout" &&
+      TEMPORIZADOR_DE_LA_ESPERA.forma.test(codigo);
+    if (temporizadores.length > 0 && !laEspera) p.push(`${archivo}: refresco automático`);
     for (const pieza of PIEZAS_DE_LA_RECARGA) {
       if (!pieza.patron.test(codigo)) continue;
       if (archivo !== pieza.archivo) p.push(`${archivo}: ${pieza.patron.source} fuera de la recarga por versión`);
@@ -175,6 +194,32 @@ describe("alcance de la interfaz de chats", () => {
     // En prosa no cuenta: el código se mira sin comentarios.
     const conComentario = sinComentarios(`${conversacion}\n// todavía no hay "Ver diferencias" ni setInterval\n`);
     assert.deepEqual(problemas({ ...arbol, "src/components/chats/Conversacion.tsx": conComentario }), []);
+  });
+
+  it("5B. el temporizador de la espera por cupo existe, solo, y solo vuelve a habilitar", () => {
+    assert.match(arbol[TEMPORIZADOR_DE_LA_ESPERA.archivo] ?? "", TEMPORIZADOR_DE_LA_ESPERA.forma);
+  });
+
+  it("CONTRAPRUEBA 5B: un segundo temporizador, uno que pide algo, o el mismo en otro archivo, es rojo", () => {
+    const ESPERA = TEMPORIZADOR_DE_LA_ESPERA.archivo;
+    const espera = arbol[ESPERA]!;
+    const casos: Record<string, Record<string, string>> = {
+      otroMas: { [ESPERA]: `${espera}
+setTimeout(() => {}, 1000);
+` },
+      intervalo: { [ESPERA]: `${espera}
+setInterval(() => {}, 1000);
+` },
+      quePide: { [ESPERA]: espera.replace("setTimeout(() => setHasta(null),", "setTimeout(() => { setHasta(null); void fetch(\"/api/chats\"); },") },
+      enOtroArchivo: { "src/components/chats/Conversacion.tsx": `${arbol["src/components/chats/Conversacion.tsx"]}
+const t = setTimeout(() => setHasta(null), Math.max(0, hasta - Date.now()));
+` },
+    };
+    for (const [nombre, cambio] of Object.entries(casos)) {
+      const k = Object.keys(cambio)[0]!;
+      assert.notEqual(cambio[k], arbol[k], `el reemplazo ${nombre} no se aplicó`);
+      assert.notDeepEqual(problemas({ ...arbol, ...cambio }), [], nombre);
+    }
   });
 
   it("3B. la recarga por versión existe, y cada pieza está en su único lugar", () => {
@@ -259,8 +304,8 @@ describe("General no marca leído", () => {
     const conv = arbol[CONVERSACION]!;
     const general = cuerpoDe(conv, "PantallaGeneral");
     const casos: Record<string, Record<string, string>> = {
-      generalConHook: { [CONVERSACION]: conv.replace(general, general.replace("useConversacion(pedirPagina, alPerderSesion);", "useConversacion(pedirPagina, alPerderSesion);\n  useLecturaLocal(estado as never, (() => {}) as never, alPerderSesion);")) },
-      generalConPost: { [CONVERSACION]: conv.replace(general, general.replace("useConversacion(pedirPagina, alPerderSesion);", "useConversacion(pedirPagina, alPerderSesion);\n  void marcarLeido({ marcas: [] });")) },
+      generalConHook: { [CONVERSACION]: conv.replace(general, general.replace("useConversacion(pedirPagina, alPerderSesion, espera.anotar);", "useConversacion(pedirPagina, alPerderSesion, espera.anotar);\n  useLecturaLocal(estado as never, (() => {}) as never, alPerderSesion);")) },
+      generalConPost: { [CONVERSACION]: conv.replace(general, general.replace("useConversacion(pedirPagina, alPerderSesion, espera.anotar);", "useConversacion(pedirPagina, alPerderSesion, espera.anotar);\n  void marcarLeido({ marcas: [] });")) },
       otraLlamada: { "src/components/chats/AzulChat.tsx": `${arbol["src/components/chats/AzulChat.tsx"]}\nvoid marcarLeido({ marcas: [] });\n` },
       sinRecalcular: { [CONVERSACION]: conv.replace("}, [clave, despachar, alPerderSesion]);", "}, []);") },
       decisionFija: { [CONVERSACION]: conv.replace("const decision = decidirLecturaLocal(estado);", "const decision = useRef(decidirLecturaLocal(estado)).current;") },

@@ -85,7 +85,15 @@ export function AzulChat() {
     case "CHATS":
       return <PantallaChats alAbrir={abrir} alPerderSesion={perderSesion} alVerSesion={verSesion} />;
     case "LOCAL":
-      return <PantallaLocal key={vista.localId} localId={vista.localId} alVolver={volverAChats} alPerderSesion={perderSesion} />;
+      return (
+        <PantallaLocal
+          key={vista.localId}
+          localId={vista.localId}
+          {...(vista.nombre ? { nombreConocido: vista.nombre } : {})}
+          alVolver={volverAChats}
+          alPerderSesion={perderSesion}
+        />
+      );
     case "GENERAL":
       return <PantallaGeneral alVolver={volverAChats} alPerderSesion={perderSesion} />;
   }

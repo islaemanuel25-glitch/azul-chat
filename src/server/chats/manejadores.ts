@@ -15,10 +15,13 @@
 // Ventas: sesión → `mi_alcance` vivo → local con `ventas_resumen` → el ERP;
 // no toca Evento ni LecturaLocal.
 //
-// Los GET sincronizan lo que haga falta (frecuencia mínima de ingesta) y crean
-// la línea de base de lectura la primera vez que la persona ve un local
-// —DESPUÉS de sincronizar, así lo que se importa no aparece como nuevo—, pero
-// NUNCA marcan leído: marcar es solo POST /api/chats/leido. El local va por
+// Los GET NO ingieren (Tanda 5B): lo trae solo la sincronización de fondo
+// (interno/sincronizar.ts). Cada pedido del navegador le cuesta al cupo del ERP
+// UNA consulta, `mi_alcance` —ventas, dos—, y lee la base propia. El estado
+// "Actualización demorada" de cada local sale de los cursores que dejó el fondo
+// (chats/sincronizacion.ts, estadoDeLocales). Los GET crean la línea de base de
+// lectura la primera vez que la persona ve un local —sobre lo que ya está en la
+// base—, pero NUNCA marcan leído: marcar es solo POST /api/chats/leido. El local va por
 // query (`?localId=`) y no por segmento de ruta: la frontera de rutas no admite
 // segmentos dinámicos en src/app (test/frontera/rutas.test.ts).
 
@@ -53,7 +56,7 @@ import {
   type LocalVisible,
   type PosicionHistorial,
 } from "./historial.ts";
-import { sincronizarAutorizados, type LocalSincronizado } from "./sincronizacion.ts";
+import { esFalloDeCupo, estadoDeLocales, type LocalSincronizado } from "./sincronizacion.ts";
 
 /** Un local con las capacidades que siguen en esta respuesta → qué se puede leer de él. */
 const visible = (l: LocalDeEventos): LocalVisible => ({ localId: l.localId, tipos: tiposVisibles(l.capacidades) });
@@ -69,6 +72,7 @@ const STATUS: Record<FallaChats["estado"], number> = {
   ORIGEN_NO_PERMITIDO: 403,
   SOLICITUD_INVALIDA: 400,
   ERP_NO_DISPONIBLE: 503,
+  ERP_CUPO_EXCEDIDO: 429,
   SERVICIO_NO_DISPONIBLE: 503,
 };
 
@@ -85,10 +89,21 @@ function fallaDeDelegacion<T>(r: Exclude<ResultadoDelegado<T>, { tipo: "OK" }>):
     case "SIN_SESION":
       return r.vinculoInvalidado ? { estado: "SIN_SESION", motivo: "VINCULO_INVALIDO" } : { estado: "SIN_SESION" };
     case "RECHAZO_ERP":
-      return r.resultado.origen === "erp" && r.resultado.codigo === "NO_AUTORIZADO" ? { estado: "NO_AUTORIZADO" } : { estado: "ERP_NO_DISPONIBLE" };
+      return fallaDeRechazo(r.resultado);
     case "SERVICIO_NO_DISPONIBLE":
       return { estado: "SERVICIO_NO_DISPONIBLE" };
   }
+}
+
+/**
+ * Un rechazo del ERP que no invalida el vínculo → la falla pública, por código.
+ * El cupo (LIMITE_EXCEDIDO) tiene la suya: no es que el ERP no responda, es
+ * que se le pidió mucho seguido, y la interfaz lo dice así (Tanda 5B).
+ */
+function fallaDeRechazo(r: Extract<ResultadoConsulta<unknown>, { ok: false }>): FallaChats {
+  if (r.origen === "erp" && r.codigo === "NO_AUTORIZADO") return { estado: "NO_AUTORIZADO" };
+  if (esFalloDeCupo(r)) return { estado: "ERP_CUPO_EXCEDIDO" };
+  return { estado: "ERP_NO_DISPONIBLE" };
 }
 
 /** Lo que devuelve el trabajo autorizado: la respuesta, o "este local no", que no es un rechazo del ERP. */
@@ -125,12 +140,18 @@ function parametros(request: Request, permitidas: readonly string[]): Map<string
   return vistos;
 }
 
-/** Sincroniza y crea la línea de base (si no existe) de esos locales, en ese orden. */
-async function prepararLocales(deps: DependenciasSesion, a: Autorizacion, locales: Autorizacion["autorizados"]) {
-  const s = await sincronizarAutorizados(deps, a, locales);
-  if (!s.ok) return s;
-  for (const l of s.locales) await inicializarLectura(a.contexto.db, a.contexto.sesion.vinculo.id, l.localId);
-  return s;
+/**
+ * Lo que el navegador ve de esos locales, SIN llamar al ERP: su estado según
+ * los cursores que dejó la sincronización de fondo, y la línea de base de
+ * lectura si es la primera vez que la persona los ve. La línea de base se fija
+ * sobre lo que YA está en la base: lo que el fondo traiga después tiene ids
+ * mayores y, si no es historia, cuenta como nuevo.
+ */
+async function prepararLocales(deps: DependenciasSesion, a: Autorizacion, locales: readonly LocalDeEventos[]): Promise<LocalSincronizado[]> {
+  const { db, config, sesion } = a.contexto;
+  const estados = await estadoDeLocales(db, config.instalacionId, locales, deps.ahora());
+  for (const l of locales) await inicializarLectura(db, sesion.vinculo.id, l.localId);
+  return locales.map((l) => ({ ...l, sincronizacion: estados.get(l.localId) ?? "DEMORADA" }));
 }
 
 // ── GET /api/chats ──────────────────────────────────────────────────────────
@@ -138,11 +159,10 @@ async function prepararLocales(deps: DependenciasSesion, a: Autorizacion, locale
 export function manejarChats(request: Request, deps: DependenciasSesion): Promise<Response> {
   if (parametros(request, []) === null) return Promise.resolve(falla({ estado: "SOLICITUD_INVALIDA" }, request, deps));
   return responder<RespuestaChats>(request, deps, async (a) => {
-    const s = await prepararLocales(deps, a, a.autorizados);
-    if (!s.ok) return s.fallo;
+    const preparados = await prepararLocales(deps, a, a.autorizados);
     const { db, config, sesion } = a.contexto;
     const locales: LocalDeChats[] = [];
-    for (const l of s.locales) {
+    for (const l of preparados) {
       locales.push({
         localId: l.localId,
         nombre: l.nombre,
@@ -194,10 +214,8 @@ export function manejarLocal(request: Request, deps: DependenciasSesion): Promis
   return responder<RespuestaLocal>(request, deps, async (a) => {
     const autorizado = a.autorizados.find((l) => l.localId === localId);
     if (!autorizado) return localNoAutorizado();
-    const s = await prepararLocales(deps, a, [autorizado]);
-    if (!s.ok) return s.fallo;
-    const local = s.locales[0];
-    if (!local) return localNoAutorizado(); // el ERP lo negó al sincronizar
+    const [local] = await prepararLocales(deps, a, [autorizado]);
+    if (!local) return localNoAutorizado();
     const { db, config, sesion } = a.contexto;
     const pagina = await paginaDeHistorial(db, config.instalacionId, [visible(local)], desde);
     return ok<RespuestaLocal>({
@@ -220,20 +238,19 @@ export function manejarGeneral(request: Request, deps: DependenciasSesion): Prom
   const desde: PosicionHistorial | null = cursorCrudo === undefined ? null : decodificarCursor(cursorCrudo);
   if (!p || (cursorCrudo !== undefined && !desde)) return Promise.resolve(falla({ estado: "SOLICITUD_INVALIDA" }, request, deps));
   return responder<RespuestaGeneral>(request, deps, async (a) => {
-    const s = await prepararLocales(deps, a, a.autorizados);
-    if (!s.ok) return s.fallo;
+    const preparados = await prepararLocales(deps, a, a.autorizados);
     const { db, config, sesion } = a.contexto;
-    const porId = new Map<number, LocalSincronizado>(s.locales.map((l) => [l.localId, l]));
+    const porId = new Map<number, LocalSincronizado>(preparados.map((l) => [l.localId, l]));
     // General es una proyección: la misma tabla de eventos, filtrada por los locales autorizados de AHORA.
-    const pagina = await paginaDeHistorial(db, config.instalacionId, s.locales.map(visible), desde);
+    const pagina = await paginaDeHistorial(db, config.instalacionId, preparados.map(visible), desde);
     let noLeidos = 0;
-    for (const l of s.locales) noLeidos += await contarNoLeidos(db, sesion.vinculo.id, l.localId, tiposVisibles(l.capacidades));
+    for (const l of preparados) noLeidos += await contarNoLeidos(db, sesion.vinculo.id, l.localId, tiposVisibles(l.capacidades));
     return ok<RespuestaGeneral>({
       estado: "OK",
       noLeidos,
       eventos: pagina.filas.map((f) => ({ ...f.evento, local: { localId: f.erpLocalId, nombre: porId.get(f.erpLocalId)!.nombre } })),
       siguiente: pagina.siguiente,
-      localesDemorados: s.locales.filter((l) => l.sincronizacion === "DEMORADA").map((l) => l.localId),
+      localesDemorados: preparados.filter((l) => l.sincronizacion === "DEMORADA").map((l) => l.localId),
     });
   });
 }
@@ -348,7 +365,8 @@ export async function manejarVentas(request: Request, deps: DependenciasSesion):
       return falla({ estado: "SERVICIO_NO_DISPONIBLE" }, request, deps);
     case "RECHAZO_ERP":
       // Por código, no por texto: ninguno de estos dice algo del vínculo, así que la sesión sigue.
-      return falla({ estado: "ERP_NO_DISPONIBLE" }, request, deps);
+      // NO_AUTORIZADO acá también es ERP_NO_DISPONIBLE (el local ya se autorizó con mi_alcance); el cupo, el suyo.
+      return falla(esFalloDeCupo(r.resultado) ? { estado: "ERP_CUPO_EXCEDIDO" } : { estado: "ERP_NO_DISPONIBLE" }, request, deps);
     case "OK": {
       const publica = ventasPublicas(r.datos, local);
       return publica ? json(publica) : falla({ estado: "ERP_NO_DISPONIBLE" }, request, deps);

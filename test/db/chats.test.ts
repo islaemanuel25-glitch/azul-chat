@@ -1,7 +1,11 @@
 // CANDADOS DE LA API DE CHATS (Tanda 2B), DE PUNTA A PUNTA, CONTRA POSTGRESQL.
 //
 // sesión real (vincular con un código del ERP de mentira) → `mi_alcance` vivo →
-// capacidades de AHORA → sincronización → Evento → LecturaLocal → respuesta.
+// capacidades de AHORA → Evento → LecturaLocal → respuesta.
+//
+// Desde la Tanda 5B los pedidos del navegador NO ingieren: lo trae la
+// sincronización de fondo. Acá se la corre por su manejador, con la puerta de
+// verdad (`fondo()`), en el punto exacto donde antes lo traía abrir la app.
 //
 // El ERP es test/ayuda/erpConEstado.ts: firma HMAC, vínculos, `mi_alcance` de
 // los fixtures generados ejecutando el ERP 25172fe (encargado, cajero,
@@ -19,8 +23,10 @@ import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import { after, before, beforeEach, describe, it } from "node:test";
 
-import { manejarChats, manejarGeneral, manejarLeido, manejarLocal } from "../../src/server/chats/manejadores.ts";
-import { FRECUENCIA_MINIMA_INGESTA_MS } from "../../src/server/chats/sincronizacion.ts";
+import { manejarChats, manejarGeneral, manejarLeido, manejarLocal, manejarVentas } from "../../src/server/chats/manejadores.ts";
+import { ANTIGUEDAD_MAXIMA_SINCRONIZACION_MS, FRECUENCIA_MINIMA_INGESTA_MS } from "../../src/server/chats/sincronizacion.ts";
+import { manejarSincronizar, type ResumenTarea } from "../../src/server/interno/sincronizar.ts";
+import { CABECERA_SECRETO_TAREA, leerPuertaTarea } from "../../src/server/interno/tarea.ts";
 import { leerConfigAzulChat } from "../../src/server/configuracion.ts";
 import { crearClienteErp } from "../../src/server/erp/cliente.ts";
 import { crearLimitador } from "../../src/server/http/limitador.ts";
@@ -39,6 +45,7 @@ import { FIXTURES_ERP, FIXTURES_ERP_25172FE, FIXTURES_ERP_76B9A71, SECRETO_PRUEB
 const ORIGEN = "https://chat.ejemplo.invalid";
 const INSTALACION = "instalacion-prueba";
 const CLAVE = randomBytes(32).toString("base64");
+const SECRETO_TAREA = `tarea-${randomBytes(24).toString("base64url")}`;
 const MA = FIXTURES_ERP_25172FE.miAlcance;
 const TE = FIXTURES_ERP_25172FE.transferenciasEventos;
 const alcance = (n: "adminGlobal" | "encargado" | "cajero") => structuredClone(MA[n].respuesta.cuerpo.datos) as Rompible<DatosMiAlcance>;
@@ -146,6 +153,29 @@ const leido = (cookie: string | null, cuerpo: unknown, origen: string | null = O
   return pedir<RespuestaLeido>(manejarLeido, new Request(`${ORIGEN}/api/chats/leido`, { method: "POST", headers, body: JSON.stringify(cuerpo) }), deps());
 };
 
+/**
+ * La sincronización de fondo, como la llama el timer: por 127.0.0.1, con el
+ * secreto, para todas las personas con sesión. Es lo ÚNICO que trae del ERP
+ * desde la Tanda 5B. Sin push.
+ */
+async function fondo(d = deps()): Promise<ResumenTarea> {
+  const puerta = leerPuertaTarea({ AZUL_CHAT_TAREA_SECRET: SECRETO_TAREA });
+  assert.ok(puerta.ok);
+  const res = await manejarSincronizar(
+    new Request("http://127.0.0.1:3100/api/interno/sincronizar", {
+      method: "POST",
+      headers: { host: "127.0.0.1:3100", "x-forwarded-proto": "http", [CABECERA_SECRETO_TAREA]: SECRETO_TAREA },
+    }),
+    { ...d, puerta, push: { ok: false } },
+  );
+  const texto = await res.text();
+  assert.equal(res.status, 200, texto);
+  return JSON.parse(texto) as ResumenTarea;
+}
+
+const ventas = (cookie: string | null, localId: number, d = deps()) =>
+  pedir<Record<string, unknown>>(manejarVentas, new Request(`${ORIGEN}/api/chats/ventas?localId=${localId}`, { headers: conCookie(cookie) }), d);
+
 /** Las consultas que llegaron al ERP con esa capacidad. */
 const consultas = (capacidad: string) => erp.cuerposA("consultar").filter((c) => c.capacidad === capacidad);
 const llamadasMiAlcance = () => consultas("mi_alcance").length;
@@ -211,9 +241,12 @@ describe("autorización viva por capacidad", () => {
   it("A/B/L. aparece el local que anuncia transferencias_eventos; el territorial sin ella no aparece ni se sincroniza", async () => {
     // El encargado real: Casiano con la capacidad.
     const enc = await vincular(ENCARGADO);
+    erp.recibidas.length = 0;
     const r = await chats(enc);
     assert.equal(r.status, 200, r.texto);
     assert.deepEqual(idsDeLocales(r.cuerpo), [CASIANO.id]);
+    assert.deepEqual(localesSincronizados(), [], "el pedido del navegador no ingiere (Tanda 5B)");
+    await fondo();
     assert.deepEqual(localesSincronizados(), [CASIANO.id]);
 
     // El cajero real: Casiano está en su territorio, con `capacidades: []`.
@@ -223,10 +256,12 @@ describe("autorización viva por capacidad", () => {
     assert.equal(c.status, 200, c.texto);
     assert.deepEqual(c.cuerpo.locales, []);
     assert.deepEqual(c.cuerpo.general, { noLeidos: 0, ultimoEvento: null });
-    assert.deepEqual(localesSincronizados(), [], "un local sin la capacidad no se pide al ERP");
     assert.equal((await local(caj, CASIANO.id)).status, 403);
     assert.deepEqual((await general(caj)).cuerpo.eventos, []);
-    assert.deepEqual(localesSincronizados(), []);
+    vencer();
+    await fondo();
+    assert.deepEqual(localesSincronizados(), [CASIANO.id], "solo por el encargado: un local sin la capacidad no se le pide al ERP para el cajero");
+    assert.equal(consultas("transferencias_eventos").length, 1);
 
     // En el alcance global, Depósito sin la capacidad: los otros tres sí, Depósito nunca.
     capacidadesDe(ADMIN, DEPOSITO.id, ["ventas_resumen"]);
@@ -234,12 +269,13 @@ describe("autorización viva por capacidad", () => {
     const adm = await vincular(ADMIN);
     const a = await chats(adm);
     assert.deepEqual(idsDeLocales(a.cuerpo).sort((x, y) => x - y), [3, 5, 20]);
-    // Casiano no se vuelve a pedir: el encargado lo sincronizó recién, y la
-    // ingesta es de la instalación, no de la persona. Lo que sí es de la persona
-    // —la autorización— se pidió de nuevo.
-    assert.deepEqual(localesSincronizados().sort((x, y) => x - y), [5, 20]);
     assert.equal(llamadasMiAlcance(), 1);
+    await fondo();
+    // Casiano no se vuelve a pedir: se sincronizó recién (en la corrida del
+    // encargado), y la ingesta es de la instalación, no de la persona.
+    assert.deepEqual(localesSincronizados().sort((x, y) => x - y), [5, 20]);
     vencer();
+    await fondo();
     await chats(adm);
     await general(adm);
     assert.ok(!localesSincronizados().includes(DEPOSITO.id), "L: Depósito no se sincroniza nunca");
@@ -247,11 +283,13 @@ describe("autorización viva por capacidad", () => {
 
   it("C/D. quitar la capacidad saca el local en la siguiente solicitud; devolverla lo restaura sin revincular, con su lectura", async () => {
     const adm = await vincular(ADMIN);
+    await fondo();
     assert.ok(delLocal((await chats(adm)).cuerpo, CASIANO.id));
     // Llegan dos recepciones a Casiano y se marca leída la primera.
     vencer();
     recibir(CASIANO, 410, "2026-10-08T10:00:00.000Z");
     recibir(CASIANO, 411, "2026-10-08T10:05:00.000Z");
+    await fondo();
     const pagina = (await local(adm, CASIANO.id)).cuerpo;
     assert.equal(pagina.noLeidos, 2);
     const hasta = pagina.eventos[1]!.id;
@@ -273,6 +311,7 @@ describe("autorización viva por capacidad", () => {
 
   it("E/AI. los eventos guardados NO autorizan: sin la capacidad hoy, ni Local, ni General, ni marcar leído", async () => {
     const adm = await vincular(ADMIN);
+    await fondo();
     await chats(adm);
     const guardados = await base.db.evento.count({ where: { erpLocalId: CASIANO.id } });
     assert.equal(guardados, 4);
@@ -311,29 +350,36 @@ describe("autorización viva por capacidad", () => {
     const viejo = await chats(adm);
     assert.equal(viejo.status, 200, viejo.texto);
     assert.deepEqual(viejo.cuerpo.locales, []);
-    assert.deepEqual(localesSincronizados(), []);
+    await fondo();
+    assert.deepEqual(localesSincronizados(), [], "ni el fondo pide un local que no anuncia capacidades");
     assert.equal((await local(adm, CASIANO.id)).status, 403);
   });
 
-  it("si el ERP niega transferencias_eventos a un local anunciado, ese local sale de la respuesta (fallo cerrado por local)", async () => {
+  it("si el ERP niega transferencias_eventos al fondo en un local anunciado, el cursor no avanza y el local queda DEMORADA; verlo lo decide mi_alcance", async () => {
+    // Tanda 5B: el pedido del navegador ya no llama a transferencias_eventos, así
+    // que no puede enterarse de esa negativa. Quién ve qué lo decide `mi_alcance`
+    // vivo, como siempre (CLAUDE.md); lo que el fondo no pudo traer se muestra
+    // como demora, con lo ya guardado.
     const adm = await vincular(ADMIN);
-    await chats(adm);
+    await fondo();
     vencer();
     erp.respuestaParaLocal.set(CASIANO.id, TE.cajeroSinPermiso.respuesta);
+    recibir(CASIANO, 412, "2026-10-08T10:00:00.000Z");
+    await fondo();
+    assert.equal((await cursorDe("transferencias_eventos"))!.ultimoErrorCodigo, "NO_AUTORIZADO");
+    assert.equal(await base.db.evento.count({ where: { erpLocalId: CASIANO.id } }), 4, "el 412 no entró");
     const r = await chats(adm);
     assert.equal(r.status, 200);
-    assert.equal(delLocal(r.cuerpo, CASIANO.id), undefined);
-    assert.ok(delLocal(r.cuerpo, DEPOSITO.id));
-    vencer();
-    assert.equal((await local(adm, CASIANO.id)).status, 403);
-    vencer();
-    assert.ok((await general(adm)).cuerpo.eventos.every((e) => e.local.localId !== CASIANO.id));
+    assert.equal(delLocal(r.cuerpo, CASIANO.id)!.sincronizacion, "DEMORADA");
+    assert.equal(delLocal(r.cuerpo, DEPOSITO.id)!.sincronizacion, "AL_DIA");
+    assert.equal((await local(adm, CASIANO.id)).cuerpo.eventos.length, 4, "lo guardado sigue a la vista: mi_alcance lo autoriza hoy");
   });
 });
 
 describe("P1: sin mi_alcance comprobado, sin historial", () => {
   it("F. ERP caído: 503 ERP_NO_DISPONIBLE en las cuatro rutas, sin un solo evento, aunque haya eventos guardados", async () => {
     const adm = await vincular(ADMIN);
+    await fondo();
     await chats(adm);
     const antes = await volcado();
     erp.ponerModo("caido");
@@ -369,14 +415,16 @@ describe("P1: sin mi_alcance comprobado, sin historial", () => {
     assert.equal((await general(adm)).status, 401);
     assert.equal(llamadasMiAlcance(), 0);
 
-    // El ERP lo dice recién en transferencias_eventos (mi_alcance pasó).
+    // El ERP lo dice recién en transferencias_eventos (mi_alcance pasó): eso
+    // ahora pasa en la corrida de fondo, que invalida igual.
     const otra = await vincular(ADMIN);
     vencer();
     erp.respuestasEventos.push(FIXTURES_ERP.errores.VINCULO_NO_VALIDO!);
-    const s = await local(otra, CASIANO.id);
-    assert.equal(s.status, 401);
-    assert.deepEqual(s.cuerpo, { estado: "SIN_SESION", motivo: "VINCULO_INVALIDO" });
+    assert.equal((await fondo()).revocadas, 1);
     assert.ok((await base.db.vinculo.findFirstOrThrow()).invalidadoEn);
+    const s = await local(otra, CASIANO.id);
+    assert.equal(s.status, 401, "la sesión ya no vale");
+    assert.deepEqual(s.cuerpo, { estado: "SIN_SESION" });
   });
 
   it("sin cookie o con una cookie que no existe: 401 sin tocar el ERP", async () => {
@@ -388,45 +436,63 @@ describe("P1: sin mi_alcance comprobado, sin historial", () => {
   });
 });
 
-describe("llamadas al ERP: autorización siempre viva, ingesta con frecuencia mínima", () => {
-  it("I/J/K/AH. cada GET hace UNA mi_alcance; dentro de 30 s no se repite transferencias_eventos; vencido, sí", async () => {
+describe("llamadas al ERP: el navegador solo autoriza (Tanda 5B)", () => {
+  /** Lo que llegó al ERP, por capacidad, en el orden en que llegó. */
+  const capacidadesPedidas = () => erp.cuerposA("consultar").map((c) => c.capacidad as string);
+
+  it("(a) cada pedido del navegador hace exactamente 1 mi_alcance y ninguna consulta de ingesta, aunque lo guardado esté viejo; ventas, 1 + ventas_resumen", async () => {
+    capacidadesDe(ADMIN, CASIANO.id, TODAS_LAS_DE_EVENTOS);
     const adm = await vincular(ADMIN);
-    erp.recibidas.length = 0;
-    await chats(adm);
-    assert.equal(llamadasMiAlcance(), 1, "I: una sola mi_alcance, no una por local");
-    assert.deepEqual(localesSincronizados(), [5, 3, 9, 20], "cada local autorizado, una vez, en el orden del ERP");
-
-    for (const pedido of [() => chats(adm), () => local(adm, CASIANO.id), () => general(adm)]) {
+    await fondo();
+    // Viejo de verdad: más de 3 corridas sin sincronizar. Antes de la 5B, esto disparaba la ingesta.
+    reloj += ANTIGUEDAD_MAXIMA_SINCRONIZACION_MS + FRECUENCIA_MINIMA_INGESTA_MS;
+    recibir(CASIANO, 420, "2026-10-08T10:00:00.000Z");
+    const pedidos: [string, () => Promise<{ status: number; texto: string }>, string[]][] = [
+      ["lista", () => chats(adm), ["mi_alcance"]],
+      ["Casiano", () => local(adm, CASIANO.id), ["mi_alcance"]],
+      ["Depósito", () => local(adm, DEPOSITO.id), ["mi_alcance"]],
+      ["Casiano, página siguiente", () => local(adm, CASIANO.id, Buffer.from(JSON.stringify({ f: "2026-10-07T14:00:00.000Z", i: "3" })).toString("base64url")), ["mi_alcance"]],
+      ["General", () => general(adm), ["mi_alcance"]],
+      ["leído", () => leido(adm, { marcas: [{ localId: CASIANO.id, hastaEventoId: "1" }] }), ["mi_alcance"]],
+      ["Ventas", () => ventas(adm, CASIANO.id), ["mi_alcance", "ventas_resumen"]],
+      ["Actualizar", () => chats(adm), ["mi_alcance"]],
+    ];
+    for (const [nombre, hacer, esperadas] of pedidos) {
       erp.recibidas.length = 0;
-      reloj += 1_000;
-      assert.equal((await pedido()).status, 200);
-      assert.equal(llamadasMiAlcance(), 1, "AH: mi_alcance otra vez, aunque la ingesta esté fresca");
-      assert.deepEqual(localesSincronizados(), [], "J: fresco, sin transferencias_eventos");
+      const r = await hacer();
+      assert.equal(r.status, 200, `${nombre}: ${r.texto}`);
+      assert.deepEqual(capacidadesPedidas(), esperadas, nombre);
     }
-
-    // K: vencido (≥ 30 s desde la última sincronización buena) sí sincroniza.
-    reloj = Date.parse(FIXTURES_ERP_25172FE.ahora) + FRECUENCIA_MINIMA_INGESTA_MS;
-    erp.recibidas.length = 0;
-    await local(adm, CASIANO.id);
-    assert.deepEqual(localesSincronizados(), [CASIANO.id], "GET local sincroniza solo ese local");
-    erp.recibidas.length = 0;
-    await chats(adm);
-    assert.deepEqual(localesSincronizados(), [5, 9, 20], "Casiano quedó fresco por la solicitud anterior");
-    assert.equal(llamadasMiAlcance(), 1);
-
-    // POST leído: una mi_alcance, ninguna sincronización.
-    erp.recibidas.length = 0;
-    await leido(adm, { marcas: [{ localId: CASIANO.id, hastaEventoId: "1" }] });
-    assert.equal(llamadasMiAlcance(), 1);
-    assert.deepEqual(localesSincronizados(), []);
+    assert.equal(await base.db.evento.count({ where: { erpReferenciaId: 420 } }), 0, "el 420 lo trae el fondo, no el navegador");
+    await fondo();
+    assert.equal(await base.db.evento.count({ where: { erpReferenciaId: 420 } }), 1);
   });
 
-  it("M. si falla la ingesta de un local, ese local queda DEMORADA con lo guardado y los demás siguen AL_DIA", async () => {
+  it("CONTRAPRUEBA (a): el conteo ve una ingesta si la hubiera", async () => {
+    // Lo mismo que hace la corrida de fondo por persona, contado igual: si el
+    // pedido del navegador volviera a ingerir, el candado de arriba lo vería así.
+    await vincular(ADMIN);
+    erp.recibidas.length = 0;
+    await fondo();
+    assert.deepEqual([...new Set(capacidadesPedidas())].sort(), ["mi_alcance", "transferencias_eventos"]);
+    assert.ok(capacidadesPedidas().length > 1);
+  });
+
+  it("(e) DEMORADA sale de los cursores que dejó el fondo: un error, una sincronización vieja o ninguna; el pedido no lo reintenta", async () => {
     const adm = await vincular(ADMIN);
-    await chats(adm);
+    // Nunca sincronizado: todavía no corrió el fondo.
+    const antes = await chats(adm);
+    assert.ok(antes.cuerpo.locales.every((l) => l.sincronizacion === "DEMORADA"), "sin cursor, demorada");
+    await fondo();
+    const t0 = reloj;
+    assert.ok((await chats(adm)).cuerpo.locales.every((l) => l.sincronizacion === "AL_DIA"));
+
+    // Un error en Depósito: Depósito DEMORADA con lo guardado, los demás al día.
     vencer();
     erp.respuestaParaLocal.set(DEPOSITO.id, FIXTURES_ERP.errores.INTEGRACION_NO_DISPONIBLE!);
     recibir(CASIANO, 400, "2026-10-08T10:00:00.000Z");
+    await fondo();
+    erp.recibidas.length = 0;
     const r = await chats(adm);
     assert.equal(r.status, 200, r.texto);
     const dep = delLocal(r.cuerpo, DEPOSITO.id)!;
@@ -434,26 +500,40 @@ describe("llamadas al ERP: autorización siempre viva, ingesta con frecuencia m�
     assert.ok(dep.ultimoEvento, "se muestra lo que ya estaba guardado");
     assert.equal(delLocal(r.cuerpo, CASIANO.id)!.sincronizacion, "AL_DIA");
     assert.equal(delLocal(r.cuerpo, CASIANO.id)!.noLeidos, 1, "Casiano siguió sincronizando");
-
-    // El fallo no deja fresco al local: la próxima solicitud lo vuelve a intentar.
-    erp.recibidas.length = 0;
     const l = await local(adm, DEPOSITO.id);
-    assert.equal(l.status, 200);
     assert.equal(l.cuerpo.sincronizacion, "DEMORADA");
     assert.equal(l.cuerpo.eventos.length, 1);
-    assert.deepEqual(localesSincronizados(), [DEPOSITO.id]);
-    const g = await general(adm);
-    assert.deepEqual(g.cuerpo.localesDemorados, [DEPOSITO.id]);
+    assert.deepEqual((await general(adm)).cuerpo.localesDemorados, [DEPOSITO.id]);
+    assert.deepEqual(localesSincronizados(), [], "el pedido no reintenta: lo hace la corrida siguiente");
 
-    // Se recupera solo, sin que nadie revincule.
+    // La corrida siguiente lo recupera, sin que nadie revincule.
     erp.respuestaParaLocal.clear();
+    vencer();
+    await fondo();
+    const t1 = reloj;
     assert.equal((await local(adm, DEPOSITO.id)).cuerpo.sincronizacion, "AL_DIA");
+
+    // Viejo: sin error, pero sin sincronizar hace más de 3 corridas del timer.
+    // Belgrano y Centro (sin eventos) se sincronizaron por última vez en t0 o t1.
+    reloj = t1 + ANTIGUEDAD_MAXIMA_SINCRONIZACION_MS;
+    assert.equal(delLocal((await chats(adm)).cuerpo, DEPOSITO.id)!.sincronizacion, "AL_DIA", "justo en el límite, todavía al día");
+    reloj = t1 + ANTIGUEDAD_MAXIMA_SINCRONIZACION_MS + 1;
+    assert.ok((await chats(adm)).cuerpo.locales.every((l) => l.sincronizacion === "DEMORADA"), "un milisegundo después, demorada");
+    assert.ok(t0 < t1);
+
+    // Una capacidad recién anunciada, sin cursor todavía: demorada hasta que el fondo la traiga.
+    reloj = t1 + 1_000;
+    capacidadesDe(ADMIN, CASIANO.id, TODAS_LAS_DE_EVENTOS);
+    assert.equal(delLocal((await chats(adm)).cuerpo, CASIANO.id)!.sincronizacion, "DEMORADA");
+    await fondo();
+    assert.equal(delLocal((await chats(adm)).cuerpo, CASIANO.id)!.sincronizacion, "AL_DIA");
   });
 });
 
 describe("GET /api/chats", () => {
   it("usuario, General derivado y locales ordenados por el último evento; sin eventos al final, por nombre", async () => {
     const adm = await vincular(ADMIN);
+    await fondo();
     const r = await chats(adm);
     assert.equal(r.status, 200, r.texto);
     assert.equal(r.res.headers.get("cache-control"), "no-store");
@@ -471,6 +551,7 @@ describe("GET /api/chats", () => {
     // No ordena por no leídos: un no leído en Depósito con fecha vieja no lo sube.
     vencer();
     recibir(DEPOSITO, 301, "2026-10-07T09:00:00.000Z");
+    await fondo();
     const s = await chats(adm);
     assert.equal(delLocal(s.cuerpo, DEPOSITO.id)!.noLeidos, 1);
     assert.deepEqual(idsDeLocales(s.cuerpo), [3, 9, 5, 20]);
@@ -488,6 +569,7 @@ describe("GET local y General: forma pública y proyección", () => {
   it("Z. la forma pública del evento: id como texto aunque supere Number, sin datos internos", async () => {
     await base.db.$executeRawUnsafe(`ALTER SEQUENCE "Evento_id_seq" RESTART WITH 9007199254740993`);
     const adm = await vincular(ADMIN);
+    await fondo();
     const r = await local(adm, CASIANO.id);
     assert.equal(r.status, 200, r.texto);
     assert.deepEqual(Object.keys(r.cuerpo).sort(), ["estado", "eventos", "leidoHasta", "local", "noLeidos", "siguiente", "sincronizacion"]);
@@ -523,17 +605,19 @@ describe("GET local y General: forma pública y proyección", () => {
 
   it("N/O/P/Q. General es una proyección: no persiste nada, el mismo Evento.id que en Local, solo locales autorizados, badge = suma", async () => {
     const adm = await vincular(ADMIN);
+    await fondo();
     await chats(adm);
     vencer();
     recibir(CASIANO, 401, "2026-10-08T09:00:00.000Z");
     recibir(DEPOSITO, 302, "2026-10-08T09:30:00.000Z");
+    await fondo();
     const lista = await chats(adm);
     const antes = await volcado();
     const eventosAntes = await base.db.evento.count();
 
     const g = await general(adm);
     assert.equal(g.status, 200, g.texto);
-    assert.equal(await volcado(), antes, "N: General no escribe nada (todo fresco)");
+    assert.equal(await volcado(), antes, "N: General no escribe nada");
     assert.equal(await base.db.evento.count(), eventosAntes);
     assert.equal(await base.db.evento.count({ where: { erpLocalId: { notIn: [CASIANO.id, DEPOSITO.id] } } }), 0, "no hay un 'local General' guardado");
 
@@ -609,6 +693,7 @@ describe("paginación", () => {
   it("AA/AC. Local: páginas de 30, sin duplicados ni saltos, en orden (fecha desc, id desc), con fechas repetidas", async () => {
     muchas();
     const adm = await vincular(ADMIN);
+    await fondo();
     const paginas = await todasLasPaginas((c) => local(adm, CASIANO.id, c));
     assert.deepEqual(paginas.map((p) => p.length), [30, 30, 10]);
     const todos = paginas.flat();
@@ -623,6 +708,7 @@ describe("paginación", () => {
     muchas();
     for (let i = 0; i < 20; i++) recibir(DEPOSITO, 500 + i, new Date(Date.parse("2026-10-06T00:00:30.000Z") + i * 60_000).toISOString());
     const adm = await vincular(ADMIN);
+    await fondo();
     const paginas = await todasLasPaginas((c) => general(adm, c));
     const todos = paginas.flat();
     assert.equal(todos.length, 70 + 1 + 20);
@@ -637,6 +723,7 @@ describe("paginación", () => {
   it("un cursor no saca a nadie de sus locales: el de Local, usado en otro local o en General, solo filtra por posición", async () => {
     muchas();
     const adm = await vincular(ADMIN);
+    await fondo();
     const c = (await local(adm, CASIANO.id)).cuerpo.siguiente!;
     capacidadesDe(ADMIN, CASIANO.id, []);
     const g = await general(adm, c);
@@ -649,6 +736,7 @@ describe("paginación", () => {
 describe("lectura: explícita, por vínculo y local", () => {
   it("AE/AF/AG/R/S. el backfill no da badge, una persona nueva no hereda historia como no leída, lo nuevo sí; los GET nunca marcan", async () => {
     const adm = await vincular(ADMIN);
+    await fondo();
     const r = await chats(adm);
     assert.ok(r.cuerpo.locales.every((l) => l.noLeidos === 0), "AE: lo traído por el backfill no es nuevo");
     assert.equal(r.cuerpo.general.noLeidos, 0);
@@ -656,17 +744,20 @@ describe("lectura: explícita, por vínculo y local", () => {
 
     vencer();
     recibir(CASIANO, 402, "2026-10-08T10:00:00.000Z");
+    await fondo();
     const nuevo = await chats(adm);
     assert.equal(delLocal(nuevo.cuerpo, CASIANO.id)!.noLeidos, 1, "AG: la recepción posterior es no leída");
 
     // AF: el encargado se vincula después; la historia ya existe y no es nueva para él.
-    // Y lo que su PRIMERA vista trae del ERP (posterior al backfill, así que no
-    // es histórico) tampoco: la línea de base se toma después de sincronizar.
+    // Y lo que el fondo trajo ANTES de su primera vista (posterior al backfill,
+    // así que no es histórico) tampoco: la línea de base se toma sobre lo que
+    // ya está en la base cuando mira por primera vez.
     vencer();
     recibir(CASIANO, 408, "2026-10-08T10:30:00.000Z");
     const enc = await vincular(ENCARGADO);
+    await fondo();
+    assert.equal(await base.db.evento.count({ where: { erpReferenciaId: 408 } }), 1, "el 408 ya está guardado antes de que el encargado mire");
     const suya = await chats(enc);
-    assert.deepEqual(localesSincronizados().slice(-1), [CASIANO.id], "la primera vista del encargado trajo el 408");
     assert.equal(delLocal(suya.cuerpo, CASIANO.id)!.noLeidos, 0);
     assert.equal(delLocal((await chats(adm)).cuerpo, CASIANO.id)!.noLeidos, 2, "para quien ya miraba, el 402 y el 408 son nuevos");
 
@@ -684,10 +775,12 @@ describe("lectura: explícita, por vínculo y local", () => {
 
   it("AD. un evento ingerido tarde va en su lugar por fecha y sigue siendo nuevo por id", async () => {
     const adm = await vincular(ADMIN);
+    await fondo();
     await chats(adm);
     vencer();
     // Depósito recibe algo con fecha ANTERIOR a todo Casiano; se conoce ahora.
     recibir(DEPOSITO, 303, "2026-10-07T09:00:00.000Z");
+    await fondo();
     const g = await general(adm);
     const posicion = g.cuerpo.eventos.findIndex((e) => recibida(e).transferenciaId === 303);
     assert.deepEqual(g.cuerpo.eventos.map((e) => recibida(e).transferenciaId), [183, 182, 181, 180, 303, 300], "por fecha, no por llegada");
@@ -699,11 +792,13 @@ describe("lectura: explícita, por vínculo y local", () => {
 
   it("T/U/V. POST leído avanza, nunca retrocede, y un id de otro local no adelanta este", async () => {
     const adm = await vincular(ADMIN);
+    await fondo();
     await chats(adm);
     vencer();
     recibir(CASIANO, 403, "2026-10-08T10:00:00.000Z");
     recibir(CASIANO, 404, "2026-10-08T10:05:00.000Z");
     recibir(DEPOSITO, 304, "2026-10-08T10:10:00.000Z");
+    await fondo();
     await chats(adm);
     const ev = (await local(adm, CASIANO.id)).cuerpo.eventos;
     const [n404, n403] = [ev[0]!, ev[1]!];
@@ -726,6 +821,7 @@ describe("lectura: explícita, por vínculo y local", () => {
     // Lo que llegue después a Casiano es nuevo, aunque se haya pedido un id enorme.
     vencer();
     recibir(CASIANO, 405, "2026-10-08T11:00:00.000Z");
+    await fondo();
     assert.equal((await local(adm, CASIANO.id)).cuerpo.noLeidos, 1);
 
     // Varias marcas en un pedido: General leído entero.
@@ -741,10 +837,12 @@ describe("lectura: explícita, por vínculo y local", () => {
 
   it("W. si UN local del pedido no está autorizado ahora, no se marca ninguno", async () => {
     const adm = await vincular(ADMIN);
+    await fondo();
     await chats(adm);
     vencer();
     recibir(CASIANO, 406, "2026-10-08T10:00:00.000Z");
     recibir(DEPOSITO, 305, "2026-10-08T10:00:00.000Z");
+    await fondo();
     await chats(adm);
     capacidadesDe(ADMIN, DEPOSITO.id, ["ventas_resumen"]);
     const antes = await volcado();
@@ -768,10 +866,12 @@ describe("lectura: explícita, por vínculo y local", () => {
     assert.equal(await base.db.vinculo.count({ where: { erpUsuarioId: ADMIN } }), 1);
     assert.equal(await base.db.sesion.count(), 2);
     const enc = await vincular(ENCARGADO);
+    await fondo();
     await chats(celular);
     await chats(enc);
     vencer();
     recibir(CASIANO, 407, "2026-10-08T10:00:00.000Z");
+    await fondo();
     assert.equal((await local(compu, CASIANO.id)).cuerpo.noLeidos, 1);
     assert.equal((await local(enc, CASIANO.id)).cuerpo.noLeidos, 1);
 
@@ -816,6 +916,7 @@ describe("lectura: explícita, por vínculo y local", () => {
 describe("lo que ve el navegador", () => {
   it("AL. ninguna respuesta lleva el token, la delegación, el vínculo, la URL del ERP ni la respuesta cruda del ERP", async () => {
     const adm = await vincular(ADMIN);
+    await fondo();
     const token = erp.tokenVigente(ADMIN)!;
     const v = await base.db.vinculo.findFirstOrThrow();
     const textos: string[] = [];
@@ -827,9 +928,11 @@ describe("lo que ve el navegador", () => {
     erp.revocar(ADMIN);
     textos.push((await chats(adm)).texto);
     for (const t of textos) {
-      for (const prohibido of [token, v.id, v.tokenCifrado, String(v.erpVinculoId), "delegacion", "tokenDelegacion", erp.origen, "requestId", "codigo", "error", "stack", "integraciones"]) {
+      for (const prohibido of [token, v.id, v.tokenCifrado, "delegacion", "tokenDelegacion", erp.origen, "requestId", "codigo", "error", "stack", "integraciones"]) {
         assert.ok(!t.includes(prohibido), `una respuesta incluye ${prohibido}: ${t.slice(0, 200)}`);
       }
+      // El id de vínculo del ERP es un número chico: como número entero, no como dígitos dentro de un id de evento.
+      assert.ok(!new RegExp(`(?<![0-9])${v.erpVinculoId}(?![0-9])`).test(t), `una respuesta incluye el vínculo ${v.erpVinculoId}: ${t.slice(0, 200)}`);
     }
     // Y los logs tampoco llevan el token.
     assert.ok(!JSON.stringify(registros).includes(token));
@@ -856,9 +959,11 @@ describe("la lectura que decide la interfaz, contra el servidor (Tanda 2C)", () 
 
   it("AL/AC/AD/AP. 40 nuevos y 30 en la primera página: no marca; con las anteriores cargadas marca hasta el mayor mostrado; lo que llegó después sigue sin leer", async () => {
     const adm = await vincular(ADMIN);
-    await chats(adm); // backfill y línea de base
+    await fondo(); // backfill
+    await chats(adm); // línea de base
     vencer();
     for (let i = 0; i < 40; i++) recibir(CASIANO, 1000 + i, new Date(Date.parse("2026-10-08T00:00:00.000Z") + i * 60_000).toISOString());
+    await fondo();
     const p1 = await local(adm, CASIANO.id);
     assert.equal(p1.cuerpo.noLeidos, 40);
     assert.equal(p1.cuerpo.eventos.length, 30);
@@ -871,6 +976,7 @@ describe("la lectura que decide la interfaz, contra el servidor (Tanda 2C)", () 
     // Mientras tanto llega otra recepción (más nueva que todo).
     vencer();
     recibir(CASIANO, 2000, "2026-10-08T11:00:00.000Z");
+    await fondo();
     const p2 = await local(adm, CASIANO.id, p1.cuerpo.siguiente!);
     e = reducirConversacion(e, { tipo: "ANTERIORES", eventos: p2.cuerpo.eventos, siguiente: p2.cuerpo.siguiente });
     const mostrados = new Set(e.fase === "LISTA" ? e.eventos.map((x) => x.id) : []);
@@ -891,9 +997,11 @@ describe("la lectura que decide la interfaz, contra el servidor (Tanda 2C)", () 
 
   it("CONTRA: la marca de antes (mayor id de la primera página) habría dejado leídos 10 que no se vieron", async () => {
     const adm = await vincular(ADMIN);
+    await fondo();
     await chats(adm);
     vencer();
     for (let i = 0; i < 40; i++) recibir(CASIANO, 1000 + i, new Date(Date.parse("2026-10-08T00:00:00.000Z") + i * 60_000).toISOString());
+    await fondo();
     const p1 = await local(adm, CASIANO.id);
     const mayor = p1.cuerpo.eventos.map((x) => BigInt(x.id)).reduce((a, b) => (a > b ? a : b));
     const r = await leido(adm, { marcas: [{ localId: CASIANO.id, hastaEventoId: mayor.toString() }] });
@@ -929,6 +1037,7 @@ describe("Tanda 4B: las tres capacidades nuevas, de punta a punta", () => {
     cargar("envios_eventos", CASIANO.id, [envio({ transferenciaId: 184, fecha: "2026-10-07T16:00:00.000Z", origen: DEPOSITO_ORIGEN, lineas: 12, pedidoId: 91 })]);
     cargar("cancelaciones_eventos", CASIANO.id, [cancelacion({ transferenciaId: 185, fecha: "2026-10-07T17:00:00.000Z", origen: DEPOSITO_ORIGEN, pedidoId: null })]);
     const adm = await vincular(ADMIN);
+    await fondo();
 
     const l = await local(adm, CASIANO.id);
     assert.equal(l.status, 200, l.texto);
@@ -980,6 +1089,7 @@ describe("Tanda 4B: las tres capacidades nuevas, de punta a punta", () => {
     cargar("pedidos_eventos", CASIANO.id, [pedido({ pedidoId: 91, fecha: "2026-10-07T15:00:00.000Z" })]);
     // El encargado real (25172fe): Casiano con transferencias_eventos y ventas, sin pedidos_eventos.
     const enc = await vincular(ENCARGADO);
+    await fondo();
     const r = await local(enc, CASIANO.id);
     assert.equal(r.status, 200, r.texto);
     assert.equal(consultas("pedidos_eventos").length, 0, "no se le pidió al ERP");
@@ -989,6 +1099,7 @@ describe("Tanda 4B: las tres capacidades nuevas, de punta a punta", () => {
     // El admin sí la tiene: la trae. Lo guardado no autoriza al encargado.
     capacidadesDe(ADMIN, CASIANO.id, TODAS_LAS_DE_EVENTOS);
     const adm = await vincular(ADMIN);
+    await fondo();
     assert.deepEqual(tiposDe((await local(adm, CASIANO.id)).cuerpo.eventos), ["PEDIDO_SOLICITADO", "TRANSFERENCIA_RECIBIDA"]);
     assert.equal(await base.db.evento.count({ where: { tipo: "PEDIDO_SOLICITADO" } }), 1);
     vencer();
@@ -1007,9 +1118,11 @@ describe("Tanda 4B: las tres capacidades nuevas, de punta a punta", () => {
     capacidadesDe(ENCARGADO, CASIANO.id, ["pedidos_eventos"]);
     cargar("pedidos_eventos", CASIANO.id, [pedido({ pedidoId: 91, fecha: "2026-10-07T15:00:00.000Z" })]);
     const enc = await vincular(ENCARGADO);
+    await fondo();
     const c = await chats(enc);
     assert.deepEqual(idsDeLocales(c.cuerpo), [CASIANO.id]);
     assert.equal(consultas("transferencias_eventos").length, 0);
+    assert.equal(consultas("pedidos_eventos").length, 1);
     assert.deepEqual(tiposDe((await local(enc, CASIANO.id)).cuerpo.eventos), ["PEDIDO_SOLICITADO"]);
   });
 
@@ -1020,6 +1133,7 @@ describe("Tanda 4B: las tres capacidades nuevas, de punta a punta", () => {
     cargar("cancelaciones_eventos", CASIANO.id, [cancelacion({ transferenciaId: 185, fecha: "2026-10-07T17:00:00.000Z" })]);
     erp.respuestaParaCapacidad.set(`envios_eventos:${CASIANO.id}`, FIXTURES_ERP.errores.INTEGRACION_NO_DISPONIBLE!);
     const adm = await vincular(ADMIN);
+    await fondo();
     const c = await chats(adm);
     assert.equal(c.status, 200, c.texto);
     assert.equal(delLocal(c.cuerpo, CASIANO.id)!.sincronizacion, "DEMORADA");
@@ -1035,47 +1149,62 @@ describe("Tanda 4B: las tres capacidades nuevas, de punta a punta", () => {
     assert.equal(envios!.cursor, null, "el cursor de la que falló no se movió");
     assert.equal((await cursorDe("cancelaciones_eventos"))!.ultimoErrorCodigo, null);
 
-    // Se arregla: la siguiente visita la trae y el local vuelve a estar al día.
+    // Se arregla: la siguiente corrida la trae y el local vuelve a estar al día.
     erp.respuestaParaCapacidad.clear();
     vencer();
+    await fondo();
     const d = await chats(adm);
     assert.equal(delLocal(d.cuerpo, CASIANO.id)!.sincronizacion, "AL_DIA");
     assert.equal(await base.db.evento.count({ where: { tipo: "TRANSFERENCIA_ENVIADA" } }), 1);
   });
 
-  it("si el ERP niega UNA capacidad, sus tipos salen de esta respuesta y el local sigue con las otras", async () => {
+  it("si el ERP le niega UNA capacidad al fondo, esa no avanza y el local queda DEMORADA; sus tipos los sigue decidiendo mi_alcance", async () => {
+    // Tanda 5B: antes el pedido del navegador se enteraba de la negativa al
+    // ingerir y sacaba esos tipos de su respuesta. Ya no ingiere: quién ve qué
+    // tipo lo dice `mi_alcance` (sus capacidades), y la negativa del fondo se ve
+    // como demora. Quitar la capacidad en mi_alcance sí saca los tipos al toque.
     capacidadesDe(ADMIN, CASIANO.id, TODAS_LAS_DE_EVENTOS);
     cargar("pedidos_eventos", CASIANO.id, [pedido({ pedidoId: 91, fecha: "2026-10-07T15:00:00.000Z" })]);
     const adm = await vincular(ADMIN);
+    await fondo();
     assert.deepEqual(tiposDe((await local(adm, CASIANO.id)).cuerpo.eventos), ["PEDIDO_SOLICITADO", "TRANSFERENCIA_RECIBIDA"]);
     vencer();
     const negado = FIXTURES_ERP_76B9A71.pedidos_eventos.sinPermiso.respuesta;
     erp.respuestaParaCapacidad.set(`pedidos_eventos:${CASIANO.id}`, negado);
+    cargar("pedidos_eventos", CASIANO.id, [pedido({ pedidoId: 92, fecha: "2026-10-08T15:00:00.000Z" })]);
+    await fondo();
+    assert.equal((await cursorDe("pedidos_eventos"))!.ultimoErrorCodigo, "NO_AUTORIZADO");
+    assert.equal(await base.db.evento.count({ where: { tipo: "PEDIDO_SOLICITADO" } }), 1, "el 92 no entró");
     const r = await local(adm, CASIANO.id);
     assert.equal(r.status, 200, r.texto);
-    assert.deepEqual(tiposDe(r.cuerpo.eventos), ["TRANSFERENCIA_RECIBIDA"], "fallo cerrado para esa capacidad");
-    assert.equal(r.cuerpo.sincronizacion, "AL_DIA", "un NO_AUTORIZADO no es una demora");
+    assert.equal(r.cuerpo.sincronizacion, "DEMORADA");
+    capacidadesDe(ADMIN, CASIANO.id, ["ventas_resumen", "transferencias_eventos"]);
+    const sin = await local(adm, CASIANO.id);
+    assert.deepEqual(tiposDe(sin.cuerpo.eventos), ["TRANSFERENCIA_RECIBIDA"], "sin el anuncio, fallo cerrado para esos tipos");
+    assert.equal(sin.cuerpo.sincronizacion, "AL_DIA", "y la capacidad que ya no se anuncia no cuenta para la demora");
   });
 
   it("VINCULO_NO_VALIDO en una capacidad nueva corta todo e invalida el vínculo, como siempre", async () => {
     capacidadesDe(ADMIN, CASIANO.id, TODAS_LAS_DE_EVENTOS);
     erp.respuestaParaCapacidad.set(`cancelaciones_eventos:${CASIANO.id}`, FIXTURES_ERP.errores.VINCULO_NO_VALIDO!);
     const adm = await vincular(ADMIN);
+    assert.equal((await fondo()).revocadas, 1);
+    assert.ok((await base.db.vinculo.findFirstOrThrow()).invalidadoEn);
     const r = await chats(adm);
     assert.equal(r.status, 401);
-    assert.deepEqual(r.cuerpo, { estado: "SIN_SESION", motivo: "VINCULO_INVALIDO" });
+    assert.deepEqual(r.cuerpo, { estado: "SIN_SESION" });
   });
 
   it("frecuencia mínima por (local, capacidad): una capacidad recién anunciada se trae aunque las otras estén frescas", async () => {
-    const adm = await vincular(ADMIN);
-    await chats(adm);
+    await vincular(ADMIN);
+    await fondo();
     const antes = consultas("transferencias_eventos").length;
     capacidadesDe(ADMIN, CASIANO.id, TODAS_LAS_DE_EVENTOS);
     cargar("pedidos_eventos", CASIANO.id, [pedido({ pedidoId: 91, fecha: "2026-10-07T15:00:00.000Z" })]);
-    await chats(adm);
+    await fondo();
     assert.equal(consultas("transferencias_eventos").length, antes, "las recepciones estaban frescas");
     assert.equal(consultas("pedidos_eventos").length, 1, "los pedidos, recién anunciados, no");
-    await chats(adm);
+    await fondo();
     assert.equal(consultas("pedidos_eventos").length, 1, "y dentro de 30 s no se repite");
   });
 });
@@ -1099,7 +1228,8 @@ describe("Tanda 4B: la lectura con varios tipos y backfills intercalados", () =>
 
   it("backfill de una capacidad nueva con muchos ids altos + 2 nuevos reales: noLeidos = 2, y no se marca hasta que esos 2 estén a la vista", async () => {
     const adm = await vincular(ADMIN);
-    await chats(adm); // backfill de recepciones y línea de base
+    await fondo(); // backfill de recepciones
+    await chats(adm); // línea de base
     vencer();
     // Dos recepciones nuevas de verdad, con fecha anterior a todos los pedidos…
     recibir(CASIANO, 500, "2026-10-07T20:00:00.000Z");
@@ -1111,6 +1241,7 @@ describe("Tanda 4B: la lectura con varios tipos y backfills intercalados", () =>
       CASIANO.id,
       Array.from({ length: 45 }, (_, i) => pedido({ pedidoId: 100 + i, fecha: new Date(Date.parse("2026-10-08T01:00:00.000Z") + i * 60_000).toISOString() })),
     );
+    await fondo();
 
     const p1 = await local(adm, CASIANO.id);
     assert.equal(p1.status, 200, p1.texto);

@@ -380,7 +380,20 @@ describe("las unidades de systemd del backup", () => {
 
 const SCRIPT_SINCRONIZAR = "ops/sincronizar/sincronizar-azul-chat.sh";
 
-function problemasDeSincronizar(servicio: string, timer: string, script: string): string[] {
+/**
+ * Tanda 5B: el periodo del timer es el que el código usa para decir
+ * "Actualización demorada" (3 corridas sin sincronizar) y para el presupuesto
+ * del fondo (dos corridas nunca en la misma ventana de 60 s del cupo del ERP).
+ * Se lee del fuente, `PERIODO_SINCRONIZACION_MS = N * 60_000`, y tiene que ser
+ * el `OnUnitActiveSec` del timer.
+ */
+const FUENTE_PERIODO = "src/server/chats/sincronizacion.ts";
+function minutosDelPeriodo(fuente: string): number | null {
+  const m = /export const PERIODO_SINCRONIZACION_MS = (\d+) \* 60_000;/.exec(fuente);
+  return m ? Number(m[1]) : null;
+}
+
+function problemasDeSincronizar(servicio: string, timer: string, script: string, fuente = leer(FUENTE_PERIODO)): string[] {
   const p: string[] = [];
   const s = leerUnidad(servicio);
   const t = leerUnidad(timer);
@@ -391,6 +404,9 @@ function problemasDeSincronizar(servicio: string, timer: string, script: string)
   if (Number(uno(s, "Service.TimeoutStartSec")) >= 120) p.push("una corrida puede durar más que el intervalo");
   if ([...s.keys()].some((k) => /Environment/.test(k))) p.push("la unidad define variables de entorno (el secreto va en un archivo aparte)");
   if (uno(t, "Timer.OnUnitActiveSec") !== "2min") p.push(`el intervalo no es de 2 minutos: ${t.get("Timer.OnUnitActiveSec")?.join(" | ")}`);
+  const minutos = minutosDelPeriodo(fuente);
+  if (minutos === null) p.push(`${FUENTE_PERIODO} no declara PERIODO_SINCRONIZACION_MS en minutos`);
+  else if (uno(t, "Timer.OnUnitActiveSec") !== `${minutos}min`) p.push(`el timer no corre cada ${minutos} min, el periodo del código`);
   if (uno(t, "Install.WantedBy") !== "timers.target") p.push("el timer no se habilita con timers.target");
   const destino = uno(t, "Timer.Unit");
   if (destino !== undefined && destino !== "azul-chat-sincronizar.service") p.push(`el timer dispara ${destino}`);
@@ -433,5 +449,11 @@ describe("las unidades de systemd de la sincronización", () => {
       assert.ok(s !== servicio || t !== timer || sc !== script, `el reemplazo ${i} no se aplicó`);
       assert.notDeepEqual(problemasDeSincronizar(s, t, sc), [], `caso ${i}`);
     }
+    // 5B: el periodo del código y el del timer van juntos.
+    const fuente = leer(FUENTE_PERIODO);
+    assert.equal(minutosDelPeriodo(fuente), 2);
+    const otroPeriodo = fuente.replace("PERIODO_SINCRONIZACION_MS = 2 * 60_000;", "PERIODO_SINCRONIZACION_MS = 5 * 60_000;");
+    assert.notEqual(otroPeriodo, fuente);
+    assert.notDeepEqual(problemasDeSincronizar(servicio, timer, script, otroPeriodo), [], "el código dice 5 min y el timer 2");
   });
 });

@@ -3,8 +3,11 @@
 // LA LISTA DE CHATS: General primero y, debajo, los locales que la API dice que
 // la persona puede ver HOY. Ningún local sale de otro lado.
 //
-// Cada vez que se abre, pide GET /api/chats (que verifica el acceso con el ERP
-// y trae lo nuevo). No hay refresco automático: "Actualizar" vuelve a pedir.
+// Cada vez que se abre, pide GET /api/chats: verifica el acceso con el ERP (una
+// consulta, `mi_alcance`) y lee lo que la sincronización de fondo ya guardó
+// (Tanda 5B: el pedido no trae nada del ERP). No hay refresco automático:
+// "Actualizar" vuelve a pedir. Después de un rechazo por cupo, "Actualizar" y
+// "Reintentar" quedan en espera 20 s.
 // Si la API falla, la lista se reemplaza por el estado de la falla: no se deja
 // a la vista una lista vieja como si siguiera autorizada.
 
@@ -13,9 +16,10 @@ import { useEffect, useState } from "react";
 import type { RespuestaChats } from "../../shared/chats/api.ts";
 import { ShellMovil } from "../shell/ShellMovil.tsx";
 import { pedirChats, type FallaCliente } from "./clienteChats.ts";
+import { useEsperaTrasCupo } from "./esperaCupo.ts";
 import { formatearMomento, resumenDeEvento } from "./formato.ts";
 import { destinoDeFalla, filasDeChats, type FilaDeChats, type Filtro, type Vista } from "./logica.ts";
-import { Avatar, AvisoDemorada, BadgeNoLeidos, EstadoChat, EstadoErpNoDisponible } from "./Piezas.tsx";
+import { Avatar, AvisoDemorada, BadgeNoLeidos, EstadoChat, EstadoCupoErp, EstadoErpNoDisponible } from "./Piezas.tsx";
 
 type RespuestaOk = Extract<RespuestaChats, { estado: "OK" }>;
 
@@ -34,7 +38,7 @@ export function FilaChat({ fila, alAbrir, ahora, zona }: { fila: FilaDeChats; al
       <button
         type="button"
         className="ac-fila"
-        onClick={() => alAbrir(general ? { tipo: "GENERAL" } : { tipo: "LOCAL", localId: fila.local.localId })}
+        onClick={() => alAbrir(general ? { tipo: "GENERAL" } : { tipo: "LOCAL", localId: fila.local.localId, nombre: fila.local.nombre })}
       >
         <Avatar nombre={nombre} general={general} />
         <span className="ac-fila__texto">
@@ -103,6 +107,8 @@ export function PantallaChats({ alAbrir, alPerderSesion, alVerSesion }: { alAbri
   const [estado, setEstado] = useState<Estado>({ fase: "CARGANDO" });
   const [intento, setIntento] = useState(0);
   const [filtro, setFiltro] = useState<Filtro>("TODOS");
+  const espera = useEsperaTrasCupo();
+  const { anotar } = espera;
 
   useEffect(() => {
     const control = new AbortController();
@@ -110,10 +116,11 @@ export function PantallaChats({ alAbrir, alPerderSesion, alVerSesion }: { alAbri
       if (control.signal.aborted) return;
       if (r.ok) return setEstado({ fase: "LISTA", datos: r.datos });
       if (r.falla.estado === "SIN_SESION") return alPerderSesion(r.falla.motivo);
+      anotar(r.falla);
       setEstado({ fase: "FALLA", falla: r.falla });
     });
     return () => control.abort();
-  }, [intento, alPerderSesion]);
+  }, [intento, alPerderSesion, anotar]);
 
   const reintentar = () => {
     setEstado({ fase: "CARGANDO" });
@@ -125,7 +132,7 @@ export function PantallaChats({ alAbrir, alPerderSesion, alVerSesion }: { alAbri
       titulo="Azul Chat"
       acciones={
         <>
-          <button type="button" className="ac-boton-icono ac-boton-icono--sobre-marca" aria-label="Actualizar chats" onClick={reintentar} disabled={estado.fase === "CARGANDO"}>
+          <button type="button" className="ac-boton-icono ac-boton-icono--sobre-marca" aria-label="Actualizar chats" onClick={reintentar} disabled={estado.fase === "CARGANDO" || espera.enEspera}>
             <span aria-hidden="true">↻</span>
           </button>
           <button type="button" className="ac-boton-icono ac-boton-icono--sobre-marca" aria-label="Tu sesión" onClick={alVerSesion}>
@@ -134,7 +141,7 @@ export function PantallaChats({ alAbrir, alPerderSesion, alVerSesion }: { alAbri
         </>
       }
     >
-      <CuerpoChats estado={estado} filtro={filtro} alCambiarFiltro={setFiltro} alAbrir={alAbrir} alReintentar={reintentar} />
+      <CuerpoChats estado={estado} filtro={filtro} alCambiarFiltro={setFiltro} alAbrir={alAbrir} alReintentar={reintentar} enEspera={espera.enEspera} />
     </ShellMovil>
   );
 }
@@ -146,6 +153,7 @@ export function CuerpoChats({
   alCambiarFiltro,
   alAbrir,
   alReintentar,
+  enEspera = false,
   ahora = new Date(),
   zona,
 }: {
@@ -154,18 +162,22 @@ export function CuerpoChats({
   alCambiarFiltro: (f: Filtro) => void;
   alAbrir: (v: Vista) => void;
   alReintentar: () => void;
+  /** "Reintentar" en espera después de un rechazo por cupo (Tanda 5B). */
+  enEspera?: boolean;
   ahora?: Date;
   zona?: string;
 }) {
   if (estado.fase === "CARGANDO") return <EstadoChat texto="Cargando chats…" cargando />;
-  if (estado.fase === "FALLA") return <FallaDeChats falla={estado.falla} alReintentar={alReintentar} />;
+  if (estado.fase === "FALLA") return <FallaDeChats falla={estado.falla} alReintentar={alReintentar} enEspera={enEspera} />;
   return <ListaChats datos={estado.datos} filtro={filtro} alCambiarFiltro={alCambiarFiltro} alAbrir={alAbrir} ahora={ahora} {...(zona ? { zona } : {})} />;
 }
 
-function FallaDeChats({ falla, alReintentar }: { falla: FallaCliente; alReintentar: () => void }) {
+function FallaDeChats({ falla, alReintentar, enEspera }: { falla: FallaCliente; alReintentar: () => void; enEspera: boolean }) {
   switch (destinoDeFalla(falla)) {
     case "ERP_NO_DISPONIBLE":
       return <EstadoErpNoDisponible alReintentar={alReintentar} />;
+    case "CUPO_ERP":
+      return <EstadoCupoErp alReintentar={alReintentar} enEspera={enEspera} />;
     case "NO_AUTORIZADO":
       return <EstadoChat titulo="Sin acceso" texto="El ERP dice que hoy no estás autorizado para usar Azul Chat." accion={{ texto: "Reintentar", alTocar: alReintentar }} />;
     case "SIN_RED":

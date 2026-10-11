@@ -26,7 +26,14 @@
 //     4B): como el ERP 76b9a71, el mismo portón por capacidad (si el local no
 //     la anuncia, el NO_AUTORIZADO real de `sinPermiso` del fixture
 //     erp-76b9a71.json) y la misma paginación sobre lo que cargó el test;
-//   · modos para simular caída (503 del ERP) y cuelgue (no contesta).
+//   · modos para simular caída (503 del ERP) y cuelgue (no contesta);
+//   · Tanda 5B: el CUPO del ERP, apagado salvo que el test lo prenda
+//     (`cupo.activar()`). Es el de erpmanual lib/integraciones/azul-chat/
+//     limitador.js, copiado: 30 consultas por delegación (token) y 120 por
+//     aplicación, en ventana FIJA de 60 s que arranca con la primera consulta
+//     contada; un rechazo NO cuenta. Cuenta después de la firma y antes de
+//     mirar el token, como atender.js. El rechazo es el LIMITE_EXCEDIDO del
+//     fixture (429). El reloj es inyectable para fijar "el mismo minuto".
 //
 // Los cuerpos de respuesta y de error son los del fixture generado ejecutando
 // el ERP (test/fixtures/erp-8920516.json), no escritos de memoria.
@@ -47,8 +54,17 @@ export type RespuestaVentasCargada = { readonly status: number; readonly cuerpo:
 
 type VinculoErp = { usuarioId: number; vinculoId: number; codigo: string; token: string | null; revocado: boolean };
 
+/** El cupo del ERP (limitador.js), para prender en un test. */
+export type CupoErp = {
+  activar(opciones?: { maxPorUsuario?: number; maxPorAplicacion?: number; ventanaMs?: number; ahora?: () => number }): void;
+  desactivar(): void;
+  /** Cuántas consultas rechazó por cupo desde que se activó. */
+  rechazos(): number;
+};
+
 export type ErpConEstado = ServidorErp & {
   ponerModo(m: ModoErp): void;
+  readonly cupo: CupoErp;
   /** Lo que contesta `mi_alcance` por persona. Sin entrada: NO_AUTORIZADO. */
   readonly alcances: Map<number, Record<string, unknown>>;
   /** Lo que contesta `transferencias_eventos`, en orden, a un token vigente. Vacía: el portón y la paginación del ERP. */
@@ -104,6 +120,31 @@ export async function levantarErpConEstado(): Promise<ErpConEstado> {
 
   const estado = { modo: "normal" as ModoErp };
 
+  // El cupo, como limitador.js: ventana fija por clave, y hay que tener lugar en las dos.
+  type Cuenta = { cuenta: number; resetAt: number };
+  const cupo = {
+    activo: false,
+    maxPorUsuario: 30,
+    maxPorAplicacion: 120,
+    ventanaMs: 60_000,
+    ahora: () => Date.now(),
+    cuentas: new Map<string, Cuenta>(),
+    rechazos: 0,
+  };
+  const consumir = (clave: string): boolean => {
+    const ahora = cupo.ahora();
+    const vigente = (k: string): Cuenta => {
+      const c = cupo.cuentas.get(k);
+      return !c || ahora >= c.resetAt ? { cuenta: 0, resetAt: ahora + cupo.ventanaMs } : c;
+    };
+    const app = vigente("app:azul-chat");
+    const usr = vigente(`usr:azul-chat:${clave}`);
+    if (app.cuenta >= cupo.maxPorAplicacion || usr.cuenta >= cupo.maxPorUsuario) return false;
+    cupo.cuentas.set("app:azul-chat", { cuenta: app.cuenta + 1, resetAt: app.resetAt });
+    cupo.cuentas.set(`usr:azul-chat:${clave}`, { cuenta: usr.cuenta + 1, resetAt: usr.resetAt });
+    return true;
+  };
+
   const servidor = await levantarServidorErp((s, res) => {
     if (estado.modo === "colgado") return; // no contesta: el cliente corta por tiempo
     if (!firmaValida(s.cabeceras, s.cuerpo)) {
@@ -134,6 +175,10 @@ export async function levantarErpConEstado(): Promise<ErpConEstado> {
 
     if (s.ruta === RUTA_CONSULTAR) {
       const delegacion = cuerpo.delegacion as { token?: unknown } | undefined;
+      if (cupo.activo && !consumir(`del:${String(delegacion?.token)}`)) {
+        cupo.rechazos++;
+        return responderErrorErp(res, "LIMITE_EXCEDIDO");
+      }
       const v = vinculos.find((x) => x.token !== null && x.token === delegacion?.token && !x.revocado);
       if (!v) return responderErrorErp(res, "VINCULO_NO_VALIDO");
       if (cuerpo.capacidad === "mi_alcance") {
@@ -205,6 +250,17 @@ export async function levantarErpConEstado(): Promise<ErpConEstado> {
   return Object.assign(servidor, {
     ponerModo(m: ModoErp) {
       estado.modo = m;
+    },
+    cupo: {
+      activar(o: { maxPorUsuario?: number; maxPorAplicacion?: number; ventanaMs?: number; ahora?: () => number } = {}) {
+        Object.assign(cupo, { activo: true, maxPorUsuario: 30, maxPorAplicacion: 120, ventanaMs: 60_000, ahora: () => Date.now(), rechazos: 0 }, o);
+        cupo.cuentas.clear();
+      },
+      desactivar() {
+        cupo.activo = false;
+        cupo.cuentas.clear();
+      },
+      rechazos: () => cupo.rechazos,
     },
     alcances,
     respuestasEventos,

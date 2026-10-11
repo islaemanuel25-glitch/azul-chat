@@ -14,8 +14,8 @@
 //   · `historico = false`: nunca backfill;
 //   · de un tipo que la persona puede ver hoy en ese local;
 //   · con `Evento.id` mayor que la marca de AvisoLocal (todavía no se
-//     consideraron para avisar), sea quien sea que los ingirió: la
-//     sincronización de fondo o una persona que abrió la app;
+//     consideraron para avisar), sea la corrida de quien sea la que los
+//     ingirió (desde la Tanda 5B, abrir la app no ingiere);
 //   · con `Evento.id` mayor que lo LEÍDO: lo que la persona ya leyó en la app
 //     no se le avisa.
 //
