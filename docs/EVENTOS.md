@@ -227,8 +227,10 @@ Cada página es un ciclo:
 Un fallo suelta el arriendo, deja el cursor quieto y anota el **código** en
 `ultimoErrorCodigo` (nunca un mensaje). No hay reintentos automáticos:
 `LIMITE_EXCEDIDO`, `ERP_INALCANZABLE` y `TIEMPO_AGOTADO` se informan y reintentar
-lo decide la persona. `NO_AUTORIZADO` no invalida el vínculo. Hasta 3 páginas
-por sincronización: una historia larga se completa en varias visitas.
+lo decide la persona (o, desde la Tanda 5B, la corrida de fondo siguiente).
+`NO_AUTORIZADO` no invalida el vínculo. Hasta 3 páginas por sincronización
+—menos si al fondo le queda menos presupuesto—: una historia larga se completa
+en varias corridas.
 
 ## Histórico y backfill
 
@@ -253,7 +255,9 @@ la sesión: dos dispositivos de la misma persona leen lo mismo.
   tipos que la persona puede ver hoy en ese local.
 - **Línea de base**: la primera vez que una persona ve un local, su lectura se
   fija en el mayor `Evento.id` actual del local (0 si no hay). Todo lo anterior
-  a su primera visita es historia para ella.
+  a su primera visita es historia para ella. Desde la Tanda 5B el pedido no
+  ingiere, así que "actual" es lo que la corrida de fondo ya guardó; lo que
+  traiga después cuenta como nuevo si no es histórico (`test/db/cupo.test.ts`).
 - Avanzar la lectura nunca retrocede (GREATEST) y se recorta al mayor
   `Evento.id` que existe en el local.
 - La instalación sale del vínculo: no se lee ni se marca sobre otra.
@@ -261,27 +265,52 @@ la sesión: dos dispositivos de la misma persona leen lo mismo.
 Marcar leído es `POST /api/chats/leido`, explícito, y antes de leer o marcar un
 local la capa de chats lo verifica con `mi_alcance` vivo (`docs/CHATS.md`).
 
-## Sincronización en segundo plano (Tanda 5A)
+## Sincronización en segundo plano (Tanda 5A, única desde la 5B)
 
-Hasta la Tanda 4B la ingesta corría solo cuando alguien abría la app. Desde la
-5A, además, un timer del VPS llama cada 2 minutos a
+Hasta la Tanda 4B la ingesta corría solo cuando alguien abría la app. En la
+5A se sumó un timer del VPS que llama cada 2 minutos a
 `POST /api/interno/sincronizar` (`src/server/interno/`; instalación y por qué
-cada 2 minutos, en `docs/DEPLOY.md`). No es una ingesta nueva: es un
-**disparador** de la que ya existe. Por cada persona con el vínculo vigente y
-una sesión que valga (la más reciente; quien cerró en todos lados no se
-sincroniza):
+cada 2 minutos, en `docs/DEPLOY.md`). **Desde la Tanda 5B es lo ÚNICO que
+ingiere**: abrir la app compartía con esta corrida el cupo del ERP (30 por
+persona en 60 s) y el 11/10 lo agotó (`docs/CHATS.md`). Ahora cada pedido del
+navegador solo pide `mi_alcance` y lee la base.
+
+No es una ingesta nueva: es un **disparador** de la que ya existe. Por cada
+persona con el vínculo vigente y una sesión que valga (la más reciente; quien
+cerró en todos lados no se sincroniza):
 
 1. con su token, descifrado en el servidor como siempre, `mi_alcance` VIVO
    (`autorizacionViva`, la misma de las rutas de chats);
-2. la misma `sincronizarAutorizados`: frecuencia mínima por (local,
-   capacidad), arriendo, hasta 3 páginas, backfill y las mismas reglas por
-   código. `VINCULO_NO_VALIDO` invalida el vínculo y revoca sus sesiones
-   (`delegarConContexto`, el mismo camino que una solicitud con cookie); caído,
-   lento, cupo o `NO_AUTORIZADO` no;
+2. `sincronizarAutorizados`: frecuencia mínima por (local, capacidad) —lo que
+   otra persona trajo en esta corrida no se vuelve a pedir—, arriendo, hasta 3
+   páginas, backfill y las mismas reglas por código. `VINCULO_NO_VALIDO`
+   invalida el vínculo y revoca sus sesiones (`delegarConContexto`, el mismo
+   camino que una solicitud con cookie); caído, lento, cupo o `NO_AUTORIZADO`
+   no;
 3. los avisos push (abajo).
+
+**El cupo (Tanda 5B).** Por persona, la corrida gasta como mucho
+`PRESUPUESTO_FONDO_POR_PERSONA` = 18 consultas (`mi_alcance` + páginas): el
+cupo del ERP es 30 y se le dejan 12 a la app abierta. Lo que no entra queda
+para la corrida siguiente, sin anotar error. Si el ERP contesta
+`LIMITE_EXCEDIDO` en cualquier consulta, la corrida se CORTA: no se le pide
+nada más a nadie, las capacidades que esa persona tenía por delante quedan con
+`ultimoErrorCodigo = LIMITE_EXCEDIDO` y la respuesta es 200 con
+`cortadaPorCupo: true`. El orden de una corrida empieza por lo pendiente
+(capacidades sin cursor, sin sincronizar o con `LIMITE_EXCEDIDO`) y después
+por la sincronización buena más vieja; a igual, el de `mi_alcance`. Si en la
+anterior entró todo, el orden se repite; si algo quedó afuera, va primero.
+
+La respuesta y el renglón `tarea.sincronizar` dicen, además de lo de la 5A,
+`cortadaPorCupo`, `personasConPendientes` y `consultasErp`.
 
 Sin reintentos: lo que falla lo intenta la corrida siguiente. Dos corridas
 seguidas no repiten nada: la segunda encuentra todo fresco.
+
+**Qué ve el navegador.** "Actualización demorada" sale de los cursores que deja
+esta corrida: un local está demorado si alguna capacidad anunciada no tiene
+cursor, quedó con error o lleva más de 3 corridas (6 min) sin sincronizar
+(`estadoDeLocales`, `docs/CHATS.md`).
 
 ## Avisos push (Tanda 5A)
 
@@ -290,8 +319,8 @@ Se avisa SOLO lo que una persona no vio y puede ver hoy. Por local, los eventos:
 - con `historico = false`: nunca backfill, tampoco el de una capacidad recién
   anunciada;
 - de un tipo que `mi_alcance` le anuncia HOY en ese local;
-- con `Evento.id` por encima de su marca de avisos (`AvisoLocal`), sea quien sea
-  que los ingirió (la tarea o alguien que abrió la app);
+- con `Evento.id` por encima de su marca de avisos (`AvisoLocal`), sea la
+  corrida de quien sea la que los ingirió;
 - con `Evento.id` por encima de lo que ya LEYÓ: lo leído en la app no se avisa.
 
 **Una sola vez.** `AvisoLocal (vinculoId, erpLocalId, avisadoHastaEventoId)` es
