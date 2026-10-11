@@ -96,12 +96,23 @@ grande se centra en una columna de 480 px; no hay un diseño de escritorio.
     Azul." o el texto del cupo, con "Reintentar", que solo repite esa pregunta
     si la persona lo toca.
 
-  Las preguntas viven solo en la pantalla: no se guardan (ni en el servidor ni
-  en el navegador), salir del chat las descarta, no marcan leído y no agregan
-  chips. Una por vez: mientras una espera, no se manda otra (`usePreguntas` y
+  En el navegador no se guarda nada: desde la Tanda 6C las guarda el servidor
+  y vuelven con el historial (abajo). No marcan leído y no agregan chips. Una por vez: mientras una espera, no se manda otra (`usePreguntas` y
   `ListaDePreguntas`, en `Preguntas.tsx`; `reducirPreguntas`, en `logica.ts`;
   la decisión de mostrar la caja, en `AccionesDelLocal` y `AccionesDeGeneral`,
   por `iaDisponible`).
+
+- **Preguntas guardadas (Tanda 6C).** Al volver a entrar a un Local o a
+  General, las preguntas que la persona hizo ahí aparecen en el historial,
+  intercaladas por hora con los eventos: la burbuja propia con la hora, la
+  tarjeta tal cual se vio entonces y, debajo, "Respuesta del 7/10 a las
+  10:00": es una foto, no se recalcula. Una falla guardada se muestra sin
+  "Reintentar". Una pregunta recién hecha va al final como siempre y, si el
+  historial ya la trae (por su `guardadaId`), no se repite. "Cargar
+  anteriores" trae preguntas y eventos más viejos juntos. Un chat con
+  preguntas guardadas y sin eventos no dice que está vacío
+  (`PreguntaGuardadaVista` en `Preguntas.tsx`; `elementosEnOrden` y
+  `sinLasGuardadas` en `logica.ts`).
 
 - **Notificaciones (Tanda 5A).** En el panel que abre ☰, debajo de los locales,
   una sección "Notificaciones" con UNA fila (Figma pantalla 06, nodo 1:277,
@@ -135,21 +146,43 @@ Tanda 3B. Navegar no recarga la página (es `history.pushState`), así que una
 pestaña abierta antes de un despliegue seguiría corriendo el JS viejo: el 10/10
 una pestaña con `3d8b849` no mostró la barra de Ventas hasta cerrarla del todo.
 
-- Al arrancar, la app pide `GET /api/version` y guarda EN MEMORIA el commit
-  con el que arrancó.
-- Lo vuelve a pedir solo en dos momentos: cuando la página vuelve a primer
-  plano (`visibilitychange` → `visible`) y al abrir un chat (un Local o
-  General; volver a la lista no). Nada de intervalos ni temporizadores.
-- Si el commit cambió, `window.location.reload()`, una sola vez.
-- Si `/api/version` falla, tarda más de 5 s (lo corta el navegador con
-  `AbortSignal.timeout`) o no trae un SHA completo, no pasa nada: ni recarga
-  ni error. Si falló el pedido del arranque, el primer commit que se consiga
-  después pasa a ser el de referencia.
-- Nada se guarda en el navegador. Un pedido en curso no se duplica.
+**Tanda 6C: la referencia es el commit de la página.** El 11/10, 13 minutos
+después de desplegar `dda5b80`, un Android siguió con el JS anterior y no
+recargó ni al volver a primer plano ni al abrir un chat. La causa: la
+referencia era el commit que contestaba `/api/version` AL ARRANCAR. Cuando el
+navegador vuelve a mostrar una página vieja —al restaurar la pestaña o la app,
+o desde su caché, con el HTML viejo y sus chunks, que son inmutables—, ese JS
+viejo arranca, pregunta, recibe el commit NUEVO y lo toma como suyo: desde ahí
+toda comparación da "igual". `/api/version` ya contestaba `no-store` (y
+Cloudflare `DYNAMIC`) y el service worker no intercepta pedidos: el dato era
+fresco, la referencia era la equivocada. Ahora:
 
-Está en `src/components/chats/version.ts` (sin React: recibe pedir, recargar y
-el documento), `pedirVersion` en `clienteChats.ts` y la conexión en
-`AzulChat.tsx`.
+- la página `/` se arma en cada pedido (`force-dynamic`: Next contesta
+  `Cache-Control: no-store`, así el navegador no guarda el HTML entre
+  despliegues) y le pasa a la app el commit de la imagen que la sirvió
+  (`src/app/page.tsx`). Se compara contra ESE: una página vieja que arranca
+  con un servidor nuevo recarga en el arranque mismo. Sin commit (desarrollo),
+  lo de antes;
+- se vuelve a pedir `/api/version` en tres momentos de primer plano
+  (`visibilitychange` → `visible`, `pageshow` —también la vuelta desde la
+  caché de atrás/adelante— y `focus` de la ventana) y al abrir un chat (un
+  Local o General; volver a la lista no). Nada de intervalos ni temporizadores;
+- si el commit es otro, recarga, una sola vez. La recarga deja en la URL
+  `#recarga=<commit>`: si después de recargar la página sigue sin ser esa
+  versión, no se insiste por ese commit (sin bucle). La marca se borra al
+  arrancar;
+- si `/api/version` falla, tarda más de 5 s (lo corta el navegador con
+  `AbortSignal.timeout`) o no trae un SHA completo, no pasa nada: ni recarga
+  ni error. Se pide con `cache: "no-store"`;
+- el service worker no tiene `fetch` y se actualiza solo: `skipWaiting` al
+  instalarse y `clients.claim` al activarse;
+- nada se guarda en el navegador. Un pedido en curso no se duplica.
+
+Está en `src/components/chats/version.ts` (sin React: recibe pedir, recargar,
+el documento y la ventana), `pedirVersion` en `clienteChats.ts` y la conexión
+en `AzulChat.tsx`. Los candados: `test/ui/version.test.ts` (con el caso del
+11/10 y su contraprueba) y `test/frontera/recargaPorVersion.test.ts` (no-store
+de `/api/version`, la página dinámica con su commit, el service worker).
 
 ## App instalable y service worker (Tanda 5A)
 
@@ -340,6 +373,11 @@ estaba. No hay scroll infinito ni refresco automático.
   6B: la plantilla del aviso (una, varias, día o período), el aviso arriba de
   la tarjeta de un local, de todos y de eventos, ninguno sin `noSeparaPor`, y
   la tarjeta de todos con "Por medio de pago" y "Por local" en su orden.
+
+- `test/ui/chats.test.ts` (Tanda 6C): el orden del chat con empates de hora,
+  la pregunta guardada dibujada en su lugar con "Respuesta del …", las fallas
+  guardadas sin "Reintentar", un chat solo con preguntas no vacío, cargar
+  anteriores sin repetir, y que una recién hecha no se repita.
 
 ## Fuera de alcance
 

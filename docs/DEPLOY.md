@@ -190,6 +190,22 @@ Cada pregunta deja en el log de la app una línea `ia.pregunta` con resultado,
 duración, tokens y costo; nunca la pregunta ni la clave. El costo de una
 pregunta y el cupo del ERP que gasta (1 + N) están en `docs/CHATS.md`.
 
+### Tanda 6C: migración y caché
+
+- La migración es `20261012120000_preguntas_guardadas`: crea la tabla
+  `Pregunta` (las preguntas con su respuesta, por persona y chat). Entra con
+  el paso 3 del DEPLOY, como todas. La retención de 90 días la hace la corrida
+  de fondo de siempre: no hay timer nuevo.
+- La recarga por versión NO necesita nada en nginx ni en Cloudflare. Medido
+  desde afuera el 2026-10-11 sobre `dda5b80`: `/api/version` ya contestaba
+  `cache-control: no-store` y `cf-cache-status: DYNAMIC`. La página `/`
+  contestaba `cache-control: s-maxage=31536000` (prerenderada, sin `max-age`
+  para el navegador) y `cf-cache-status: DYNAMIC`; desde la 6C se arma en cada
+  pedido y Next contesta `no-store`. Lo único a comprobar en el POST:
+  `curl -sI https://chat.operix.cloud/ | grep -i -E '^(cache-control|cf-cache-status)'`
+  tiene que decir `no-store` y `DYNAMIC`. Si Cloudflare dijera `HIT`, hay una
+  regla de caché que guarda HTML: se quita (no la pone este repo).
+
 ## La imagen
 
 La publica el workflow **Imagen** (`.github/workflows/imagen.yml`):
@@ -425,6 +441,12 @@ recibe 404 y lo anota en el journal) ni avisos; conviene parar el timer
 que la imagen anterior no lee: volver atrás es seguro, sin restaurar nada. Sin
 la imagen nueva no hay caja de preguntas; el gasto del mes queda guardado y se
 retoma al volver.
+
+**`20261012120000_preguntas_guardadas` (Tanda 6C).** Solo crea la tabla
+`Pregunta`, que la imagen anterior no lee: volver atrás es seguro, sin
+restaurar nada. Con la imagen anterior las preguntas guardadas no se ven (ni
+se guardan nuevas); al volver a la nueva reaparecen las que tengan menos de 90
+días.
 
 **Primer despliegue.** No hay versión anterior: `$C stop azul-chat-app` (o
 `$C down`, que conserva `pgdata/`) y quitar el bloque de nginx. El ERP no se ve

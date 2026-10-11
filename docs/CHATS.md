@@ -142,7 +142,7 @@ evento es el más reciente entre ellos, con su local.
 
 El historial de un local, 30 eventos por página, del más reciente al más
 antiguo. Devuelve `{ estado: "OK", local: { localId, nombre, esDeposito, ventas },
-sincronizacion, noLeidos, leidoHasta, eventos, siguiente, preguntas }`. `siguiente` es el
+sincronizacion, noLeidos, leidoHasta, eventos, guardadas, siguiente, preguntas }`. `siguiente` es el
 cursor de la página siguiente, o `null`.
 
 `local.ventas` (Tanda 3A) es `true` si el `mi_alcance` de ESA solicitud anuncia
@@ -166,7 +166,7 @@ General es una **proyección**: la misma tabla de eventos, filtrada por los
 locales autorizados de ahora. No hay un "local General" ni se copia nada. Un
 evento de General es el mismo `Evento.id` que en su Local, con el mismo
 contenido, más `local: { localId, nombre }`. Devuelve `{ estado: "OK",
-noLeidos, eventos, siguiente, localesDemorados, preguntas }`; `noLeidos` es la suma de los
+noLeidos, eventos, guardadas, siguiente, localesDemorados, preguntas }`; `noLeidos` es la suma de los
 locales.
 
 ### POST /api/chats/leido
@@ -314,8 +314,8 @@ salida) cuesta del orden de US$ 0,001 a 0,002; con el tope de US$ 5, unas
 3.000 a 4.000 preguntas por mes. No está medido contra Google: es la cuenta con
 la tarifa.
 
-No se guarda nada de la pregunta ni de la respuesta, no marca leído y no crea
-chips. El registro (`ia.pregunta`) lleva resultado, duración, tokens y costo;
+Desde la Tanda 6C la pregunta y su respuesta se guardan (abajo, "Preguntas
+guardadas"); sigue sin marcar leído y sin crear chips. El registro (`ia.pregunta`) lleva resultado, duración, tokens y costo;
 nunca la pregunta. Candados: `test/db/preguntas.test.ts` (Tanda 6B: ninguna
 respuesta de ventas o eventos sale sin `noSeparaPor` cuando la intención trae
 una restricción que no separa, recorriendo el catálogo entero).
@@ -363,7 +363,27 @@ El historial se ordena por `(fechaOperacion desc, Evento.id desc)`, que es un
 orden total aunque dos eventos compartan la fecha. El cursor es la posición del
 último evento de la página, `{ f: fecha ISO, i: id }` en JSON y base64url.
 
-Se valida estricto: exactamente esas dos claves, instante ISO válido, id entero
+**Tanda 6C: las preguntas guardadas van en la misma página.** Un Local y General
+traen, además de `eventos`, `guardadas`: las preguntas guardadas de la persona
+en ese chat. Se pagina UNA sola secuencia, eventos por `fechaOperacion` y
+preguntas por `creadaEn`, del más reciente al más antiguo; a igual instante
+va primero la pregunta y, entre dos del mismo tipo, el de id mayor. Es un orden
+total, así que el cursor sigue siendo la posición del último elemento de la
+página:
+
+- si el último es un evento, el cursor es exactamente el de antes, `{ f, i }`:
+  uno emitido antes del despliegue sigue valiendo igual;
+- si es una pregunta, `{ f, i, t: "p" }`.
+
+Cada página pide 31 de cada lado después del cursor, junta las dos listas en
+ese orden y se queda con las primeras 30: lo que sobra vuelve en la página
+siguiente, así que nada se repite ni se pierde (`paginaDeHistorial`, en
+`src/server/chats/historial.ts`; lo recorre `test/db/preguntas.test.ts` de a 1,
+2 y 3 por página, con empates de hora). Una página puede tener menos de 30
+eventos porque lugares los ocupan preguntas; la lectura no cambia, porque
+`noLeidos` y `leidoHasta` son solo de eventos.
+
+Se valida estricto: exactamente esas dos claves (o las tres, con `t: "p"`), instante ISO válido, id entero
 positivo que entra en un BIGINT, hasta 200 caracteres. Uno con otra forma es
 `SOLICITUD_INVALIDA`, no se arregla. No lleva local ni instalación: no sirve
 para salir de los locales autorizados, porque la consulta los filtra siempre
@@ -371,6 +391,37 @@ desde el servidor. No es el cursor del ERP, que nunca sale del servidor.
 
 Los parámetros de la URL también son estrictos: uno de más o repetido es
 `SOLICITUD_INVALIDA`, y lo mal formado se rechaza antes de llamar al ERP.
+
+## Preguntas guardadas (Tanda 6C)
+
+Pedido del dueño: "una vez que salgo y vuelvo a entrar no queda guardado".
+Cada pregunta contestada se guarda en la tabla `Pregunta`
+(`src/server/preguntas/guardadas.ts`) con exactamente la respuesta que vio la
+pantalla, en JSON versionado (`resultadoVersion` 1). POST preguntar contesta,
+además, `guardadaId`, para que la pantalla no la muestre dos veces cuando el
+historial ya la trae.
+
+- **Por persona y por chat.** Es del vínculo que preguntó, y del Local donde se
+  preguntó (`erpLocalId`) o de General (null). Otra persona no la ve; en
+  General no aparecen las de un Local ni al revés.
+- **Qué se guarda.** Las respuestas que se dan una vez autorizada la persona:
+  ventas, eventos, no entendí, saldo agotado, la IA caída, el ERP caído o sin
+  cupo. Lo de antes de saber quién es (sin sesión, solicitud inválida, local
+  ajeno) no se guarda. Si guardar falla, se contesta igual.
+- **Una foto.** Al volver a verla no se recalcula nada; la pantalla dice cuándo
+  fue la respuesta.
+- **Fallo cerrado al mostrar.** Cada pregunta guarda sus `requisitos`: de qué
+  locales trae datos y con qué capacidad (`ventas_resumen`, o la del tipo de
+  evento). Para mostrarla, todos tienen que seguir anunciados hoy por
+  `mi_alcance`; si uno no, se oculta (no se borra: si mañana vuelve, se ve).
+  Un requisito ilegible también la oculta. Las que no traen datos de locales
+  (no entendí, saldo, IA caída) se ven en su chat mientras la persona lo pueda
+  abrir.
+- **No son eventos.** No cuentan como no leídos, no disparan push y no marcan
+  leído: nada de eso mira esta tabla.
+- **Retención: 90 días.** La lectura ya no muestra las más viejas, y la
+  corrida de fondo (`POST /api/interno/sincronizar`) las borra al empezar, sin
+  tocar otra tabla (`preguntasBorradas` en su resumen).
 
 ## Errores públicos
 
