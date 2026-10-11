@@ -14,6 +14,7 @@
 
 import type { FallaChats, PedidoLeido, RespuestaChats, RespuestaGeneral, RespuestaLeido, RespuestaLocal, RespuestaVentas } from "../../shared/chats/api.ts";
 import type { PedidoPregunta, RespuestaPregunta } from "../../shared/chats/preguntas.ts";
+import { anotarCommitDe } from "./version.ts";
 
 const RUTA_CHATS = "/api/chats";
 const RUTA_LOCAL = "/api/chats/local";
@@ -68,7 +69,9 @@ async function leer<T>(res: Response): Promise<Resultado<Ok<T>>> {
 
 async function pedir<T>(hacer: () => Promise<Response>, signal: AbortSignal | undefined): Promise<Resultado<Ok<T>>> {
   try {
-    return await leer<T>(await hacer());
+    const res = await hacer();
+    anotarCommitDe(res); // Tanda 6D: el commit de CADA respuesta (version.ts)
+    return await leer<T>(res);
   } catch {
     return { ok: false, falla: signal?.aborted ? { estado: "CANCELADA" } : { estado: "RED" } };
   }
@@ -128,6 +131,7 @@ export async function preguntar(pedido: PedidoPregunta, signal?: AbortSignal): P
       body: JSON.stringify(pedido),
       signal: signal ?? null,
     });
+    anotarCommitDe(res);
     const cuerpo = (await res.clone().json().catch(() => null)) as { estado?: unknown } | null;
     if (ESTADOS_DE_PREGUNTA.some((e) => e === cuerpo?.estado)) return { ok: true, datos: cuerpo as RespuestaDePregunta };
     const r = await leer<RespuestaChats>(res);
@@ -147,6 +151,7 @@ const SHA_COMPLETO = /^[0-9a-f]{40}$/;
 export async function pedirVersion(): Promise<string | null> {
   try {
     const res = await fetch(RUTA_VERSION, { ...OPCIONES, signal: AbortSignal.timeout(ESPERA_VERSION_MS) });
+    anotarCommitDe(res);
     if (!res.ok) return null;
     const cuerpo = (await res.json()) as { servicio?: unknown; commit?: unknown } | null;
     return cuerpo?.servicio === "azul-chat" && typeof cuerpo.commit === "string" && SHA_COMPLETO.test(cuerpo.commit) ? cuerpo.commit : null;

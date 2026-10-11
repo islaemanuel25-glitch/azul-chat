@@ -10,13 +10,18 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 
-import { ESPERA_VERSION_MS, pedirVersion } from "../../src/components/chats/clienteChats.ts";
+import { ESPERA_VERSION_MS, marcarLeido, pedirChats, pedirGeneral, pedirLocal, pedirVentas, pedirVersion, preguntar } from "../../src/components/chats/clienteChats.ts";
 import type { Vista } from "../../src/components/chats/logica.ts";
 import {
+  alLiberarRecarga,
+  anotarCommitDe,
   comprobarAlAbrir,
   comprobarAlVolverAPrimerPlano,
   crearComprobadorDeVersion,
+  escucharCommitDeRespuestas,
   leerMarcaDeRecarga,
+  recargaRetenida,
+  retenerRecarga,
   urlConMarca,
   urlSinMarca,
   type DocumentoVisible,
@@ -273,5 +278,126 @@ describe("pedirVersion: el cliente HTTP", () => {
       con(m);
       assert.equal(await pedirVersion(), null, `caso ${i}`);
     }
+  });
+});
+
+// ── Tanda 6D: el commit de CADA respuesta ───────────────────────────────────
+
+describe("6D. cada respuesta trae el commit: quien se queda adentro de un chat también recarga", () => {
+  /** Arma la página como AzulChat: comprobador con la retención, conectado a las respuestas y a la liberación. */
+  function pagina(o: { propia?: string; yaRecargadoPor?: string } = {}) {
+    const recargadas: string[] = [];
+    const comprobador = crearComprobadorDeVersion({
+      propia: o.propia ?? A,
+      yaRecargadoPor: o.yaRecargadoPor ?? null,
+      pedir: async () => null,
+      recargar: (c) => recargadas.push(c),
+      retenida: recargaRetenida,
+    });
+    const desconectar = [escucharCommitDeRespuestas((c) => comprobador.anotar(c)), alLiberarRecarga(() => comprobador.liberar())];
+    return { recargadas, cerrar: () => desconectar.forEach((d) => d()) };
+  }
+  const respuestaCon = (commit: string | null) => new Response("{}", { headers: commit === null ? {} : { "x-azul-chat-commit": commit } });
+  afterEach(() => {
+    for (const k of ["caja", "envio"]) retenerRecarga(k, false);
+  });
+
+  it("6D-1. una respuesta con el mismo commit no recarga; con otro, recarga; sin cabecera o con basura, nada", () => {
+    const p = pagina();
+    anotarCommitDe(respuestaCon(A));
+    anotarCommitDe(respuestaCon(null));
+    anotarCommitDe(respuestaCon("3d8b849"));
+    assert.deepEqual(p.recargadas, []);
+    anotarCommitDe(respuestaCon(B));
+    anotarCommitDe(respuestaCon(B));
+    assert.deepEqual(p.recargadas, [B], "una sola vez");
+    p.cerrar();
+  });
+
+  it("6D-2. anti-bucle: si ya se recargó por ese commit y la página sigue siendo otra, no se insiste", () => {
+    const p = pagina({ yaRecargadoPor: B });
+    anotarCommitDe(respuestaCon(B));
+    assert.deepEqual(p.recargadas, []);
+    anotarCommitDe(respuestaCon(C));
+    assert.deepEqual(p.recargadas, [C]);
+    p.cerrar();
+  });
+
+  it("6D-3. con texto en la caja, la recarga espera; al vaciarla, recarga", () => {
+    const p = pagina();
+    retenerRecarga("caja", true);
+    anotarCommitDe(respuestaCon(B));
+    assert.deepEqual(p.recargadas, [], "no se le borra lo que escribió");
+    retenerRecarga("caja", true); // sigue escribiendo
+    assert.deepEqual(p.recargadas, []);
+    retenerRecarga("caja", false);
+    assert.deepEqual(p.recargadas, [B]);
+    p.cerrar();
+  });
+
+  it("6D-4. al enviar: la caja se vacía pero la pregunta está en curso; recarga cuando llega la respuesta", () => {
+    const p = pagina();
+    retenerRecarga("caja", true);
+    anotarCommitDe(respuestaCon(B));
+    // usePreguntas marca el envío ANTES de que la caja se vacíe (mismo toque).
+    retenerRecarga("envio", true);
+    retenerRecarga("caja", false);
+    assert.deepEqual(p.recargadas, [], "no corta la pregunta que se está mandando");
+    retenerRecarga("envio", false);
+    assert.deepEqual(p.recargadas, [B]);
+    p.cerrar();
+  });
+
+  it("6D-5. sin nada pendiente, liberar no recarga; y desconectada, la página no escucha más", () => {
+    const p = pagina();
+    retenerRecarga("caja", true);
+    retenerRecarga("caja", false);
+    assert.deepEqual(p.recargadas, []);
+    p.cerrar();
+    anotarCommitDe(respuestaCon(B));
+    assert.deepEqual(p.recargadas, []);
+  });
+
+  it("CONTRAPRUEBA 6D-3: sin la retención conectada, el mismo escenario recargaría con el texto escrito", () => {
+    const recargadas: string[] = [];
+    const comprobador = crearComprobadorDeVersion({ propia: A, pedir: async () => null, recargar: (c) => recargadas.push(c) });
+    const d = escucharCommitDeRespuestas((c) => comprobador.anotar(c));
+    retenerRecarga("caja", true);
+    anotarCommitDe(respuestaCon(B));
+    assert.deepEqual(recargadas, [B]);
+    d();
+  });
+
+  describe("los clientes HTTP pasan CADA respuesta", () => {
+    const original = globalThis.fetch;
+    afterEach(() => {
+      globalThis.fetch = original;
+    });
+
+    it("6D-6. chats, local, general, ventas, leído, preguntar y versión: todas, buenas o con falla", async () => {
+      const vistos: string[] = [];
+      const d = escucharCommitDeRespuestas((c) => vistos.push(c));
+      for (const [status, cuerpo] of [
+        [200, { estado: "OK" }],
+        [503, { estado: "ERP_NO_DISPONIBLE" }],
+      ] as const) {
+        globalThis.fetch = (async () => new Response(JSON.stringify(cuerpo), { status, headers: { "x-azul-chat-commit": B } })) as typeof fetch;
+        vistos.length = 0;
+        await pedirChats();
+        await pedirLocal(3, null);
+        await pedirGeneral(null);
+        await pedirVentas(3);
+        await marcarLeido({ marcas: [{ localId: 3, hastaEventoId: "1" }] });
+        await preguntar({ pregunta: "hola" });
+        await pedirVersion();
+        assert.deepEqual(vistos, Array(7).fill(B), `status ${status}`);
+      }
+      // Sin red no hay respuesta: nada que comparar.
+      globalThis.fetch = (async () => Promise.reject(new TypeError("failed to fetch"))) as typeof fetch;
+      vistos.length = 0;
+      await pedirChats();
+      assert.deepEqual(vistos, []);
+      d();
+    });
   });
 });

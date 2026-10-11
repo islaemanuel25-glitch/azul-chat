@@ -29,8 +29,11 @@ import { PantallaChats } from "./PantallaChats.tsx";
 import {
   comprobarAlAbrir,
   comprobarAlVolverAPrimerPlano,
+  alLiberarRecarga,
   crearComprobadorDeVersion,
+  escucharCommitDeRespuestas,
   leerMarcaDeRecarga,
+  recargaRetenida,
   urlConMarca,
   urlSinMarca,
   type ComprobadorDeVersion,
@@ -64,10 +67,18 @@ export function AzulChat({ commit = null }: { commit?: string | null }) {
       window.history.replaceState(window.history.state, "", urlConMarca(window.location, nueva));
       window.location.reload();
     };
-    const comprobador = crearComprobadorDeVersion({ propia: commit, yaRecargadoPor, pedir: pedirVersion, recargar });
+    const comprobador = crearComprobadorDeVersion({ propia: commit, yaRecargadoPor, pedir: pedirVersion, recargar, retenida: recargaRetenida });
     version.current = comprobador;
     void comprobador.arrancar();
-    return comprobarAlVolverAPrimerPlano(document, window, comprobador);
+    // Tanda 6D: el commit de CADA respuesta, y la recarga que esperaba a que se liberara la caja.
+    const dejarDeEscuchar = escucharCommitDeRespuestas((c) => comprobador.anotar(c));
+    const dejarDeLiberar = alLiberarRecarga(() => comprobador.liberar());
+    const dejarPrimerPlano = comprobarAlVolverAPrimerPlano(document, window, comprobador);
+    return () => {
+      dejarDeEscuchar();
+      dejarDeLiberar();
+      dejarPrimerPlano();
+    };
   }, [commit]);
 
   const abrir = useCallback((v: Vista) => {

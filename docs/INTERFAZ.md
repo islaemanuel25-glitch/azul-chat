@@ -178,11 +178,36 @@ fresco, la referencia era la equivocada. Ahora:
   instalarse y `clients.claim` al activarse;
 - nada se guarda en el navegador. Un pedido en curso no se duplica.
 
+**Tanda 6D: en cada respuesta.** Quedaba un hueco: quien se queda dentro de
+un chat usando Ventas, Actualizar o preguntas no vuelve a primer plano ni abre
+otro chat, así que no se comparaba nunca. Ahora:
+
+- toda respuesta JSON de las rutas propias (`/api/chats*`, `/api/sesion*`,
+  `/api/push*`, y también `/api/version` y `/api/salud`) trae la cabecera
+  `X-Azul-Chat-Commit` con el commit de la imagen, el mismo valor que
+  `/api/version`. La pone `json()` en `src/server/http/respuestas.ts`, por
+  donde pasan todas; sin `APP_BUILD_ID` (desarrollo) no va;
+- los tres clientes HTTP de la interfaz (`clienteChats.ts`, `PanelSesion.tsx`
+  y `notificaciones.ts`) le pasan CADA respuesta a `anotarCommitDe`, buena o
+  con falla. Si el commit no es el de la página, recarga con la misma marca
+  anti-bucle;
+- salvo que se pierda algo: con texto escrito en la caja de preguntas, o con
+  una pregunta esperando su respuesta, la recarga queda retenida
+  (`retenerRecarga`) y se hace apenas se libera: al vaciar la caja, o cuando
+  llega la respuesta de la pregunta (que ya quedó guardada y vuelve con el
+  historial). La pregunta retiene ANTES de mandarse, en el mismo toque en que
+  la caja se vacía, así nunca hay un instante sin retención en el medio;
+- sigue sin haber intervalos ni temporizadores: la recarga la dispara una
+  respuesta o el cambio de la caja.
+
 Está en `src/components/chats/version.ts` (sin React: recibe pedir, recargar,
 el documento y la ventana), `pedirVersion` en `clienteChats.ts` y la conexión
 en `AzulChat.tsx`. Los candados: `test/ui/version.test.ts` (con el caso del
 11/10 y su contraprueba) y `test/frontera/recargaPorVersion.test.ts` (no-store
-de `/api/version`, la página dinámica con su commit, el service worker).
+de `/api/version`, la página dinámica con su commit, el service worker; desde
+la 6D, que cada método de cada ruta de chats, sesión y push conteste con la
+cabecera, que cada `fetch` de los tres clientes pase por `anotarCommitDe` y
+que la caja y la pregunta en curso retengan, cada uno con su contraprueba).
 
 ## App instalable y service worker (Tanda 5A)
 

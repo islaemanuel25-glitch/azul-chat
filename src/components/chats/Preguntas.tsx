@@ -21,12 +21,13 @@
 // con datos del ERP o de la base, y acá se dibujan con las mismas funciones de
 // formato.ts que el resto de la conversación.
 
-import { useCallback, useEffect, useReducer, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useId, useReducer, useRef, useState, type FormEvent } from "react";
 
 import { MAX_LARGO_PREGUNTA, type PreguntaGuardada, type RespuestaGuardada } from "../../shared/chats/preguntas.ts";
 import { preguntar, type FallaCliente, type RespuestaDePregunta } from "./clienteChats.ts";
 import { avisoNoSepara, cantidadDeEventos, etiquetaDePeriodo, formatearHora, formatearMonto, respuestaGuardadaDel, tituloDeVentasDe } from "./formato.ts";
 import { destinoDeFalla, hayPreguntaEnCurso, reducirPreguntas, type IntercambioDePregunta } from "./logica.ts";
+import { retenerRecarga } from "./version.ts";
 import { AvisoDeRespuesta, SubtituloDeTarjeta, TarjetaEvento, TarjetaVentas, TEXTO_CUPO_ERP } from "./Piezas.tsx";
 
 /** El texto de la caja según dónde se pregunta. */
@@ -36,6 +37,10 @@ export const TEXTO_CAJA = Object.freeze({ local: "Preguntá sobre este local…"
 export function CajaPregunta({ texto, enviando, alEnviar }: { texto: string; enviando: boolean; alEnviar: (pregunta: string) => void }) {
   const [valor, setValor] = useState("");
   const vacia = valor.trim().length === 0;
+  // Tanda 6D: con texto escrito, una recarga por versión espera (no se le borra lo que escribió).
+  const clave = `caja${useId()}`;
+  useEffect(() => retenerRecarga(clave, !vacia), [clave, vacia]);
+  useEffect(() => () => retenerRecarga(clave, false), [clave]);
   const enviar = (e: FormEvent) => {
     e.preventDefault();
     if (vacia || enviando) return;
@@ -284,22 +289,33 @@ export function usePreguntas(localId: number | null, alPerderSesion: (motivo?: "
   const siguienteId = useRef(1);
   const enCurso = useRef<AbortController | null>(null);
   const textos = useRef(new Map<number, string>());
+  // Tanda 6D: mientras una pregunta espera su respuesta, una recarga por versión espera también.
+  const clave = `pregunta${useId()}`;
 
-  useEffect(() => () => enCurso.current?.abort(), []);
+  useEffect(
+    () => () => {
+      enCurso.current?.abort();
+      retenerRecarga(clave, false);
+    },
+    [clave],
+  );
 
   const mandar = useCallback(
     (id: number, pregunta: string) => {
       const control = new AbortController();
       enCurso.current = control;
+      // Se marca ANTES de mandar, en el mismo toque: la caja se vacía enseguida y no tiene que soltar la recarga en el medio.
+      retenerRecarga(clave, true);
       void preguntar({ pregunta, ...(localId === null ? {} : { localId }) }, control.signal).then((resultado) => {
         if (control.signal.aborted) return;
         enCurso.current = null;
+        retenerRecarga(clave, false);
         if (!resultado.ok && resultado.falla.estado === "SIN_SESION") return alPerderSesion(resultado.falla.motivo);
         if (!resultado.ok) alFallar(resultado.falla);
         despachar({ tipo: "RESPUESTA", id, resultado });
       });
     },
-    [localId, alPerderSesion, alFallar],
+    [localId, alPerderSesion, alFallar, clave],
   );
 
   const alEnviar = useCallback(

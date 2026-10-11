@@ -20,6 +20,7 @@
 // su suscripción. Sin reintentos: si falla, la persona vuelve a tocar.
 
 import type { RespuestaClavePush, RespuestaSuscripcionPush } from "../../shared/push/api.ts";
+import { anotarCommitDe } from "../chats/version.ts";
 
 export const RUTA_SERVICE_WORKER = "/sw.js";
 /** Las dos rutas propias que llama este archivo, literales: es lo que admite la frontera de HTTP (secretoSoloServidor.test.ts). */
@@ -93,6 +94,7 @@ async function mandar(metodo: "POST" | "DELETE", cuerpo: unknown): Promise<boole
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(cuerpo),
     });
+    anotarCommitDe(res); // Tanda 6D: el commit de cada respuesta (chats/version.ts)
     const r = (await res.json().catch(() => null)) as RespuestaSuscripcionPush | null;
     return res.ok && r?.estado === "OK";
   } catch {
@@ -119,6 +121,7 @@ export async function activar(e: EntornoPush): Promise<ResultadoAccion> {
   let clave: RespuestaClavePush | null = null;
   try {
     const res = await fetch(RUTA_CLAVE, { cache: "no-store", credentials: "same-origin" });
+    anotarCommitDe(res);
     clave = (await res.json().catch(() => null)) as RespuestaClavePush | null;
   } catch {
     clave = null;

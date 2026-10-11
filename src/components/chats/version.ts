@@ -40,6 +40,22 @@
 // Es una pieza sin React: pedir, recargar, el documento y la ventana se
 // inyectan, así los tests de test/ui la ejercen sin navegador.
 
+// ── Tanda 6D: EN CADA RESPUESTA, Y SIN BORRARLE NADA A LA PERSONA ──────────
+//
+// Quedaba un hueco: quien se queda DENTRO de un chat usando Ventas, Actualizar
+// o preguntas no vuelve a primer plano ni abre otro chat, así que nunca se
+// comparaba. Ahora toda respuesta de las rutas propias trae el commit de la
+// imagen en `X-Azul-Chat-Commit` (shared/version/cabecera.ts), y los clientes
+// HTTP de la interfaz se lo pasan a `anotarCommitDe` en CADA respuesta. Si no
+// es el de la página, recarga, con la misma marca anti-bucle.
+//
+// Salvo que haya algo que se perdería: texto escrito en la caja de preguntas,
+// o una pregunta esperando su respuesta. Mientras tanto la recarga queda
+// RETENIDA (`retenerRecarga`) y se hace apenas se libera: al enviar y llegar
+// la respuesta, o al vaciar la caja. Nada de temporizadores: lo dispara el
+// cambio mismo.
+
+import { CABECERA_COMMIT, SHA_COMPLETO } from "../../shared/version/cabecera.ts";
 import type { Vista } from "./logica.ts";
 
 export type ComprobadorDeVersion = {
@@ -47,15 +63,20 @@ export type ComprobadorDeVersion = {
   arrancar(): Promise<void>;
   /** Vuelve a pedirla y recarga si cambió. */
   comprobar(): Promise<void>;
+  /** Tanda 6D: el commit que vino en una respuesta. Recarga si no es el de la página (o lo deja pendiente si está retenida). */
+  anotar(commit: string): void;
+  /** Tanda 6D: se liberó la retención; si había una recarga pendiente, se hace ahora. */
+  liberar(): void;
 };
 
-const SHA = /^[0-9a-f]{40}$/;
+const SHA = SHA_COMPLETO;
 
 export function crearComprobadorDeVersion({
   propia = null,
   yaRecargadoPor = null,
   pedir,
   recargar,
+  retenida = () => false,
 }: {
   /** El commit de ESTA página (el del HTML que la sirvió), o null si no se sabe. */
   propia?: string | null;
@@ -63,34 +84,106 @@ export function crearComprobadorDeVersion({
   yaRecargadoPor?: string | null;
   pedir: () => Promise<string | null>;
   recargar: (nueva: string) => void;
+  /** Tanda 6D: ¿hay algo que se perdería al recargar ahora? (recargaRetenida). */
+  retenida?: () => boolean;
 }): ComprobadorDeVersion {
   let referencia: string | null = propia;
   let enCurso: Promise<void> | null = null;
   let recargando = false;
+  /** Tanda 6D: el commit por el que hay que recargar apenas se libere. */
+  let pendiente: string | null = null;
+
+  /** Lo que se hace con un commit del servidor, venga de /api/version o de cualquier respuesta. */
+  const decidir = (actual: string | null) => {
+    if (actual === null || recargando) return;
+    if (referencia === null) {
+      referencia = actual;
+      return;
+    }
+    if (actual === referencia) return;
+    // Ya se recargó por este commit y la página sigue siendo otra: no se insiste (sin bucle).
+    if (actual === yaRecargadoPor) return;
+    if (retenida()) {
+      pendiente = actual;
+      return;
+    }
+    recargando = true;
+    recargar(actual);
+  };
 
   const consultar = (): Promise<void> => {
     if (enCurso) return enCurso;
     enCurso = pedir()
       .catch(() => null)
-      .then((actual) => {
-        if (actual === null || recargando) return;
-        if (referencia === null) {
-          referencia = actual;
-          return;
-        }
-        if (actual === referencia) return;
-        // Ya se recargó por este commit y la página sigue siendo otra: no se insiste (sin bucle).
-        if (actual === yaRecargadoPor) return;
-        recargando = true;
-        recargar(actual);
-      })
+      .then(decidir)
       .finally(() => {
         enCurso = null;
       });
     return enCurso;
   };
 
-  return { arrancar: consultar, comprobar: consultar };
+  return {
+    arrancar: consultar,
+    comprobar: consultar,
+    anotar: (commit) => decidir(SHA.test(commit) ? commit : null),
+    liberar: () => {
+      if (pendiente === null || retenida()) return;
+      const p = pendiente;
+      pendiente = null;
+      decidir(p);
+    },
+  };
+}
+
+// ── Tanda 6D: el commit de cada respuesta ───────────────────────────────────
+
+/** A quién se le pasa el commit de cada respuesta: el comprobador de la página (AzulChat). Uno solo. */
+let alVerCommit: ((commit: string) => void) | null = null;
+
+/** Conecta el comprobador a las respuestas. Devuelve cómo desconectarlo. */
+export function escucharCommitDeRespuestas(f: (commit: string) => void): () => void {
+  alVerCommit = f;
+  return () => {
+    if (alVerCommit === f) alVerCommit = null;
+  };
+}
+
+/**
+ * Lo llaman los clientes HTTP de la interfaz con CADA respuesta de una ruta
+ * propia: si trae un commit completo en `X-Azul-Chat-Commit`, se compara.
+ * Sin cabecera (o con otra cosa), nada.
+ */
+export function anotarCommitDe(res: { readonly headers: Pick<Headers, "get"> }): void {
+  const commit = res.headers.get(CABECERA_COMMIT);
+  if (commit !== null && SHA.test(commit)) alVerCommit?.(commit);
+}
+
+// ── Tanda 6D: lo que retiene la recarga ─────────────────────────────────────
+
+/** Qué está reteniendo la recarga ahora (la caja con texto, una pregunta en curso). */
+const retenciones = new Set<string>();
+let alLiberar: (() => void) | null = null;
+
+/**
+ * Marca (o desmarca) algo que se perdería al recargar. Cuando ya no queda
+ * ninguno, avisa (`alLiberarRecarga`): si había una recarga pendiente, se hace.
+ */
+export function retenerRecarga(clave: string, retener: boolean): void {
+  const habia = retenciones.size > 0;
+  if (retener) retenciones.add(clave);
+  else retenciones.delete(clave);
+  if (habia && retenciones.size === 0) alLiberar?.();
+}
+
+/** ¿Hay algo que se perdería al recargar ahora? */
+export const recargaRetenida = (): boolean => retenciones.size > 0;
+
+/** Qué hacer cuando se libera la última retención. Devuelve cómo desconectarlo. */
+export function alLiberarRecarga(f: () => void): () => void {
+  alLiberar = f;
+  return () => {
+    if (alLiberar === f) alLiberar = null;
+  };
 }
 
 /** La marca que deja una recarga por versión en la URL: `#recarga=<commit>`. */
