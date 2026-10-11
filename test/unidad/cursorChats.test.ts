@@ -68,6 +68,7 @@ describe("orden de la lista de chats", () => {
     id,
     tipo: "TRANSFERENCIA_RECIBIDA",
     fecha,
+    historico: false,
     transferenciaId: 1,
     origen: { id: 9, nombre: "Depósito", esDeposito: true },
     destino: { id: 3, nombre: "Casiano" },

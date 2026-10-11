@@ -11,16 +11,22 @@
 // fecha de la operación: dos eventos del mismo milisegundo se distinguen, y uno
 // viejo que se conoció tarde cuenta como nuevo, porque para Azul Chat lo es.
 //
-// La regla de no leído (la va a usar la capa de chats):
+// La regla de no leído (la usa la capa de chats):
 //
-//   historico = false  Y  Evento.id > leidoHastaEventoId
+//   historico = false  Y  Evento.id > leidoHastaEventoId  Y  tipo visible hoy
+//
+// Desde la Tanda 4B, la historia de una capacidad nueva entra DESPUÉS que lo
+// nuevo de otra: hay eventos históricos con ids mayores que los no leídos. Por
+// eso `historico` es parte de la regla y no un detalle del backfill: un id
+// alto no dice que el evento sea nuevo para la persona. La interfaz lo sabe
+// (EventoPublico.historico) y cuenta igual (components/chats/logica.ts).
 //
 // Esto NO autoriza nada: antes de leer o marcar un local, la capa de arriba
 // comprueba con el ERP que la persona lo pueda ver hoy.
 
 import "server-only";
 
-import type { PrismaClient } from "@prisma/client";
+import type { PrismaClient, TipoEvento } from "@prisma/client";
 
 type Db = Pick<PrismaClient, "$queryRaw" | "$executeRaw">;
 
@@ -79,17 +85,21 @@ export async function avanzarLectura(db: Db, vinculoId: string, erpLocalId: numb
 }
 
 /**
- * Cuántos eventos no leídos tiene la persona en el local: no históricos y
- * posteriores a lo leído. Sin línea de base todavía, cero: lo anterior a su
- * primera visita es historia.
+ * Cuántos eventos no leídos tiene la persona en el local: no históricos,
+ * posteriores a lo leído y de los TIPOS que puede ver hoy en ese local (los
+ * de las capacidades que `mi_alcance` le anuncia; la capa de arriba los
+ * pasa). Sin línea de base todavía, cero: lo anterior a su primera visita es
+ * historia. Sin tipos, cero.
  */
-export async function contarNoLeidos(db: Db, vinculoId: string, erpLocalId: number): Promise<number> {
+export async function contarNoLeidos(db: Db, vinculoId: string, erpLocalId: number, tipos: readonly TipoEvento[]): Promise<number> {
+  if (tipos.length === 0) return 0;
   const [f] = await db.$queryRaw<{ n: bigint }[]>`
     SELECT count(e."id") AS n
     FROM "LecturaLocal" l
     JOIN "Vinculo" v ON v."id" = l."vinculoId"
     JOIN "Evento" e ON e."instalacionId" = v."instalacionId" AND e."erpLocalId" = l."erpLocalId"
     WHERE l."vinculoId" = ${vinculoId} AND l."erpLocalId" = ${erpLocalId}
-      AND e."historico" = false AND e."id" > l."leidoHastaEventoId"`;
+      AND e."historico" = false AND e."id" > l."leidoHastaEventoId"
+      AND e."tipo"::text = ANY(${[...tipos]}::text[])`;
   return Number(f?.n ?? 0n);
 }

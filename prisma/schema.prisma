@@ -93,6 +93,12 @@ model Sesion {
 /// acá, con su validador de payload en src/server/eventos/.
 enum TipoEvento {
   TRANSFERENCIA_RECIBIDA
+  /// Tanda 4B: capacidad `pedidos_eventos`, del local que pidió.
+  PEDIDO_SOLICITADO
+  /// Tanda 4B: capacidad `envios_eventos`, del local destino.
+  TRANSFERENCIA_ENVIADA
+  /// Tanda 4B: capacidad `cancelaciones_eventos`, del local destino.
+  TRANSFERENCIA_CANCELADA
 }
 
 /// UN HECHO DEL ERP, guardado UNA vez. No es de una persona ni de una
@@ -137,7 +143,8 @@ model CursorIngesta {
   id                     String    @id @default(uuid())
   instalacionId          String
   erpLocalId             Int
-  /// La capacidad del ERP que se pagina (hoy, transferencias_eventos).
+  /// La capacidad del ERP que se pagina: transferencias_eventos,
+  /// pedidos_eventos, envios_eventos o cancelaciones_eventos (CHECK en la base).
   capacidad              String
   /// El `siguiente` del ERP, tal cual lo devolvió. Null antes de la primera página.
   cursor                 Json?

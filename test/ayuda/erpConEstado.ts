@@ -22,6 +22,10 @@
 //     eventos que el test cargó para ese local (test/ayuda/paginadorErp.ts);
 //     `ventas_resumen` contesta lo que el test cargó en `respuestasVentas` y,
 //     si no cargó nada, DATOS_ERP;
+//   · `pedidos_eventos`, `envios_eventos` y `cancelaciones_eventos` (Tanda
+//     4B): como el ERP 76b9a71, el mismo portón por capacidad (si el local no
+//     la anuncia, el NO_AUTORIZADO real de `sinPermiso` del fixture
+//     erp-76b9a71.json) y la misma paginación sobre lo que cargó el test;
 //   · modos para simular caída (503 del ERP) y cuelgue (no contesta).
 //
 // Los cuerpos de respuesta y de error son los del fixture generado ejecutando
@@ -30,8 +34,8 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 import type { CursorTransferencias, EventoTransferenciaRecibida } from "../../src/shared/erp/contrato.ts";
-import { paginarEventos } from "./paginadorErp.ts";
-import { DATOS_ERP, FIXTURES_ERP, FIXTURES_ERP_25172FE, SECRETO_PRUEBA, levantarServidorErp, responderErrorErp, responderJson, type ServidorErp } from "./servidorErp.ts";
+import { paginarEventos, paginarEventos4a } from "./paginadorErp.ts";
+import { DATOS_ERP, FIXTURES_ERP, FIXTURES_ERP_25172FE, FIXTURES_ERP_76B9A71, SECRETO_PRUEBA, levantarServidorErp, responderErrorErp, responderJson, type ServidorErp } from "./servidorErp.ts";
 
 const RUTA_CANJEAR = "/api/integraciones/azul-chat/vinculo/canjear";
 const RUTA_CONSULTAR = "/api/integraciones/azul-chat/consultar";
@@ -55,6 +59,10 @@ export type ErpConEstado = ServidorErp & {
   readonly respuestasVentas: RespuestaVentasCargada[];
   /** Los eventos que el ERP tiene de cada local (por id), para paginar. */
   readonly eventosPorLocal: Map<number, EventoTransferenciaRecibida[]>;
+  /** Tanda 4B: los eventos de `pedidos_eventos`, `envios_eventos` y `cancelaciones_eventos`, por `"<capacidad>:<localId>"`. */
+  readonly eventosPorCapacidad: Map<string, object[]>;
+  /** Tanda 4B: una respuesta fija para `"<capacidad>:<localId>"`, mientras esté cargada (una capacidad que falla y otras que no). */
+  readonly respuestaParaCapacidad: Map<string, { status: number; cuerpo: unknown }>;
   /** Lo que la persona hace en el ERP: generar un código. */
   emitirCodigo(usuarioId: number): string;
   /** Lo que la persona (o un admin) hace en el ERP: desvincular. */
@@ -91,6 +99,8 @@ export async function levantarErpConEstado(): Promise<ErpConEstado> {
   const eventosPorLocal = new Map<number, EventoTransferenciaRecibida[]>();
   const respuestaParaLocal = new Map<number, { status: number; cuerpo: unknown }>();
   const respuestasVentas: RespuestaVentasCargada[] = [];
+  const eventosPorCapacidad = new Map<string, object[]>();
+  const respuestaParaCapacidad = new Map<string, { status: number; cuerpo: unknown }>();
 
   const estado = { modo: "normal" as ModoErp };
 
@@ -162,6 +172,30 @@ export async function levantarErpConEstado(): Promise<ErpConEstado> {
         });
         return responderJson(res, 200, { ok: true, datos });
       }
+      if (cuerpo.capacidad === "pedidos_eventos" || cuerpo.capacidad === "envios_eventos" || cuerpo.capacidad === "cancelaciones_eventos") {
+        // Tanda 4B: lo mismo que el ERP 76b9a71 para las tres. Una respuesta
+        // fija para (capacidad, local) va primero; si no, el portón —el local
+        // tiene que anunciar ESA capacidad— y la paginación sobre lo cargado.
+        const capacidad = cuerpo.capacidad;
+        const pedido = cuerpo.alcance as { grupoId?: unknown; localId?: unknown } | undefined;
+        const fija = typeof pedido?.localId === "number" ? respuestaParaCapacidad.get(`${capacidad}:${pedido.localId}`) : undefined;
+        if (fija) return responderJson(res, fija.status, fija.cuerpo);
+        const parametros = (cuerpo.parametros ?? {}) as { desde?: object; limite?: number };
+        const locales = (alcances.get(v.usuarioId)?.locales ?? []) as { id: number; nombre: string; grupoId: number; capacidades?: unknown }[];
+        const local = locales.find((l) => l.id === pedido?.localId && l.grupoId === pedido?.grupoId);
+        if (!local || !Array.isArray(local.capacidades) || !local.capacidades.includes(capacidad)) {
+          const negado = FIXTURES_ERP_76B9A71[capacidad].sinPermiso.respuesta;
+          return responderJson(res, negado.status, negado.cuerpo);
+        }
+        const datos = paginarEventos4a(capacidad, {
+          universo: eventosPorCapacidad.get(`${capacidad}:${local.id}`) ?? [],
+          local: { id: local.id, nombre: local.nombre },
+          grupoId: local.grupoId,
+          desde: parametros.desde,
+          limite: parametros.limite,
+        });
+        return responderJson(res, 200, { ok: true, datos });
+      }
       return responderErrorErp(res, "CAPACIDAD_NO_DISPONIBLE");
     }
 
@@ -177,6 +211,8 @@ export async function levantarErpConEstado(): Promise<ErpConEstado> {
     eventosPorLocal,
     respuestaParaLocal,
     respuestasVentas,
+    eventosPorCapacidad,
+    respuestaParaCapacidad,
     emitirCodigo(usuarioId: number) {
       // Como autorizarVinculo: revoca el vigente y crea otro, en el mismo paso.
       for (const x of vinculos) if (x.usuarioId === usuarioId) x.revocado = true;

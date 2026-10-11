@@ -36,6 +36,8 @@ const HISTORIA = datosDe("sinDesde").eventos;
 /** El 180 otra vez, después de un reset-operativo, con otra fecha. */
 const DESPUES_DEL_RESET = datosDe("despuesDelReset").eventos;
 const UN_CURSOR = (e: EventoTransferenciaRecibida): CursorTransferencias => ({ fechaRecepcion: e.fechaRecepcion, transferenciaId: e.transferenciaId });
+/** Los tipos visibles de estos candados: solo recepciones (desde la Tanda 4B, contarNoLeidos los pide). */
+const RECIBIDAS = ["TRANSFERENCIA_RECIBIDA"] as const;
 
 /**
  * El ERP, para la ingesta: pagina sobre `universo` como el contrato —estrictamente
@@ -362,7 +364,7 @@ describe("lectura por vínculo", () => {
     const w = await vinculo("00000000-0000-0000-0000-000000000002", 8);
     const evs = await enVivo(HISTORIA);
     assert.equal(await inicializarLectura(base.db, w, 3), evs.at(-1)!.id, "AA. con eventos, el máximo");
-    assert.equal(await contarNoLeidos(base.db, w, 3), 0, "lo anterior a su primera visita es historia");
+    assert.equal(await contarNoLeidos(base.db, w, 3, RECIBIDAS), 0, "lo anterior a su primera visita es historia");
     assert.equal(await inicializarLectura(base.db, v, 3), 0n, "una línea de base ya creada no se mueve");
   });
 
@@ -370,7 +372,7 @@ describe("lectura por vínculo", () => {
     const v = await vinculo("00000000-0000-0000-0000-000000000001", 7);
     await sincronizar(erpDoble(() => HISTORIA).consultar, { maxPaginas: 5 });
     assert.equal(await avanzarLectura(base.db, v, 3, 0n), 0n);
-    assert.equal(await contarNoLeidos(base.db, v, 3), 0);
+    assert.equal(await contarNoLeidos(base.db, v, 3, RECIBIDAS), 0);
   });
 
   it("U. dos eventos del mismo milisegundo se distinguen por el id de ingesta", async () => {
@@ -381,7 +383,7 @@ describe("lectura por vínculo", () => {
     assert.equal(e181!.fechaOperacion.getTime(), e182!.fechaOperacion.getTime());
     assert.ok(e181!.id < e182!.id);
     await avanzarLectura(base.db, v, 3, e181!.id);
-    assert.equal(await contarNoLeidos(base.db, v, 3), 2, "quedan el 182 y el 183");
+    assert.equal(await contarNoLeidos(base.db, v, 3, RECIBIDAS), 2, "quedan el 182 y el 183");
   });
 
   it("V. un evento con fecha más vieja que se conoce tarde cuenta como nuevo", async () => {
@@ -389,13 +391,13 @@ describe("lectura por vínculo", () => {
     await avanzarLectura(base.db, v, 3, 0n);
     const evs = await enVivo(HISTORIA.slice(2)); // 182 y 183
     await avanzarLectura(base.db, v, 3, evs.at(-1)!.id);
-    assert.equal(await contarNoLeidos(base.db, v, 3), 0);
+    assert.equal(await contarNoLeidos(base.db, v, 3, RECIBIDAS), 0);
     // El contrato del ERP no lo manda (el cursor lo impide); si un hecho así se
     // conoce tarde, la lectura por ingesta lo cuenta igual. Se inserta directo.
     const viejo = HISTORIA[0]!;
     await sql(`INSERT INTO "Evento" ("instalacionId", tipo, "claveExterna", "erpLocalId", "erpReferenciaId", "fechaOperacion", "payloadVersion", payload, historico)
                VALUES ('${INSTALACION}', 'TRANSFERENCIA_RECIBIDA', '${viejo.eventoId}', 3, ${viejo.transferenciaId}, '2026-10-07 12:00:00.000', 1, '{}', false)`);
-    assert.equal(await contarNoLeidos(base.db, v, 3), 1);
+    assert.equal(await contarNoLeidos(base.db, v, 3, RECIBIDAS), 1);
   });
 
   it("W/X. la lectura es del vínculo: la comparten sus sesiones; otro vínculo lee aparte", async () => {
@@ -411,8 +413,8 @@ describe("lectura por vínculo", () => {
     // Dos sesiones, un vínculo: no hay lectura por sesión, así que las dos ven lo mismo.
     const deSesiones = await base.db.sesion.findMany({ where: { vinculoId: v }, select: { vinculoId: true } });
     for (const s of deSesiones) assert.equal(await leerLectura(base.db, s.vinculoId, 3), evs[1]!.id);
-    assert.equal(await contarNoLeidos(base.db, v, 3), 2);
-    assert.equal(await contarNoLeidos(base.db, w, 3), 4, "X. el otro vínculo no leyó nada");
+    assert.equal(await contarNoLeidos(base.db, v, 3, RECIBIDAS), 2);
+    assert.equal(await contarNoLeidos(base.db, w, 3, RECIBIDAS), 4, "X. el otro vínculo no leyó nada");
   });
 
   it("Y/Z. la lectura nunca retrocede y se recorta al máximo real del local", async () => {

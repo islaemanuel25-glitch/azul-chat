@@ -7,13 +7,35 @@
 // la zona del teléfono (o en la que se pase, para los tests). Sin librerías:
 // Intl alcanza.
 
-import type { EventoPublico } from "../../shared/chats/api.ts";
+import type { EventoPublico, EventoTransferenciaRecibidaPublico } from "../../shared/chats/api.ts";
 
 const IDIOMA = "es-AR";
 
-/** "Transferencia #182 recibida", o "… recibida con diferencias". */
-export function resumenDeEvento(e: Pick<EventoPublico, "transferenciaId" | "tieneDiferencias">): string {
-  return `Transferencia #${e.transferenciaId} recibida${e.tieneDiferencias ? " con diferencias" : ""}`;
+/**
+ * El título de un evento, el mismo en la conversación, en General y en el
+ * resumen de la lista (Figma DpxKeDtugjdB8IfuGnHZcz, pantalla 01):
+ *
+ *   · "Transferencia #182 recibida", o "… recibida con diferencias";
+ *   · "Pedido #91 solicitado";
+ *   · "Transferencia #184 enviada";
+ *   · "Transferencia #184 cancelada".
+ */
+export function resumenDeEvento(e: EventoPublico): string {
+  switch (e.tipo) {
+    case "TRANSFERENCIA_RECIBIDA":
+      return `Transferencia #${e.transferenciaId} recibida${e.tieneDiferencias ? " con diferencias" : ""}`;
+    case "PEDIDO_SOLICITADO":
+      return `Pedido #${e.pedidoId} solicitado`;
+    case "TRANSFERENCIA_ENVIADA":
+      return `Transferencia #${e.transferenciaId} enviada`;
+    case "TRANSFERENCIA_CANCELADA":
+      return `Transferencia #${e.transferenciaId} cancelada`;
+  }
+}
+
+/** Solo una recepción con diferencias lleva marca y borde de alerta. Ningún otro tipo. */
+export function esAlerta(e: EventoPublico): boolean {
+  return e.tipo === "TRANSFERENCIA_RECIBIDA" && e.tieneDiferencias;
 }
 
 /**
@@ -21,9 +43,36 @@ export function resumenDeEvento(e: Pick<EventoPublico, "transferenciaId" | "tien
  * producto: un mismo producto puede estar en más de una línea. Sin diferencias
  * (o sin cantidad informada), nada.
  */
-export function detalleDeDiferencias(e: Pick<EventoPublico, "tieneDiferencias" | "lineasConDiferencia">): string | null {
+export function detalleDeDiferencias(e: Pick<EventoTransferenciaRecibidaPublico, "tieneDiferencias" | "lineasConDiferencia">): string | null {
   if (!e.tieneDiferencias || e.lineasConDiferencia <= 0) return null;
   return e.lineasConDiferencia === 1 ? "1 línea con diferencia" : `${e.lineasConDiferencia} líneas con diferencias`;
+}
+
+/** "1 línea", "12 líneas": las líneas del pedido o del remito, como las contó el ERP. */
+export function cantidadDeLineas(k: number): string {
+  return k === 1 ? "1 línea" : `${k.toLocaleString(IDIOMA)} líneas`;
+}
+
+/**
+ * Lo secundario de un evento, en una sola línea chica, separado por " · ":
+ *
+ *   · recibida: [líneas con diferencias] · Desde {origen} · hora;
+ *   · pedido: A {origen} · {k} línea(s) · hora (se le pide al origen);
+ *   · enviada: Desde {origen} · {k} línea(s) · hora;
+ *   · cancelada: Desde {origen} · hora.
+ */
+export function metaDeEvento(e: EventoPublico, zona?: string): string {
+  const hora = formatearHora(e.fecha, zona);
+  switch (e.tipo) {
+    case "TRANSFERENCIA_RECIBIDA":
+      return [detalleDeDiferencias(e), `Desde ${e.origen.nombre}`, hora].filter(Boolean).join(" · ");
+    case "PEDIDO_SOLICITADO":
+      return [`A ${e.origen.nombre}`, cantidadDeLineas(e.lineas), hora].join(" · ");
+    case "TRANSFERENCIA_ENVIADA":
+      return [`Desde ${e.origen.nombre}`, cantidadDeLineas(e.lineas), hora].join(" · ");
+    case "TRANSFERENCIA_CANCELADA":
+      return [`Desde ${e.origen.nombre}`, hora].join(" · ");
+  }
 }
 
 /** El día calendario del instante en esa zona, como "AAAA-MM-DD". */

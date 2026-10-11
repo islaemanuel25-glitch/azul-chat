@@ -32,9 +32,9 @@ import type { EventoPublico, RespuestaChats, RespuestaGeneral, RespuestaLeido, R
 import type { DatosMiAlcance, EventoTransferenciaRecibida } from "../../src/shared/erp/contrato.ts";
 import { crearBaseDescartable, type BaseDescartable } from "../ayuda/baseDescartable.ts";
 import { levantarErpConEstado, type ErpConEstado } from "../ayuda/erpConEstado.ts";
-import { recepcion } from "../ayuda/paginadorErp.ts";
+import { cancelacion, envio, pedido, recepcion } from "../ayuda/paginadorErp.ts";
 import { decidirLecturaLocal, reducirConversacion, type EstadoConversacion, type InfoLocal } from "../../src/components/chats/logica.ts";
-import { FIXTURES_ERP, FIXTURES_ERP_25172FE, SECRETO_PRUEBA, type Rompible } from "../ayuda/servidorErp.ts";
+import { FIXTURES_ERP, FIXTURES_ERP_25172FE, FIXTURES_ERP_76B9A71, SECRETO_PRUEBA, type Rompible } from "../ayuda/servidorErp.ts";
 
 const ORIGEN = "https://chat.ejemplo.invalid";
 const INSTALACION = "instalacion-prueba";
@@ -51,6 +51,12 @@ const CAJERO = 12;
 /** Los locales del `mi_alcance` real de adminGlobal: Belgrano (5, inactivo), Casiano (3), Depósito Central (9), Centro (20, otro grupo). */
 const CASIANO = { id: 3, nombre: "Casiano" };
 const DEPOSITO = { id: 9, nombre: "Depósito Central" };
+/** Un evento que tiene que ser una recepción: el tipo se comprueba, no se supone. */
+function recibida<E extends EventoPublico>(e: E): Extract<E, { tipo: "TRANSFERENCIA_RECIBIDA" }> {
+  assert.equal(e.tipo, "TRANSFERENCIA_RECIBIDA");
+  return e as Extract<E, { tipo: "TRANSFERENCIA_RECIBIDA" }>;
+}
+
 /** Los cuatro eventos REALES de Casiano en el fixture. */
 const HISTORIA_CASIANO = structuredClone((TE.sinDesde.respuesta.cuerpo.datos as { eventos: EventoTransferenciaRecibida[] }).eventos);
 
@@ -73,6 +79,8 @@ beforeEach(async () => {
   erp.respuestasEventos.length = 0;
   erp.respuestaParaLocal.clear();
   erp.eventosPorLocal.clear();
+  erp.eventosPorCapacidad.clear();
+  erp.respuestaParaCapacidad.clear();
   erp.ponerModo("normal");
   erp.alcances.clear();
   erp.alcances.set(ADMIN, alcance("adminGlobal"));
@@ -277,7 +285,7 @@ describe("autorización viva por capacidad", () => {
     const g = await general(adm);
     assert.equal(g.status, 200);
     assert.ok(g.cuerpo.eventos.every((e) => e.local.localId !== CASIANO.id), "General no muestra a Casiano");
-    assert.ok(!g.texto.includes('"Casiano"') || g.cuerpo.eventos.every((e) => e.destino.id !== CASIANO.id));
+    assert.ok(!g.texto.includes('"Casiano"') || g.cuerpo.eventos.every((e) => recibida(e).destino.id !== CASIANO.id));
     const m = await leido(adm, { marcas: [{ localId: CASIANO.id, hastaEventoId: "1" }] });
     assert.equal(m.status, 403);
     assert.deepEqual(await leidoHastaEnBase(CASIANO.id), leidoAntes);
@@ -455,9 +463,9 @@ describe("GET /api/chats", () => {
     assert.deepEqual(idsDeLocales(r.cuerpo), [3, 9, 5, 20]);
     const casiano = delLocal(r.cuerpo, CASIANO.id)!;
     assert.deepEqual(Object.keys(casiano).sort(), ["esDeposito", "localId", "noLeidos", "nombre", "sincronizacion", "ultimoEvento"]);
-    assert.equal(casiano.ultimoEvento!.transferenciaId, 183);
+    assert.equal(recibida(casiano.ultimoEvento!).transferenciaId, 183);
     assert.equal(delLocal(r.cuerpo, DEPOSITO.id)!.esDeposito, true);
-    assert.equal(r.cuerpo.general.ultimoEvento!.transferenciaId, 183);
+    assert.equal(recibida(r.cuerpo.general.ultimoEvento!).transferenciaId, 183);
     assert.deepEqual(r.cuerpo.general.ultimoEvento!.local, { localId: 3, nombre: "Casiano" });
 
     // No ordena por no leídos: un no leído en Depósito con fecha vieja no lo sube.
@@ -487,21 +495,26 @@ describe("GET local y General: forma pública y proyección", () => {
     assert.deepEqual(r.cuerpo.local, { localId: 3, nombre: "Casiano", esDeposito: false, ventas: true });
     const ids = r.cuerpo.eventos.map((e) => e.id);
     // Los cuatro, del más reciente al más antiguo; 181 y 182 en el mismo milisegundo, por id descendente.
-    assert.deepEqual(r.cuerpo.eventos.map((e) => e.transferenciaId), [183, 182, 181, 180]);
+    assert.deepEqual(r.cuerpo.eventos.map((e) => recibida(e).transferenciaId), [183, 182, 181, 180]);
     assert.deepEqual(ids, ["9007199254740996", "9007199254740995", "9007199254740994", "9007199254740993"], "exacto: ningún id pasó por Number");
     assert.equal(r.cuerpo.leidoHasta, "9007199254740996");
     const e = r.cuerpo.eventos[2]!;
+    // Tanda 4B: `historico` sale, como booleano y nada más, para que la
+    // interfaz cuente los no leídos con la misma regla que el servidor. Estos
+    // cuatro entraron con el backfill: son historia.
     assert.deepEqual(e, {
       id: "9007199254740994",
       tipo: "TRANSFERENCIA_RECIBIDA",
       fecha: "2026-10-07T13:30:15.250Z",
+      historico: true,
       transferenciaId: 181,
       origen: { id: 9, nombre: "Depósito Central", esDeposito: true },
       destino: { id: 3, nombre: "Casiano" },
       tieneDiferencias: true,
       lineasConDiferencia: 2,
     } satisfies EventoPublico);
-    for (const prohibido of ["instalacion", "claveExterna", "eventoId", "historico", "ingeridoEn", "payload", "version", "erpLocalId", "vinculo", "token"]) {
+    assert.ok(r.cuerpo.eventos.every((x) => typeof x.historico === "boolean"));
+    for (const prohibido of ["instalacion", "claveExterna", "eventoId", "ingeridoEn", "payload", "version", "erpLocalId", "vinculo", "token"]) {
       assert.ok(!r.texto.includes(prohibido), `la respuesta no lleva ${prohibido}`);
     }
     const g = await general(adm);
@@ -535,7 +548,7 @@ describe("GET local y General: forma pública y proyección", () => {
         publico,
         `el evento ${e.id} es el mismo en General y en ${deQuien.nombre}`,
       );
-      assert.equal(e.destino.id, deQuien.localId);
+      assert.equal(recibida(e).destino.id, deQuien.localId);
     }
     assert.equal(new Set(g.cuerpo.eventos.map((e) => e.id)).size, g.cuerpo.eventos.length, "sin duplicados");
 
@@ -676,8 +689,8 @@ describe("lectura: explícita, por vínculo y local", () => {
     // Depósito recibe algo con fecha ANTERIOR a todo Casiano; se conoce ahora.
     recibir(DEPOSITO, 303, "2026-10-07T09:00:00.000Z");
     const g = await general(adm);
-    const posicion = g.cuerpo.eventos.findIndex((e) => e.transferenciaId === 303);
-    assert.deepEqual(g.cuerpo.eventos.map((e) => e.transferenciaId), [183, 182, 181, 180, 303, 300], "por fecha, no por llegada");
+    const posicion = g.cuerpo.eventos.findIndex((e) => recibida(e).transferenciaId === 303);
+    assert.deepEqual(g.cuerpo.eventos.map((e) => recibida(e).transferenciaId), [183, 182, 181, 180, 303, 300], "por fecha, no por llegada");
     const tarde = g.cuerpo.eventos[posicion]!;
     assert.ok(g.cuerpo.eventos.every((e) => e === tarde || BigInt(e.id) < BigInt(tarde.id)), "es el de mayor id");
     assert.equal(g.cuerpo.noLeidos, 1, "y es el único nuevo");
@@ -885,5 +898,251 @@ describe("la lectura que decide la interfaz, contra el servidor (Tanda 2C)", () 
     const mayor = p1.cuerpo.eventos.map((x) => BigInt(x.id)).reduce((a, b) => (a > b ? a : b));
     const r = await leido(adm, { marcas: [{ localId: CASIANO.id, hastaEventoId: mayor.toString() }] });
     assert.equal(r.cuerpo.lecturas[0]!.noLeidos, 0, "así quedaba: 0 no leídos con 10 nunca mostrados (lo que la regla nueva impide)");
+  });
+});
+
+// ── Tanda 4B: pedidos, envíos y cancelaciones ───────────────────────────────
+//
+// Las tres capacidades de eventos nuevas del ERP 76b9a71, de punta a punta: el
+// doble del ERP aplica el MISMO portón por capacidad que el ERP (sin el anuncio
+// en ese local, el NO_AUTORIZADO real de `sinPermiso` de erp-76b9a71.json) y
+// pagina con sus mismas reglas; los eventos tienen la forma de los reales de
+// ese fixture (test/ayuda/paginadorErp.ts).
+
+const TODAS_LAS_DE_EVENTOS = ["ventas_resumen", "transferencias_eventos", "pedidos_eventos", "envios_eventos", "cancelaciones_eventos"];
+const DEPOSITO_ORIGEN = { id: 9, nombre: "Depósito Central" };
+
+/** Carga eventos de una capacidad nueva en el ERP de mentira, para ese local. */
+function cargar(capacidad: "pedidos_eventos" | "envios_eventos" | "cancelaciones_eventos", localId: number, eventos: readonly object[]) {
+  const clave = `${capacidad}:${localId}`;
+  erp.eventosPorCapacidad.set(clave, [...(erp.eventosPorCapacidad.get(clave) ?? []), ...eventos]);
+}
+const cursorDe = (capacidad: string, localId = CASIANO.id) =>
+  base.db.cursorIngesta.findUnique({ where: { instalacionId_erpLocalId_capacidad: { instalacionId: INSTALACION, erpLocalId: localId, capacidad } } });
+const tiposDe = (eventos: readonly EventoPublico[]) => [...new Set(eventos.map((e) => e.tipo))].sort();
+const sql = (q: string) => base.db.$executeRawUnsafe(q);
+
+describe("Tanda 4B: las tres capacidades nuevas, de punta a punta", () => {
+  it("pedido, envío y cancelación llegan con su forma pública, en Local y en General con su local, sin duplicar", async () => {
+    capacidadesDe(ADMIN, CASIANO.id, TODAS_LAS_DE_EVENTOS);
+    cargar("pedidos_eventos", CASIANO.id, [pedido({ pedidoId: 91, fecha: "2026-10-07T15:00:00.000Z", origen: DEPOSITO_ORIGEN, lineas: 3 })]);
+    cargar("envios_eventos", CASIANO.id, [envio({ transferenciaId: 184, fecha: "2026-10-07T16:00:00.000Z", origen: DEPOSITO_ORIGEN, lineas: 12, pedidoId: 91 })]);
+    cargar("cancelaciones_eventos", CASIANO.id, [cancelacion({ transferenciaId: 185, fecha: "2026-10-07T17:00:00.000Z", origen: DEPOSITO_ORIGEN, pedidoId: null })]);
+    const adm = await vincular(ADMIN);
+
+    const l = await local(adm, CASIANO.id);
+    assert.equal(l.status, 200, l.texto);
+    const [cancelada, enviada, pedida] = l.cuerpo.eventos;
+    // Entraron con el backfill de cada capacidad: son historia. Del ERP, solo lo que se muestra.
+    assert.deepEqual(pedida && { ...pedida, id: "x" }, {
+      id: "x",
+      tipo: "PEDIDO_SOLICITADO",
+      fecha: "2026-10-07T15:00:00.000Z",
+      historico: true,
+      pedidoId: 91,
+      origen: DEPOSITO_ORIGEN,
+      lineas: 3,
+    } satisfies EventoPublico);
+    assert.deepEqual(enviada && { ...enviada, id: "x" }, {
+      id: "x",
+      tipo: "TRANSFERENCIA_ENVIADA",
+      fecha: "2026-10-07T16:00:00.000Z",
+      historico: true,
+      transferenciaId: 184,
+      origen: DEPOSITO_ORIGEN,
+      lineas: 12,
+    } satisfies EventoPublico);
+    assert.deepEqual(cancelada && { ...cancelada, id: "x" }, {
+      id: "x",
+      tipo: "TRANSFERENCIA_CANCELADA",
+      fecha: "2026-10-07T17:00:00.000Z",
+      historico: true,
+      transferenciaId: 185,
+      origen: DEPOSITO_ORIGEN,
+    } satisfies EventoPublico);
+    assert.equal(l.cuerpo.eventos.length, 3 + 4, "los tres nuevos y las cuatro recepciones reales");
+    for (const prohibido of ["claveExterna", "payload", "erpLocalId"]) assert.ok(!l.texto.includes(prohibido), prohibido);
+
+    const c = await chats(adm);
+    assert.equal(delLocal(c.cuerpo, CASIANO.id)!.ultimoEvento!.tipo, "TRANSFERENCIA_CANCELADA", "el último por fecha, sea del tipo que sea");
+    const g = await general(adm);
+    const deCasiano = g.cuerpo.eventos.filter((e) => e.local.localId === CASIANO.id);
+    assert.deepEqual(tiposDe(deCasiano), ["PEDIDO_SOLICITADO", "TRANSFERENCIA_CANCELADA", "TRANSFERENCIA_ENVIADA", "TRANSFERENCIA_RECIBIDA"]);
+    assert.equal(new Set(g.cuerpo.eventos.map((e) => e.id)).size, g.cuerpo.eventos.length, "sin duplicados");
+    for (const e of deCasiano) {
+      const { local: deQuien, ...publico } = e;
+      assert.deepEqual(l.cuerpo.eventos.find((x) => x.id === e.id), publico, `el ${e.id} es el mismo en General y en Casiano`);
+      assert.deepEqual(deQuien, { localId: CASIANO.id, nombre: "Casiano" });
+    }
+  });
+
+  it("una capacidad que mi_alcance no anuncia en ese local no se ingiere ni se muestra, aunque otra persona la haya traído", async () => {
+    cargar("pedidos_eventos", CASIANO.id, [pedido({ pedidoId: 91, fecha: "2026-10-07T15:00:00.000Z" })]);
+    // El encargado real (25172fe): Casiano con transferencias_eventos y ventas, sin pedidos_eventos.
+    const enc = await vincular(ENCARGADO);
+    const r = await local(enc, CASIANO.id);
+    assert.equal(r.status, 200, r.texto);
+    assert.equal(consultas("pedidos_eventos").length, 0, "no se le pidió al ERP");
+    assert.equal(await cursorDe("pedidos_eventos"), null, "ni se creó su cursor");
+    assert.deepEqual(tiposDe(r.cuerpo.eventos), ["TRANSFERENCIA_RECIBIDA"]);
+
+    // El admin sí la tiene: la trae. Lo guardado no autoriza al encargado.
+    capacidadesDe(ADMIN, CASIANO.id, TODAS_LAS_DE_EVENTOS);
+    const adm = await vincular(ADMIN);
+    assert.deepEqual(tiposDe((await local(adm, CASIANO.id)).cuerpo.eventos), ["PEDIDO_SOLICITADO", "TRANSFERENCIA_RECIBIDA"]);
+    assert.equal(await base.db.evento.count({ where: { tipo: "PEDIDO_SOLICITADO" } }), 1);
+    vencer();
+    await sql(`UPDATE "Evento" SET historico = false WHERE tipo = 'PEDIDO_SOLICITADO'`);
+    await sql(`UPDATE "LecturaLocal" SET "leidoHastaEventoId" = 0`);
+    const otra = await local(enc, CASIANO.id);
+    assert.deepEqual(tiposDe(otra.cuerpo.eventos), ["TRANSFERENCIA_RECIBIDA"], "ni en Local");
+    assert.equal(otra.cuerpo.noLeidos, 0, "ni en la cuenta de no leídos");
+    const g = await general(enc);
+    assert.deepEqual(tiposDe(g.cuerpo.eventos), ["TRANSFERENCIA_RECIBIDA"], "ni en General");
+    assert.equal(g.cuerpo.noLeidos, 0);
+    assert.equal(delLocal((await chats(enc)).cuerpo, CASIANO.id)!.ultimoEvento!.tipo, "TRANSFERENCIA_RECIBIDA", "ni como último de la lista");
+  });
+
+  it("un local que anuncia solo una capacidad nueva es un chat, con solo sus tipos", async () => {
+    capacidadesDe(ENCARGADO, CASIANO.id, ["pedidos_eventos"]);
+    cargar("pedidos_eventos", CASIANO.id, [pedido({ pedidoId: 91, fecha: "2026-10-07T15:00:00.000Z" })]);
+    const enc = await vincular(ENCARGADO);
+    const c = await chats(enc);
+    assert.deepEqual(idsDeLocales(c.cuerpo), [CASIANO.id]);
+    assert.equal(consultas("transferencias_eventos").length, 0);
+    assert.deepEqual(tiposDe((await local(enc, CASIANO.id)).cuerpo.eventos), ["PEDIDO_SOLICITADO"]);
+  });
+
+  it("si una capacidad falla en un local, las otras siguen y el local queda DEMORADA con lo guardado", async () => {
+    capacidadesDe(ADMIN, CASIANO.id, TODAS_LAS_DE_EVENTOS);
+    cargar("pedidos_eventos", CASIANO.id, [pedido({ pedidoId: 91, fecha: "2026-10-07T15:00:00.000Z" })]);
+    cargar("envios_eventos", CASIANO.id, [envio({ transferenciaId: 184, fecha: "2026-10-07T16:00:00.000Z" })]);
+    cargar("cancelaciones_eventos", CASIANO.id, [cancelacion({ transferenciaId: 185, fecha: "2026-10-07T17:00:00.000Z" })]);
+    erp.respuestaParaCapacidad.set(`envios_eventos:${CASIANO.id}`, FIXTURES_ERP.errores.INTEGRACION_NO_DISPONIBLE!);
+    const adm = await vincular(ADMIN);
+    const c = await chats(adm);
+    assert.equal(c.status, 200, c.texto);
+    assert.equal(delLocal(c.cuerpo, CASIANO.id)!.sincronizacion, "DEMORADA");
+    assert.equal(delLocal(c.cuerpo, DEPOSITO.id)!.sincronizacion, "AL_DIA", "los otros locales siguen");
+    // Las demás capacidades de Casiano se trajeron igual, después de la que falló.
+    assert.deepEqual(tiposDe((await general(adm)).cuerpo.eventos.filter((e) => e.local.localId === CASIANO.id)), [
+      "PEDIDO_SOLICITADO",
+      "TRANSFERENCIA_CANCELADA",
+      "TRANSFERENCIA_RECIBIDA",
+    ]);
+    const envios = await cursorDe("envios_eventos");
+    assert.equal(envios!.ultimoErrorCodigo, "INTEGRACION_NO_DISPONIBLE");
+    assert.equal(envios!.cursor, null, "el cursor de la que falló no se movió");
+    assert.equal((await cursorDe("cancelaciones_eventos"))!.ultimoErrorCodigo, null);
+
+    // Se arregla: la siguiente visita la trae y el local vuelve a estar al día.
+    erp.respuestaParaCapacidad.clear();
+    vencer();
+    const d = await chats(adm);
+    assert.equal(delLocal(d.cuerpo, CASIANO.id)!.sincronizacion, "AL_DIA");
+    assert.equal(await base.db.evento.count({ where: { tipo: "TRANSFERENCIA_ENVIADA" } }), 1);
+  });
+
+  it("si el ERP niega UNA capacidad, sus tipos salen de esta respuesta y el local sigue con las otras", async () => {
+    capacidadesDe(ADMIN, CASIANO.id, TODAS_LAS_DE_EVENTOS);
+    cargar("pedidos_eventos", CASIANO.id, [pedido({ pedidoId: 91, fecha: "2026-10-07T15:00:00.000Z" })]);
+    const adm = await vincular(ADMIN);
+    assert.deepEqual(tiposDe((await local(adm, CASIANO.id)).cuerpo.eventos), ["PEDIDO_SOLICITADO", "TRANSFERENCIA_RECIBIDA"]);
+    vencer();
+    const negado = FIXTURES_ERP_76B9A71.pedidos_eventos.sinPermiso.respuesta;
+    erp.respuestaParaCapacidad.set(`pedidos_eventos:${CASIANO.id}`, negado);
+    const r = await local(adm, CASIANO.id);
+    assert.equal(r.status, 200, r.texto);
+    assert.deepEqual(tiposDe(r.cuerpo.eventos), ["TRANSFERENCIA_RECIBIDA"], "fallo cerrado para esa capacidad");
+    assert.equal(r.cuerpo.sincronizacion, "AL_DIA", "un NO_AUTORIZADO no es una demora");
+  });
+
+  it("VINCULO_NO_VALIDO en una capacidad nueva corta todo e invalida el vínculo, como siempre", async () => {
+    capacidadesDe(ADMIN, CASIANO.id, TODAS_LAS_DE_EVENTOS);
+    erp.respuestaParaCapacidad.set(`cancelaciones_eventos:${CASIANO.id}`, FIXTURES_ERP.errores.VINCULO_NO_VALIDO!);
+    const adm = await vincular(ADMIN);
+    const r = await chats(adm);
+    assert.equal(r.status, 401);
+    assert.deepEqual(r.cuerpo, { estado: "SIN_SESION", motivo: "VINCULO_INVALIDO" });
+  });
+
+  it("frecuencia mínima por (local, capacidad): una capacidad recién anunciada se trae aunque las otras estén frescas", async () => {
+    const adm = await vincular(ADMIN);
+    await chats(adm);
+    const antes = consultas("transferencias_eventos").length;
+    capacidadesDe(ADMIN, CASIANO.id, TODAS_LAS_DE_EVENTOS);
+    cargar("pedidos_eventos", CASIANO.id, [pedido({ pedidoId: 91, fecha: "2026-10-07T15:00:00.000Z" })]);
+    await chats(adm);
+    assert.equal(consultas("transferencias_eventos").length, antes, "las recepciones estaban frescas");
+    assert.equal(consultas("pedidos_eventos").length, 1, "los pedidos, recién anunciados, no");
+    await chats(adm);
+    assert.equal(consultas("pedidos_eventos").length, 1, "y dentro de 30 s no se repite");
+  });
+});
+
+describe("Tanda 4B: la lectura con varios tipos y backfills intercalados", () => {
+  const estadoDe = (r: Extract<RespuestaLocal, { estado: "OK" }>): EstadoConversacion<EventoPublico, InfoLocal> => ({
+    fase: "LISTA",
+    eventos: r.eventos,
+    siguiente: r.siguiente,
+    anteriores: "QUIETO",
+    info: {
+      tipo: "LOCAL",
+      localId: r.local.localId,
+      nombre: r.local.nombre,
+      sincronizacion: r.sincronizacion,
+      leidoHasta: r.leidoHasta,
+      noLeidos: r.noLeidos,
+      ventas: r.local.ventas,
+    },
+  });
+
+  it("backfill de una capacidad nueva con muchos ids altos + 2 nuevos reales: noLeidos = 2, y no se marca hasta que esos 2 estén a la vista", async () => {
+    const adm = await vincular(ADMIN);
+    await chats(adm); // backfill de recepciones y línea de base
+    vencer();
+    // Dos recepciones nuevas de verdad, con fecha anterior a todos los pedidos…
+    recibir(CASIANO, 500, "2026-10-07T20:00:00.000Z");
+    recibir(CASIANO, 501, "2026-10-07T20:01:00.000Z");
+    // …y la capacidad de pedidos anunciada desde hoy, con 45 pedidos viejos y más recientes que esas dos.
+    capacidadesDe(ADMIN, CASIANO.id, TODAS_LAS_DE_EVENTOS);
+    cargar(
+      "pedidos_eventos",
+      CASIANO.id,
+      Array.from({ length: 45 }, (_, i) => pedido({ pedidoId: 100 + i, fecha: new Date(Date.parse("2026-10-08T01:00:00.000Z") + i * 60_000).toISOString() })),
+    );
+
+    const p1 = await local(adm, CASIANO.id);
+    assert.equal(p1.status, 200, p1.texto);
+    assert.equal(p1.cuerpo.noLeidos, 2);
+    assert.equal(delLocal((await chats(adm)).cuerpo, CASIANO.id)!.noLeidos, 2, "en la lista, lo mismo");
+    // La trampa es real: los pedidos del backfill entraron DESPUÉS, con ids mayores que lo leído y que las dos nuevas.
+    const nuevas = await base.db.evento.findMany({ where: { erpLocalId: CASIANO.id, historico: false }, select: { id: true }, orderBy: { id: "asc" } });
+    assert.equal(nuevas.length, 2);
+    const leidoHasta = BigInt(p1.cuerpo.leidoHasta);
+    const altos = p1.cuerpo.eventos.filter((e) => BigInt(e.id) > leidoHasta);
+    assert.equal(altos.length, 30, "la primera página entera tiene ids por encima de lo leído…");
+    assert.ok(altos.every((e) => e.historico && e.tipo === "PEDIDO_SOLICITADO"), "…y son todos historia");
+    assert.ok(altos.every((e) => BigInt(e.id) > nuevas.at(-1)!.id));
+
+    let e = estadoDe(p1.cuerpo);
+    assert.deepEqual(decidirLecturaLocal(e), { tipo: "FALTAN", nuevosMostrados: 0, noLeidos: 2 }, "no se marca: las 2 nuevas no están a la vista");
+
+    // Se cargan las anteriores hasta que aparecen las dos.
+    let siguiente = p1.cuerpo.siguiente;
+    while (siguiente && decidirLecturaLocal(e).tipo === "FALTAN") {
+      const p = await local(adm, CASIANO.id, siguiente);
+      e = reducirConversacion(e, { tipo: "ANTERIORES", eventos: p.cuerpo.eventos, siguiente: p.cuerpo.siguiente });
+      siguiente = p.cuerpo.siguiente;
+    }
+    const mostrados = new Set(e.fase === "LISTA" ? e.eventos.map((x) => x.id) : []);
+    for (const n of nuevas) assert.ok(mostrados.has(n.id.toString()), `la ${n.id} está a la vista antes de marcar`);
+    const d = decidirLecturaLocal(e);
+    assert.equal(d.tipo, "MARCAR");
+    if (d.tipo !== "MARCAR") return;
+    assert.equal(d.marca.hastaEventoId, nuevas.at(-1)!.id.toString(), "hasta la mayor de las nuevas, no hasta un pedido histórico");
+    const r = await leido(adm, { marcas: [d.marca] });
+    assert.equal(r.status, 200, r.texto);
+    assert.equal(r.cuerpo.lecturas[0]!.noLeidos, 0);
   });
 });

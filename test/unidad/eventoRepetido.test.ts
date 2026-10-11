@@ -15,7 +15,7 @@ import type { DatosTransferenciasEventos } from "../../src/shared/erp/contrato.t
 import { FIXTURES_ERP_25172FE, type Rompible } from "../ayuda/servidorErp.ts";
 
 /** El evento 182 real del fixture del ERP, como fila. */
-const NUEVA: FilaEvento = aFilaEvento((FIXTURES_ERP_25172FE.transferenciasEventos.pagina2.respuesta.cuerpo.datos as DatosTransferenciasEventos).eventos[0]!);
+const NUEVA: FilaEvento<PayloadTransferenciaRecibidaV1> = aFilaEvento((FIXTURES_ERP_25172FE.transferenciasEventos.pagina2.respuesta.cuerpo.datos as DatosTransferenciasEventos).eventos[0]!);
 /** Lo guardado: la misma fila, con el tipo como texto, como sale de la base. */
 const guardado = (cambio: Partial<EventoGuardado> = {}): EventoGuardado => ({
   tipo: NUEVA.tipo,
