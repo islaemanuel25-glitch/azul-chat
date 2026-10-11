@@ -258,3 +258,26 @@ Solo un estado, sin mensaje, stack, URL interna, respuesta del ERP ni token:
 
 La ingesta demorada de un local no es un error: es `sincronizacion: "DEMORADA"`
 dentro de una respuesta buena.
+
+## Notificaciones push (Tanda 5A)
+
+Tres rutas más, ninguna llama al ERP:
+
+- `GET /api/push/clave`: `{ estado: "OK", clave }`, la clave pública VAPID
+  (no es secreta; no va por `NEXT_PUBLIC_`). Sin claves configuradas, 503
+  `NO_DISPONIBLE`.
+- `POST /api/push/suscribir`: el cuerpo es `PushSubscription.toJSON()`
+  (`endpoint`, `expirationTime`, `keys { p256dh, auth }`), exacto. Sesión y
+  Origin, como vincular. El endpoint tiene que ser https, sin usuario ni
+  puerto, de un servicio de push conocido; si no, `SOLICITUD_INVALIDA`. Queda
+  colgada de la sesión de la solicitud; el mismo endpoint otra vez la actualiza.
+- `DELETE /api/push/suscribir`: `{ endpoint }`. Borra solo una suscripción de
+  la persona de la sesión.
+
+Qué se avisa y cuándo lo decide la sincronización de fondo, con `mi_alcance`
+vivo en cada corrida (`docs/EVENTOS.md`): guardar una suscripción no autoriza
+nada.
+
+`POST /api/interno/sincronizar` no es del navegador ni de esta API: es del timer
+del VPS, por 127.0.0.1 y con su secreto; a todo lo demás le contesta 404
+(`docs/DEPLOY.md`).

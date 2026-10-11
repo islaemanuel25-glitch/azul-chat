@@ -1,0 +1,25 @@
+# Sincronización en segundo plano de Azul Chat y avisos push (Tanda 5A).
+# Unidad de USUARIO de systemd (~/.config/systemd/user/), con linger: corre
+# aunque nadie tenga sesión. Instalación y comandos: docs/DEPLOY.md, sección
+# "Sincronización en segundo plano".
+#
+# El script hace UN POST a 127.0.0.1:3100/api/interno/sincronizar con el
+# secreto de la tarea, que lee de ~/.config/azul-chat/tarea.secreto (600). El
+# secreto no va en esta unidad ni en el repo.
+#
+# La salida va al journal: journalctl --user -u azul-chat-sincronizar
+# (código HTTP y cuentas; nunca el secreto).
+
+[Unit]
+Description=Sincronización en segundo plano de Azul Chat
+Documentation=file:///srv/produccion/azul-chat/docs/DEPLOY.md
+
+[Service]
+Type=oneshot
+ExecStart=/srv/produccion/azul-chat/ops/sincronizar/sincronizar-azul-chat.sh
+WorkingDirectory=/srv/produccion/azul-chat
+StandardOutput=journal
+StandardError=journal
+# Una corrida no puede pisar a la siguiente: el timer no arranca otra mientras esta sigue.
+TimeoutStartSec=115
+Nice=10

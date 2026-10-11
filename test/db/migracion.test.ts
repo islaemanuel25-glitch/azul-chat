@@ -40,7 +40,7 @@ describe("la migración", () => {
     const tablas = await base.db.$queryRawUnsafe<{ t: string }[]>(
       `SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' ORDER BY 1`,
     );
-    assert.deepEqual(tablas.map((x) => x.t), ["CursorIngesta", "Evento", "Instalacion", "LecturaLocal", "Sesion", "Vinculo", "_prisma_migrations"]);
+    assert.deepEqual(tablas.map((x) => x.t), ["AvisoLocal", "CursorIngesta", "Evento", "Instalacion", "LecturaLocal", "PushSuscripcion", "Sesion", "Vinculo", "_prisma_migrations"]);
     const aplicadas = await base.db.$queryRawUnsafe<{ n: string }[]>(`SELECT migration_name AS n FROM _prisma_migrations WHERE finished_at IS NOT NULL`);
     const enElRepo = readdirSync(path.join(RAIZ, "prisma/migrations"), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name);
     assert.deepEqual(aplicadas.map((x) => x.n).sort(), enElRepo.sort());
@@ -56,7 +56,15 @@ describe("la migración", () => {
     // `capacidad` nombra lo que se pagina, no algo que la persona pueda;
     // `ultimoErrorCodigo` es un código cerrado, nunca un mensaje; y no hay
     // ningún token, sesión, rol, permiso, alcance ni lista de capacidades.
+    // Las de la Tanda 5A: `PushSuscripcion` guarda lo que el NAVEGADOR entrega
+    // al suscribirse (el endpoint del servicio de push y sus claves PÚBLICAS de
+    // cifrado), no un secreto de Azul Chat ni del ERP; `AvisoLocal` es una
+    // marca de agua sobre Evento.id, como LecturaLocal.
     assert.deepEqual(columnas.map((x) => x.c), [
+      "AvisoLocal.actualizadoEn",
+      "AvisoLocal.avisadoHastaEventoId",
+      "AvisoLocal.erpLocalId",
+      "AvisoLocal.vinculoId",
       "CursorIngesta.arrendadoHasta",
       "CursorIngesta.arrendadoPor",
       "CursorIngesta.backfillCompletoEn",
@@ -88,6 +96,16 @@ describe("la migración", () => {
       "LecturaLocal.erpLocalId",
       "LecturaLocal.leidoHastaEventoId",
       "LecturaLocal.vinculoId",
+      "PushSuscripcion.auth",
+      "PushSuscripcion.creadaEn",
+      "PushSuscripcion.endpoint",
+      "PushSuscripcion.id",
+      "PushSuscripcion.p256dh",
+      "PushSuscripcion.sesionId",
+      "PushSuscripcion.ultimoEnvioEn",
+      "PushSuscripcion.ultimoErrorCodigo",
+      "PushSuscripcion.ultimoErrorEn",
+      "PushSuscripcion.vinculoId",
       "Sesion.creadaEn",
       "Sesion.expiraEn",
       "Sesion.id",
@@ -219,6 +237,28 @@ describe("40. invariantes que sostiene la base", () => {
     await rechaza(insertar("B".repeat(64)), CHECK);
     await rechaza(insertar("c".repeat(64), "now()"), CHECK);
     await rechaza(insertar("d".repeat(64), "now() + interval '1 day'", "now() - interval '1 hour'"), CHECK);
+  });
+
+  it("5A. una suscripción push: endpoint https único, claves con la forma del navegador, error con fecha y código juntos; la marca de avisos no es negativa", async () => {
+    const [s] = await base.db.$queryRawUnsafe<{ id: string }[]>(`SELECT id FROM "Sesion" LIMIT 1`);
+    const P256 = "B" + "A".repeat(86);
+    const AUTH = "A".repeat(22);
+    const insertar = (endpoint: string, p256dh = P256, auth = AUTH, error = "NULL, NULL") =>
+      `INSERT INTO "PushSuscripcion" (id, "vinculoId", "sesionId", endpoint, p256dh, auth, "ultimoErrorEn", "ultimoErrorCodigo")
+       VALUES (gen_random_uuid(), '00000000-0000-0000-0000-000000000001', '${s!.id}', '${endpoint}', '${p256dh}', '${auth}', ${error})`;
+    await sql(insertar("https://fcm.googleapis.com/fcm/send/x"));
+    await rechaza(insertar("https://fcm.googleapis.com/fcm/send/x"), UNICO);
+    await rechaza(insertar("http://fcm.googleapis.com/fcm/send/y"), CHECK);
+    await rechaza(insertar("https://fcm.googleapis.com/fcm/send/z", "corta"), CHECK);
+    await rechaza(insertar("https://fcm.googleapis.com/fcm/send/w", P256, "corta"), CHECK);
+    await rechaza(insertar("https://fcm.googleapis.com/fcm/send/v", P256, AUTH, "now(), NULL"), CHECK);
+    const aviso = (hasta: string, local = "3") =>
+      `INSERT INTO "AvisoLocal" ("vinculoId", "erpLocalId", "avisadoHastaEventoId") VALUES ('00000000-0000-0000-0000-000000000001', ${local}, ${hasta})`;
+    await rechaza(aviso("-1"), CHECK);
+    await rechaza(aviso("1", "0"), CHECK);
+    await sql(aviso("0"));
+    await sql(`DELETE FROM "AvisoLocal"`);
+    await sql(`DELETE FROM "PushSuscripcion"`);
   });
 
   it("no se borra un vínculo con sesiones ni una instalación con vínculos", async () => {

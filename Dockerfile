@@ -55,6 +55,8 @@ RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund
 
 COPY next.config.ts tsconfig.json ./
 COPY src ./src
+# Tanda 5A: lo que se sirve tal cual (service worker, íconos).
+COPY public ./public
 RUN npm run build
 
 # ── prisma-cli ──────────────────────────────────────────────────────────────
@@ -82,6 +84,8 @@ ENV APP_BUILD_ID=${APP_BUILD_ID}
 # modificar su propio código. El único directorio escribible es la caché de Next.
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
+# standalone no incluye public/: se copia aparte (service worker e íconos, Tanda 5A).
+COPY --from=builder /app/public ./public
 COPY --from=builder /app/prisma ./prisma
 COPY --from=prisma-cli /opt/prisma-cli /opt/prisma-cli
 RUN ln -s /opt/prisma-cli/node_modules/.bin/prisma /usr/local/bin/prisma \

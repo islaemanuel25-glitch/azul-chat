@@ -71,6 +71,21 @@ cualquiera, `/api/salud` contesta 503 y no se crean sesiones.
     HMAC la app no arranca.
   - Perderla obliga a que todos vuelvan a vincular, así que se guarda también
     fuera del servidor.
+- **`AZUL_CHAT_VAPID_PUBLICA`**, **`AZUL_CHAT_VAPID_PRIVADA`** y
+  **`AZUL_CHAT_VAPID_CONTACTO`** (Tanda 5A): las claves de las notificaciones
+  push (Web Push estándar, sin Firebase) y el `mailto:` que ve el servicio de
+  push. **Opcionales**: sin las tres (o con una pareja que no cierra), no hay
+  notificaciones y todo lo demás anda igual; `/api/salud` no las mira.
+  - La pública no es secreta: el navegador la pide a `GET /api/push/clave`.
+  - La privada sí: se genera en el VPS sin imprimirla (abajo).
+  - Cambiarlas invalida todas las suscripciones: cada teléfono tiene que volver
+    a activar las notificaciones.
+- **`AZUL_CHAT_TAREA_SECRET`** (Tanda 5A): el secreto de
+  `POST /api/interno/sincronizar`, la sincronización en segundo plano. Mínimo
+  32 caracteres y distinto de todos los demás secretos. Sin él, esa ruta
+  contesta 404 a todo y no hay sincronización de fondo ni avisos.
+  - El MISMO valor va en `~/.config/azul-chat/tarea.secreto` (permisos 600),
+    que es de donde lo lee el timer.
 - **`APP_BUILD_ID`**: **no va en `app.env`.** Viene adentro de la imagen, con el
   SHA del commit (build-arg del workflow `Imagen`). Si un archivo de entorno lo
   definiera, `/api/version` diría un commit que no es el de la imagen.
@@ -85,6 +100,42 @@ openssl rand -base64 32   # AZUL_CHAT_TOKEN_ENCRYPTION_KEY
 openssl rand -base64 48   # AZUL_CHAT_INTEGRACION_SECRET (cargar el MISMO en el ERP)
 openssl rand -hex 24      # POSTGRES_PASSWORD (la misma dentro de DATABASE_URL)
 ```
+
+### Notificaciones push y sincronización de fondo (Tanda 5A)
+
+Se generan **una vez, en el VPS, sin que pasen por la pantalla**: van directo a
+los archivos, que quedan en 600. `OBJETIVO` es el SHA de la imagen a desplegar
+(trae Node; no hace falta instalar nada en el host).
+
+```sh
+cd /srv/produccion/azul-chat
+umask 077
+
+# Claves VAPID: P-256. La pública sin comprimir (0x04‖x‖y) y la privada (d),
+# las dos en base64url. Se agregan a app.env; no se imprimen.
+docker run --rm --entrypoint node "ghcr.io/islaemanuel25-glitch/azul-chat:$OBJETIVO" -e '
+  const { generateKeyPairSync } = require("node:crypto");
+  const j = generateKeyPairSync("ec", { namedCurve: "P-256" }).privateKey.export({ format: "jwk" });
+  const pub = Buffer.concat([Buffer.from([4]), Buffer.from(j.x, "base64url"), Buffer.from(j.y, "base64url")]);
+  console.log("AZUL_CHAT_VAPID_PUBLICA=" + pub.toString("base64url"));
+  console.log("AZUL_CHAT_VAPID_PRIVADA=" + j.d);' >> app.env
+printf 'AZUL_CHAT_VAPID_CONTACTO=mailto:%s\n' '<un correo de contacto>' >> app.env   # completar
+
+# El secreto de la tarea: al archivo del timer y a app.env, sin imprimirlo.
+mkdir -p ~/.config/azul-chat
+S="$(openssl rand -base64 48 | tr -d '\n=+/')"
+printf '%s\n' "$S" > ~/.config/azul-chat/tarea.secreto
+printf 'AZUL_CHAT_TAREA_SECRET=%s\n' "$S" >> app.env
+unset S
+chmod 600 app.env ~/.config/azul-chat/tarea.secreto
+
+# Comprobar SIN mostrar valores: cada nombre una vez, con valor.
+grep -cE '^AZUL_CHAT_(VAPID_PUBLICA|VAPID_PRIVADA|VAPID_CONTACTO|TAREA_SECRET)=.+' app.env   # 4
+```
+
+Si `app.env` ya tenía esas líneas vacías (copiado del ejemplo), borrarlas antes
+de agregar: con dos líneas del mismo nombre gana la última, pero mejor una sola.
+Después, recrear la app para que lea el entorno: `$C up -d azul-chat-app`.
 
 ## La imagen
 
@@ -226,6 +277,13 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         # El Origin llega tal cual: la app lo compara contra AZUL_CHAT_ORIGEN_PUBLICO.
     }
+
+    # Tanda 5A: la ruta del timer NO es pública. La app ya contesta 404 a todo
+    # lo que llega por acá (Host público, X-Real-IP), pero se corta también en
+    # nginx: desde afuera no tiene que llegar ni a la app.
+    location /api/interno/ {
+        return 404;
+    }
 }
 server {
     listen 80;
@@ -303,6 +361,13 @@ imagen anterior ya no sabe mostrarlo: los chats de ese local contestarían
 Volver a una imagen anterior a la Tanda 4B después de eso es el caso de arriba:
 restaurar el backup del PRE.
 
+**`20261011180000_push_suscripcion_y_avisos` (Tanda 5A).** Solo crea dos
+tablas (`PushSuscripcion` y `AvisoLocal`) que la imagen anterior no lee:
+volver a una imagen anterior es seguro, sin restaurar nada. Mientras corra la
+imagen anterior no hay sincronización de fondo (la ruta no existe: el timer
+recibe 404 y lo anota en el journal) ni avisos; conviene parar el timer
+(`systemctl --user stop azul-chat-sincronizar.timer`) hasta volver a la nueva.
+
 **Primer despliegue.** No hay versión anterior: `$C stop azul-chat-app` (o
 `$C down`, que conserva `pgdata/`) y quitar el bloque de nginx. El ERP no se ve
 afectado en ningún caso.
@@ -366,6 +431,75 @@ systemctl --user list-timers azul-chat-backup.timer
 
 Correr un backup ahora, sin esperar al timer:
 `systemctl --user start azul-chat-backup.service` (y mirar el journal).
+
+## Sincronización en segundo plano (Tanda 5A)
+
+Con la app cerrada no entraba nada: la ingesta corría solo cuando alguien abría
+Azul Chat. Ahora un timer de systemd de **usuario**, en el mismo VPS, llama cada
+2 minutos a `POST http://127.0.0.1:3100/api/interno/sincronizar`. Esa ruta:
+
+- contesta **404** (como si no existiera) a todo lo que no sea el timer: sin el
+  secreto `AZUL_CHAT_TAREA_SECRET` en la cabecera `x-azul-chat-tarea`, o con lo
+  que pone nginx (Host público, `X-Real-IP`, `X-Forwarded-Proto: https`), o por
+  GET. Desde afuera no funciona, y nginx además la corta (bloque de arriba);
+- por cada persona con el vínculo vigente y una sesión que valga, pide
+  `mi_alcance` vivo y corre **la misma ingesta** que al abrir la app (frecuencia
+  mínima, arriendo, reglas por código; `VINCULO_NO_VALIDO` revoca, caído no);
+- manda los avisos push de lo nuevo (`docs/EVENTOS.md`, "Avisos push").
+
+Las unidades viven en el repo, en `ops/sincronizar/systemd/`, con el mismo
+estilo que las del backup:
+
+- `azul-chat-sincronizar.service`: `Type=oneshot`, ejecuta
+  `/srv/produccion/azul-chat/ops/sincronizar/sincronizar-azul-chat.sh`. El
+  script lee el secreto de `~/.config/azul-chat/tarea.secreto` (se niega si no
+  es 600), se lo pasa a curl por la entrada estándar (no aparece en `ps`) y
+  escribe en el journal solo el código HTTP y las cuentas de la corrida.
+- `azul-chat-sincronizar.timer`: `OnBootSec=2min`, `OnUnitActiveSec=2min`.
+
+**Por qué cada 2 minutos.** El ERP admite 30 consultas por minuto por persona y
+120 por aplicación, en ventanas fijas de un minuto (erpmanual,
+`lib/integraciones/azul-chat/limitador.js`). Una corrida gasta, por persona,
+una `mi_alcance` más una página por cada (local, capacidad) que no se sincronizó
+en los últimos 30 s: con N locales y las 4 capacidades de eventos, `1 + 4·N`.
+Con 6 locales (los cinco del ERP más el depósito) son 25: entra en el minuto
+con margen, y como cada corrida cae en una ventana distinta (cada 2 minutos)
+no se suman. Más seguido no se ganaría nada: casi todo estaría fresco y la
+corrida pediría lo mismo. Más espaciado no achica el pico de cada corrida, solo
+demora los avisos. Dos cosas a saber:
+
+- si una persona abre la app entre 30 y 60 s después de una corrida, su pedido
+  y la corrida pueden caer en el mismo minuto del ERP y pasarse de 30. El ERP
+  contesta `LIMITE_EXCEDIDO`, esa capacidad queda "Actualización demorada" en
+  esa respuesta y la siguiente la trae: no se pierde nada;
+- con **8 o más locales** una sola corrida ya pasa de 30 (`1 + 4·8 = 33`). Si
+  el ERP llega a tener tantos, hay que revisar esta cuenta antes (por ejemplo,
+  sincronizar menos capacidades por corrida).
+
+Instalar (después del despliegue que trae la ruta, y con el secreto ya
+generado, ver "Variables"):
+
+```sh
+mkdir -p ~/.config/systemd/user
+cp /srv/produccion/azul-chat/ops/sincronizar/systemd/azul-chat-sincronizar.service \
+   /srv/produccion/azul-chat/ops/sincronizar/systemd/azul-chat-sincronizar.timer \
+   ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user start azul-chat-sincronizar.service      # una corrida ahora
+journalctl --user -u azul-chat-sincronizar -n 5            # HTTP 200 {"estado":"OK",...}
+systemctl --user enable --now azul-chat-sincronizar.timer
+systemctl --user list-timers azul-chat-sincronizar.timer
+```
+
+Comprobar que desde afuera no anda (los dos dan 404):
+
+```sh
+curl -s -o /dev/null -w '%{http_code}\n' -X POST https://chat.operix.cloud/api/interno/sincronizar
+curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:3100/api/interno/sincronizar
+```
+
+Pararla (por ejemplo, para un rollback): `systemctl --user disable --now
+azul-chat-sincronizar.timer`. La app sigue igual; solo deja de sincronizar sola.
 
 ### Restaurar
 

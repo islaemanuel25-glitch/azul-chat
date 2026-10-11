@@ -65,9 +65,11 @@ model Vinculo {
   invalidadoEn       DateTime?
   motivoInvalidacion MotivoInvalidacion?
 
-  instalacion Instalacion    @relation(fields: [instalacionId], references: [id], onDelete: Restrict)
-  sesiones    Sesion[]
-  lecturas    LecturaLocal[]
+  instalacion   Instalacion       @relation(fields: [instalacionId], references: [id], onDelete: Restrict)
+  sesiones      Sesion[]
+  lecturas      LecturaLocal[]
+  suscripciones PushSuscripcion[]
+  avisos        AvisoLocal[]
 
   @@unique([instalacionId, erpUsuarioId])
   @@unique([instalacionId, erpVinculoId])
@@ -84,7 +86,8 @@ model Sesion {
   expiraEn   DateTime
   revocadaEn DateTime?
 
-  vinculo Vinculo @relation(fields: [vinculoId], references: [id], onDelete: Restrict)
+  vinculo       Vinculo           @relation(fields: [vinculoId], references: [id], onDelete: Restrict)
+  suscripciones PushSuscripcion[]
 
   @@index([vinculoId])
 }
@@ -176,6 +179,53 @@ model LecturaLocal {
   /// El Evento.id (secuencia de ingesta) leído. Solo sube.
   leidoHastaEventoId BigInt
   actualizadoEn      DateTime @default(now()) @updatedAt
+
+  vinculo Vinculo @relation(fields: [vinculoId], references: [id], onDelete: Restrict)
+
+  @@id([vinculoId, erpLocalId])
+}
+
+/// Tanda 5A: UNA SUSCRIPCIÓN WEB PUSH de un dispositivo, para avisar con la
+/// app cerrada. Es de la SESIÓN de ese dispositivo (y por ella, del vínculo):
+/// cerrar la sesión, que venza o que el vínculo se invalide corta los avisos
+/// de ese dispositivo. Guarda lo que el navegador entrega al suscribirse —el
+/// endpoint del servicio de push y las claves públicas para cifrar— y nada
+/// más: el endpoint no identifica a la persona en el ERP. Si el servicio de
+/// push contesta 404 o 410, la suscripción se borra.
+model PushSuscripcion {
+  id                String    @id @default(uuid())
+  vinculoId         String
+  sesionId          String
+  /// La URL del servicio de push (https, de un servicio conocido: ver CHECK y push/suscripcion.ts).
+  endpoint          String    @unique
+  /// Clave pública ECDH P-256 del navegador, base64url sin relleno (65 bytes).
+  p256dh            String
+  /// Secreto de autenticación del navegador, base64url sin relleno (16 bytes).
+  auth              String
+  creadaEn          DateTime  @default(now())
+  ultimoEnvioEn     DateTime?
+  /// El último envío que falló: cuándo y con qué código (nunca un mensaje).
+  ultimoErrorEn     DateTime?
+  ultimoErrorCodigo String?
+
+  vinculo Vinculo @relation(fields: [vinculoId], references: [id], onDelete: Restrict)
+  sesion  Sesion  @relation(fields: [sesionId], references: [id], onDelete: Restrict)
+
+  @@index([vinculoId])
+  @@index([sesionId])
+}
+
+/// Tanda 5A: HASTA DÓNDE SE CONSIDERÓ PARA AVISAR, por persona y local. Una
+/// marca de agua sobre Evento.id, como LecturaLocal: los eventos nuevos tienen
+/// siempre ids mayores, así que lo que quedó por debajo ya se avisó (o no
+/// correspondía avisarlo) y no se vuelve a mirar. Es lo que hace que cada
+/// evento se avise UNA sola vez.
+model AvisoLocal {
+  vinculoId            String
+  erpLocalId           Int
+  /// El mayor Evento.id del local ya considerado. Solo sube.
+  avisadoHastaEventoId BigInt
+  actualizadoEn        DateTime @default(now()) @updatedAt
 
   vinculo Vinculo @relation(fields: [vinculoId], references: [id], onDelete: Restrict)
 

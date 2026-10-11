@@ -22,6 +22,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 
 import type { EstadoSesion, RespuestaCerrar, RespuestaVincular } from "../../shared/sesion/api.ts";
+import { FilaNotificaciones } from "../push/FilaNotificaciones.tsx";
 
 const RUTA_SESION = "/api/sesion";
 const RUTA_VINCULAR = "/api/sesion/vincular";
@@ -139,6 +140,7 @@ export function PanelSesion({
             ))}
           </ul>
         )}
+        <FilaNotificaciones />
         <div className="ac-acciones">
           {alVerChats && (
             <button type="button" className="ac-boton" onClick={alVerChats} disabled={trabajando}>

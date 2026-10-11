@@ -608,3 +608,48 @@ body {
   font-size: var(--ac-letra-mini);
   font-weight: 600;
 }
+
+/* ── Tanda 5A: la fila "Notificaciones" del panel (Figma pantalla 06, nodo 1:277) ── */
+
+.ac-ajustes {
+  margin-top: var(--ac-espacio-4);
+}
+
+.ac-ajustes__seccion {
+  margin: 0 0 var(--ac-espacio-2);
+  color: var(--ac-color-texto-suave);
+  font-size: var(--ac-letra-chica);
+  font-weight: 600;
+}
+
+.ac-ajuste {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ac-espacio-3);
+  padding: var(--ac-espacio-3);
+  border: 1px solid var(--ac-color-borde);
+  border-radius: var(--ac-espacio-3);
+}
+
+.ac-ajuste__texto {
+  min-width: 0;
+}
+
+.ac-ajuste__titulo {
+  margin: 0;
+  font-size: var(--ac-letra-base);
+  font-weight: 600;
+}
+
+.ac-ajuste__estado {
+  margin: var(--ac-espacio-1) 0 0;
+  color: var(--ac-color-texto-suave);
+  font-size: var(--ac-letra-mini);
+}
+
+.ac-ajustes__nota {
+  margin: var(--ac-espacio-2) 0 0;
+  color: var(--ac-color-texto-suave);
+  font-size: var(--ac-letra-mini);
+}

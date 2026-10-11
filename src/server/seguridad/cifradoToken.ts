@@ -78,6 +78,16 @@ export function leerClaveToken(entorno: Entorno = process.env): { ok: true; clav
   return { ok: true, clave };
 }
 
+/**
+ * ¿Ese valor es la clave del token? Para que otro secreto (el de la tarea de
+ * sincronización, Tanda 5A) se niegue a ser la misma sin leer esta variable en
+ * otro archivo: la clave se lee solo acá.
+ */
+export function esLaClaveDelToken(valor: string, entorno: Entorno = process.env): boolean {
+  const clave = entorno[VARIABLE_CLAVE_TOKEN];
+  return Boolean(clave) && clave === valor;
+}
+
 const aad = (c: ContextoToken): Buffer =>
   Buffer.from(`azul-chat/token-delegacion/${VERSION_FORMATO}/${c.instalacionId}/${c.erpUsuarioId}/${c.erpVinculoId}`, "utf8");
 

@@ -77,7 +77,7 @@ export function decodificarCursor(texto: unknown): PosicionHistorial | null {
   return { fecha: new Date(o.f as string), id };
 }
 
-const SELECT_PUBLICO = { id: true, tipo: true, erpLocalId: true, erpReferenciaId: true, fechaOperacion: true, payload: true, historico: true } as const;
+export const SELECT_PUBLICO = { id: true, tipo: true, erpLocalId: true, erpReferenciaId: true, fechaOperacion: true, payload: true, historico: true } as const;
 type FilaPublica = Prisma.EventoGetPayload<{ select: typeof SELECT_PUBLICO }>;
 
 /** Un evento guardado que no se puede leer no se muestra a medias. */

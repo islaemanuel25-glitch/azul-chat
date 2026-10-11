@@ -260,3 +260,67 @@ la sesión: dos dispositivos de la misma persona leen lo mismo.
 
 Marcar leído es `POST /api/chats/leido`, explícito, y antes de leer o marcar un
 local la capa de chats lo verifica con `mi_alcance` vivo (`docs/CHATS.md`).
+
+## Sincronización en segundo plano (Tanda 5A)
+
+Hasta la Tanda 4B la ingesta corría solo cuando alguien abría la app. Desde la
+5A, además, un timer del VPS llama cada 2 minutos a
+`POST /api/interno/sincronizar` (`src/server/interno/`; instalación y por qué
+cada 2 minutos, en `docs/DEPLOY.md`). No es una ingesta nueva: es un
+**disparador** de la que ya existe. Por cada persona con el vínculo vigente y
+una sesión que valga (la más reciente; quien cerró en todos lados no se
+sincroniza):
+
+1. con su token, descifrado en el servidor como siempre, `mi_alcance` VIVO
+   (`autorizacionViva`, la misma de las rutas de chats);
+2. la misma `sincronizarAutorizados`: frecuencia mínima por (local,
+   capacidad), arriendo, hasta 3 páginas, backfill y las mismas reglas por
+   código. `VINCULO_NO_VALIDO` invalida el vínculo y revoca sus sesiones
+   (`delegarConContexto`, el mismo camino que una solicitud con cookie); caído,
+   lento, cupo o `NO_AUTORIZADO` no;
+3. los avisos push (abajo).
+
+Sin reintentos: lo que falla lo intenta la corrida siguiente. Dos corridas
+seguidas no repiten nada: la segunda encuentra todo fresco.
+
+## Avisos push (Tanda 5A)
+
+Se avisa SOLO lo que una persona no vio y puede ver hoy. Por local, los eventos:
+
+- con `historico = false`: nunca backfill, tampoco el de una capacidad recién
+  anunciada;
+- de un tipo que `mi_alcance` le anuncia HOY en ese local;
+- con `Evento.id` por encima de su marca de avisos (`AvisoLocal`), sea quien sea
+  que los ingirió (la tarea o alguien que abrió la app);
+- con `Evento.id` por encima de lo que ya LEYÓ: lo leído en la app no se avisa.
+
+**Una sola vez.** `AvisoLocal (vinculoId, erpLocalId, avisadoHastaEventoId)` es
+una marca de agua, como `LecturaLocal`: nace en el mayor `Evento.id` del local
+(lo que ya había no es novedad) y en cada corrida pasa al tope con un UPDATE
+condicionado a que siga donde se leyó; si otra corrida la movió primero, esta
+no avisa nada de ese local. El aviso se manda después de mover la marca: si el
+envío falla, no se reintenta. La marca avanza aunque no haya suscripción, así
+activar las notificaciones no trae una avalancha de lo anterior.
+
+**El texto**, agrupado por local y por corrida, con los mismos títulos de la
+interfaz (`src/shared/chats/textos.ts`): un evento, "Casiano: Transferencia
+#404 recibida con diferencias"; dos o más, "Casiano: 3 novedades". Título
+"Azul Chat". Tocarlo abre `/?vista=local&localId=N`. Sin montos, productos ni
+ids técnicos fuera del número del título.
+
+**El envío** (`src/server/push/`): Web Push estándar. El cifrado (RFC 8291,
+aes128gcm) y la firma VAPID (RFC 8292) los arma la librería `web-push`; el POST
+lo hace Azul Chat con `fetch`, sin reintentos, sin redirecciones, con corte a
+los 10 s y vencimiento de 12 horas en el servicio de push. Solo a endpoints de
+los servicios de push de los navegadores (FCM, Mozilla, Apple, Windows): el
+servidor le pega a esa URL, y una lista cerrada impide usarlo para llegar a
+otro lado. Si el servicio contesta 404 o 410, la suscripción se borra; otro
+error se anota (`ultimoErrorCodigo`) y la suscripción queda.
+
+`PushSuscripcion` es de la SESIÓN del dispositivo (y por ella del vínculo):
+cerrar sesión, que venza o que el vínculo se invalide corta sus avisos, y la
+corrida siguiente la borra.
+
+La migración es `20261011180000_push_suscripcion_y_avisos`: crea las dos tablas,
+con CHECKs de forma (endpoint https, claves con la forma del navegador, error
+con fecha y código juntos, marca no negativa). No toca datos.

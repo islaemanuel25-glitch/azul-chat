@@ -9,6 +9,8 @@
 !next.config.ts
 !tsconfig.json
 !src/**
+# Tanda 5A: el service worker y los íconos.
+!public/**
 !prisma/schema.prisma
 !prisma/migrations/**
 !ops/prisma-cli/package.json

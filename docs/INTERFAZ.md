@@ -58,6 +58,15 @@ grande se centra en una columna de 480 px; no hay un diseño de escritorio.
   navegador, y no toca la lectura (`useVentas` y `AccionesDelLocal`, en
   `Conversacion.tsx`; `reducirVentas`, en `logica.ts`).
 
+- **Notificaciones (Tanda 5A).** En el panel que abre ☰, debajo de los locales,
+  una sección "Notificaciones" con UNA fila (Figma pantalla 06, nodo 1:277,
+  adaptada): "Avisos en este teléfono", el estado ("Activadas" /
+  "Desactivadas") y el botón para cambiarlo. Si el navegador las bloqueó, lo
+  dice en una línea y no ofrece un botón que no puede andar. Nada de
+  "Privacidad del push", "Horario de silencio", "Sonidos", IA ni saldo. Con los
+  tokens de siempre, sin colores escritos (`FilaNotificaciones.tsx`; la lógica,
+  en `components/push/notificaciones.ts`).
+
 ## Cómo se navega
 
 La vista va en la consulta de la URL: `/`, `/?vista=local&localId=N` y
@@ -89,6 +98,26 @@ una pestaña con `3d8b849` no mostró la barra de Ventas hasta cerrarla del todo
 Está en `src/components/chats/version.ts` (sin React: recibe pedir, recargar y
 el documento), `pedirVersion` en `clienteChats.ts` y la conexión en
 `AzulChat.tsx`.
+
+## App instalable y service worker (Tanda 5A)
+
+Azul Chat se puede instalar en el teléfono: `/manifest.webmanifest`
+(`src/app/manifest.ts`) con el nombre "Azul Chat", íconos propios
+(`public/icono-*.png`, generados por `scripts/generar-iconos.mjs`) y los
+colores de los tokens `--ac-color-marca` y `--ac-color-fondo`.
+
+El service worker (`public/sw.js`) es mínimo a propósito: maneja `push`
+(muestra el aviso) y `notificationclick` (abre o trae al frente Azul Chat en
+ese local, y solo una URL `/?vista=local&localId=N` validada). **No tiene
+`fetch` ni caché**: no intercepta ningún pedido, así que no puede servir JS
+viejo y la recarga por versión sigue igual; tampoco guarda nada. Se registra
+recién al activar las notificaciones, con `updateViaCache: "none"`.
+
+Activar: pedir permiso, pedir la clave a `GET /api/push/clave`, suscribirse y
+mandar la suscripción a `POST /api/push/suscribir`; si el servidor no la
+guarda, se deshace en el navegador. Desactivar: `DELETE` y baja en el
+navegador. Al abrir el panel con una suscripción hecha se vuelve a mandar
+(idempotente), por si se volvió a vincular.
 
 ## Marcar leído
 
@@ -224,6 +253,13 @@ estaba. No hay scroll infinito ni refresco automático.
 - `test/ui/version.test.ts`: la recarga por versión con un servidor y un
   documento de mentira: igual no recarga, distinta recarga, un fallo no recarga,
   y solo pregunta al volver a primer plano y al abrir un chat.
+
+- `test/ui/notificaciones.test.ts` (Tanda 5A): la fila en cada estado y el
+  cliente de notificaciones con un navegador de mentira.
+- `test/frontera/alcanceUi.test.ts` (Tanda 5A): el service worker solo escucha
+  push y el toque, sin fetch, caché, almacenamiento ni temporizadores; service
+  worker y Push API solo en su cliente; el manifest con los colores de los
+  tokens; y los textos de la pantalla 06 que no existen siguen prohibidos.
 
 ## Fuera de alcance
 
