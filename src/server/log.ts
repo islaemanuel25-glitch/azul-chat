@@ -55,7 +55,21 @@ export type RegistroFallaLocal = {
   readonly etapa: "configuracion" | "descifrado" | "base";
 };
 
-export type Registro = RegistroConsultaErp | RegistroVinculacion | RegistroInvalidacion | RegistroFallaLocal;
+/** Tanda 5A: una corrida de la sincronización de fondo. Solo cuentas: ni personas, ni locales, ni endpoints. */
+export type RegistroTarea = {
+  readonly evento: "tarea.sincronizar";
+  readonly duracionMs: number;
+  readonly personas: number;
+  readonly revocadas: number;
+  readonly conFalla: number;
+  readonly localesDemorados: number;
+  readonly avisos: number;
+  readonly enviados: number;
+  readonly fallidos: number;
+  readonly suscripcionesBorradas: number;
+};
+
+export type Registro = RegistroConsultaErp | RegistroVinculacion | RegistroInvalidacion | RegistroFallaLocal | RegistroTarea;
 
 export type Registrador = (registro: Registro) => void;
 

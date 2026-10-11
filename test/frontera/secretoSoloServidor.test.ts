@@ -38,6 +38,17 @@ describe("el secreto solo existe del lado del servidor", () => {
     assert.equal(linea, "AZUL_CHAT_TOKEN_ENCRYPTION_KEY=");
   });
 
+  it("5A. la privada VAPID y el secreto de la tarea se leen cada uno en un único archivo de src/server, y .env.example no los trae", () => {
+    assert.deepEqual(dondeAparece(/AZUL_CHAT_VAPID_PRIVADA/), ["src/server/push/config.ts"]);
+    assert.deepEqual(dondeAparece(/AZUL_CHAT_TAREA_SECRET/), ["src/server/interno/tarea.ts"]);
+    // La pública tampoco sale por otro lado: el navegador la pide a GET /api/push/clave.
+    assert.deepEqual(dondeAparece(/AZUL_CHAT_VAPID_PUBLICA/), ["src/server/push/config.ts"]);
+    const lineas = readFileSync(path.join(RAIZ, ".env.example"), "utf8").split("\n");
+    for (const v of ["AZUL_CHAT_VAPID_PRIVADA", "AZUL_CHAT_TAREA_SECRET", "AZUL_CHAT_VAPID_PUBLICA"]) {
+      assert.equal(lineas.find((l) => l.startsWith(`${v}=`)), `${v}=`, v);
+    }
+  });
+
   it("process.env se lee solo en src/server", () => {
     const fuera = dondeAparece(/process\.env/).filter((f) => !f.startsWith("src/server/"));
     assert.deepEqual(fuera, []);
@@ -107,7 +118,17 @@ describe("el cliente ERP no es genérico", () => {
   // Tanda 3B: el navegador pide además `/api/version` (exacta, sin consulta ni
   // subcamino) para recargar una pestaña que quedó con el JS de otro
   // despliegue. Es ruta propia, pública y sin datos: dice solo el commit.
-  it("HTTP saliente: al ERP solo desde el cliente firmado; el navegador solo a /api/sesion, /api/chats y /api/version", () => {
+  //
+  // Tanda 5A: dos aperturas más, cada una de un solo lugar.
+  //   · El navegador llama además a `/api/push/clave` y `/api/push/suscribir`
+  //     (activar o desactivar las notificaciones). NUNCA a `/api/interno/…`:
+  //     esa ruta es del timer del VPS.
+  //   · En el servidor, además del cliente del ERP, hace HTTP saliente el envío
+  //     a los servicios de push (src/server/push/enviar.ts), y solo después de
+  //     comprobar que el endpoint es de la lista cerrada de servicios
+  //     (`endpointPermitido`). Cualquier otro archivo del servidor con `fetch`
+  //     sigue en rojo.
+  it("HTTP saliente: al ERP solo desde el cliente firmado, a push solo desde su envío; el navegador solo a /api/sesion, /api/chats, /api/version y /api/push", () => {
     assert.deepEqual(violacionesHttp(codigoDeSrc()), []);
   });
 
@@ -126,11 +147,20 @@ describe("el cliente ERP no es genérico", () => {
       "src/components/x/Versiones.tsx": '"use client";\nfetch("/api/versiones");\n',
       "src/shared/x/Axios.ts": 'import a from "axios";\nexport const y = a;\n',
       "src/server/otro/cliente2.ts": 'import "server-only";\nexport const z = () => fetch("http://x");\n',
+      // Tanda 5A: la ruta interna no es del navegador, ni con constante ni literal.
+      "src/components/x/Interna.tsx": '"use client";\nconst RUTA = "/api/interno/sincronizar";\nfetch(RUTA, { method: "POST" });\n',
+      "src/components/x/InternaLiteral.tsx": '"use client";\nfetch("/api/interno/sincronizar");\n',
+      "src/components/x/PushDeMas.tsx": '"use client";\nfetch("/api/push/enviar");\n',
     };
     for (const [archivo, codigo] of Object.entries(casos)) {
       const v = violacionesHttp({ ...base, [archivo]: codigo });
       assert.deepEqual(v, [archivo], archivo);
     }
+    // El envío push sin comprobar el endpoint contra la lista es rojo.
+    const enviar = base[ENVIO_PUSH]!;
+    const sinLista = enviar.replace("if (!endpointPermitido(destino.endpoint))", "if (false)");
+    assert.notEqual(sinLista, enviar, "el reemplazo del envío push no se aplicó");
+    assert.deepEqual(violacionesHttp({ ...base, [ENVIO_PUSH]: sinLista }), [ENVIO_PUSH]);
     // Un fetch nombrado en un comentario no cuenta.
     assert.deepEqual(violacionesHttp({ ...base, "src/components/x/C.tsx": "// fetch('https://x')\nexport const c = 1;\n" }), []);
   });
@@ -166,7 +196,9 @@ function codigoDeSrc(): Record<string, string> {
 }
 
 const CLIENTE_ERP = "src/server/erp/cliente.ts";
-const RUTA_PROPIA = /^\/api\/((sesion|chats)(\/[a-z]+)*|version)$/;
+/** Tanda 5A: el envío a los servicios de push, el otro HTTP saliente del servidor. */
+const ENVIO_PUSH = "src/server/push/enviar.ts";
+const RUTA_PROPIA = /^\/api\/((sesion|chats)(\/[a-z]+)*|version|push\/(clave|suscribir))$/;
 /** `${CONSTANTE}?${identificador}`: una ruta propia con una consulta (Tanda 2C). */
 const RUTA_CON_CONSULTA = /^`\$\{([A-Za-z_$][\w$]*)\}\?\$\{[A-Za-z_$][\w$]*\}`$/;
 
@@ -175,6 +207,15 @@ function violacionesHttp(archivos: Record<string, string>): string[] {
   const malos: string[] = [];
   for (const [archivo, crudo] of Object.entries(archivos)) {
     if (archivo === CLIENTE_ERP) continue;
+    // El envío push: un solo fetch, al endpoint ya armado, después de la lista cerrada.
+    if (archivo === ENVIO_PUSH) {
+      const c = sinComentarios(crudo);
+      const directas = c.match(/(?<![\w-])fetch\s*\(/g) ?? [];
+      const inyectadas = c.match(/\bhacerFetch\s*\(/g) ?? [];
+      const permitido = /if \(!endpointPermitido\(destino\.endpoint\)\) return/.test(c);
+      if (directas.length !== 0 || inyectadas.length !== 1 || !/hacerFetch\(armado\.endpoint,/.test(c) || !permitido) malos.push(archivo);
+      continue;
+    }
     const codigo = sinComentarios(crudo);
     if (/["']node:https?["']|["']https?["']|undici|axios|XMLHttpRequest|sendBeacon|WebSocket|EventSource/.test(codigo)) {
       malos.push(archivo);

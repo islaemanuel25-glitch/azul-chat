@@ -2,9 +2,10 @@
 //
 // ¿ALGÚN SECRETO LLEGA AL NAVEGADOR? Se compila con valores CANARIO para cada
 // variable sensible —el secreto de la integración, la clave de cifrado del
-// token y la URL de la base— y se los busca en todo lo que el navegador puede
-// bajar: `.next/static` (JS y CSS) y las páginas prerenderizadas (`.html`,
-// `.rsc`) de `.next/server/app`.
+// token, la URL de la base y, desde la Tanda 5A, la privada VAPID y el secreto
+// de la tarea— y se los busca en todo lo que el navegador puede bajar:
+// `.next/static` (JS y CSS), las páginas prerenderizadas (`.html`, `.rsc`) de
+// `.next/server/app` y `public/` (el service worker y el manifest).
 //
 // También se busca el NOMBRE de cada variable: que aparezca en el bundle de
 // cliente significaría que algún código de cliente intenta leerla.
@@ -25,6 +26,9 @@ const CANARIOS = {
   AZUL_CHAT_INTEGRACION_SECRET: canario(),
   AZUL_CHAT_TOKEN_ENCRYPTION_KEY: randomBytes(32).toString("base64url"),
   DATABASE_URL: `postgresql://canario:${canario()}@base.ejemplo.invalid:5432/azulchat`,
+  // Tanda 5A: la privada VAPID y el secreto de la tarea de sincronización.
+  AZUL_CHAT_VAPID_PRIVADA: randomBytes(32).toString("base64url"),
+  AZUL_CHAT_TAREA_SECRET: canario(),
 };
 
 const build = spawnSync("npx", ["next", "build"], {
@@ -56,6 +60,8 @@ function* recorrer(dir) {
 const archivos = [
   ...recorrer(path.join(RAIZ, ".next", "static")),
   ...[...recorrer(path.join(RAIZ, ".next", "server", "app"))].filter((f) => /\.(html|rsc|body|meta)$/.test(f)),
+  // Tanda 5A: lo que se sirve tal cual (service worker, manifest, íconos).
+  ...recorrer(path.join(RAIZ, "public")),
 ];
 if (archivos.length === 0) {
   console.error("verificar:bundle: no hay archivos de cliente para revisar; el build no dejó lo esperado.");

@@ -12,26 +12,11 @@ import type { EventoPublico, EventoTransferenciaRecibidaPublico } from "../../sh
 const IDIOMA = "es-AR";
 
 /**
- * El título de un evento, el mismo en la conversación, en General y en el
- * resumen de la lista (Figma DpxKeDtugjdB8IfuGnHZcz, pantalla 01):
- *
- *   · "Transferencia #182 recibida", o "… recibida con diferencias";
- *   · "Pedido #91 solicitado";
- *   · "Transferencia #184 enviada";
- *   · "Transferencia #184 cancelada".
+ * El título de un evento, el mismo en la conversación, en General, en el
+ * resumen de la lista y —desde la Tanda 5A— en las notificaciones push. Vive en
+ * src/shared/chats/textos.ts para que el servidor use exactamente el mismo.
  */
-export function resumenDeEvento(e: EventoPublico): string {
-  switch (e.tipo) {
-    case "TRANSFERENCIA_RECIBIDA":
-      return `Transferencia #${e.transferenciaId} recibida${e.tieneDiferencias ? " con diferencias" : ""}`;
-    case "PEDIDO_SOLICITADO":
-      return `Pedido #${e.pedidoId} solicitado`;
-    case "TRANSFERENCIA_ENVIADA":
-      return `Transferencia #${e.transferenciaId} enviada`;
-    case "TRANSFERENCIA_CANCELADA":
-      return `Transferencia #${e.transferenciaId} cancelada`;
-  }
-}
+export { resumenDeEvento } from "../../shared/chats/textos.ts";
 
 /** Solo una recepción con diferencias lleva marca y borde de alerta. Ningún otro tipo. */
 export function esAlerta(e: EventoPublico): boolean {

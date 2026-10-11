@@ -51,6 +51,13 @@ const TEXTOS_FUERA_DE_ALCANCE = [
   "Comparar",
   "Preguntá",
   "Ventas de ayer",
+  // Tanda 5A: de la pantalla 06 (Configuración) existe SOLO la fila de
+  // notificaciones. El resto de esa pantalla no existe.
+  "Privacidad del push",
+  "Horario de silencio",
+  "Sonidos y vibración",
+  "Inteligencia artificial",
+  "Saldo asignado",
 ];
 
 /** Los chips del diseño que no están implementados, como texto visible: literal o hijo de JSX. */
@@ -61,7 +68,15 @@ const comoTextoVisible = (t: string) => new RegExp(`["'\`>]\\s*${t}\\s*["'\`<]`)
 const TEXTO_PERMITIDO = { texto: "Ventas de hoy", archivo: "src/components/chats/formato.ts" };
 
 /** Los únicos archivos de la interfaz que hacen HTTP (a rutas propias; lo controla secretoSoloServidor.test.ts). */
-const CLIENTES_HTTP = ["src/components/chats/clienteChats.ts", "src/components/sesion/PanelSesion.tsx"];
+const CLIENTES_HTTP = ["src/components/chats/clienteChats.ts", "src/components/sesion/PanelSesion.tsx", "src/components/push/notificaciones.ts"];
+
+/**
+ * Tanda 5A: el service worker y la Push API se tocan en UN solo archivo, el
+ * cliente de notificaciones. Ningún otro registra un service worker, se
+ * suscribe ni pide permiso de notificaciones.
+ */
+const CLIENTE_PUSH = "src/components/push/notificaciones.ts";
+const PIEZAS_PUSH = /serviceWorker|PushManager|pushManager|requestPermission/;
 
 /**
  * Tanda 3B: la ÚNICA excepción a "nada de refresco automático" es recargar la
@@ -98,6 +113,7 @@ function problemas(archivos: Record<string, string>): string[] {
       else if (pieza.forma && !pieza.forma.test(codigo)) p.push(`${archivo}: ${pieza.patron.source} fuera del comprobador de versión`);
     }
     if (/localStorage|sessionStorage|indexedDB|document\.cookie|\bcaches\./.test(codigo)) p.push(`${archivo}: almacenamiento del navegador`);
+    if (PIEZAS_PUSH.test(codigo) && archivo !== CLIENTE_PUSH) p.push(`${archivo}: service worker o push fuera de su cliente`);
     if (/(?<![\w-])fetch\s*\(/.test(codigo) && !CLIENTES_HTTP.includes(archivo)) p.push(`${archivo}: fetch fuera del cliente`);
     if (/delegaci|tokenDelegacion|\btoken\b|vinculoId|usuarioId|\/api\/integraciones|https?:\/\//i.test(codigo)) p.push(`${archivo}: sabe de la delegación o del ERP`);
   }
@@ -140,6 +156,11 @@ describe("alcance de la interfaz de chats", () => {
       fetch: `${conversacion}\nvoid fetch("/api/chats");\n`,
       token: `${conversacion}\nconst token = "del1_x";\n`,
       erp: `${conversacion}\nconst u2 = "https://erp.ejemplo.invalid";\n`,
+      privacidadPush: `${conversacion}\nconst f = "Privacidad del push";\n`,
+      horario: `${conversacion}\nconst h = "Horario de silencio";\n`,
+      swEnOtroLado: `${conversacion}\nvoid navigator.serviceWorker.register("/sw.js");\n`,
+      suscripcionEnOtroLado: `${conversacion}\nconst r = (x: { pushManager: unknown }) => x.pushManager;\n`,
+      permisoEnOtroLado: `${conversacion}\nvoid Notification.requestPermission();\n`,
     };
     for (const [nombre, codigo] of Object.entries(casos)) {
       assert.notEqual(codigo, conversacion, nombre);
@@ -250,5 +271,86 @@ describe("General no marca leído", () => {
       assert.notEqual(c, arbol[Object.keys(cambio)[0]!], `el reemplazo ${nombre} no se aplicó`);
       assert.notDeepEqual(problemasDeLectura({ ...arbol, ...cambio }), [], nombre);
     }
+  });
+});
+
+// ── El service worker y la app instalable (Tanda 5A) ─────────────────────────
+//
+// public/sw.js hace DOS cosas: mostrar un push y abrir el local al tocarlo. No
+// intercepta pedidos (sin `fetch`), no cachea, no guarda nada, no importa
+// código de otro lado y no tiene temporizadores: no puede servir JS viejo, así
+// que la recarga por versión sigue igual. Y el manifest usa los colores de los
+// tokens, no otros.
+
+const SW = "public/sw.js";
+const MANIFEST = "src/app/manifest.ts";
+
+function problemasDelServiceWorker(crudo: string): string[] {
+  const p: string[] = [];
+  const codigo = sinComentarios(crudo);
+  const eventos = [...codigo.matchAll(/addEventListener\(\s*["'`]([a-z]+)["'`]/g)].map((m) => m[1]).sort();
+  if (JSON.stringify(eventos) !== JSON.stringify(["activate", "install", "notificationclick", "push"])) p.push(`escucha: ${eventos.join(", ")}`);
+  if (/\bonfetch\b|["'`]fetch["'`]|(?<![\w-])fetch\s*\(/.test(codigo)) p.push("intercepta o hace pedidos");
+  if (/\bcaches\b|CacheStorage|indexedDB|localStorage|sessionStorage|cookieStore/.test(codigo)) p.push("guarda algo");
+  if (/importScripts|\bimport\s*\(|\bimport\s+/.test(codigo)) p.push("carga código de otro lado");
+  if (/\b(setInterval|setTimeout)\b|periodicsync|\bsync\b/.test(codigo)) p.push("trabaja en segundo plano por su cuenta");
+  // Lo único que abre es un local de Azul Chat (o la lista): la URL del aviso se valida.
+  if (!/const RUTA_LOCAL = \/\^\\\/\\\?vista=local&localId=\[1-9\]\[0-9\]\{0,9\}\$\/;/.test(codigo)) p.push("no valida la URL que abre");
+  if (!/openWindow\(url\)/.test(codigo) || /openWindow\((?!url\))/.test(codigo)) p.push("abre otra cosa que la URL validada");
+  return p;
+}
+
+function tokenDe(css: string, nombre: string): string | undefined {
+  const raiz = css.slice(css.indexOf(":root {"), css.indexOf("}", css.indexOf(":root {")));
+  return new RegExp(`--${nombre}:\\s*(#[0-9a-fA-F]{6})`).exec(raiz)?.[1]?.toLowerCase();
+}
+
+function problemasDelManifest(manifest: string, css: string, layout: string): string[] {
+  const p: string[] = [];
+  const marca = tokenDe(css, "ac-color-marca");
+  const fondo = tokenDe(css, "ac-color-fondo");
+  const constante = (n: string) => new RegExp(`const ${n} = "(#[0-9a-fA-F]{6})";`).exec(manifest)?.[1]?.toLowerCase();
+  if (!marca || constante("COLOR_MARCA") !== marca) p.push("el color de marca del manifest no es el token");
+  if (!fondo || constante("COLOR_FONDO") !== fondo) p.push("el color de fondo del manifest no es el token");
+  if (/#[0-9a-fA-F]{3,8}/.test(manifest.replace(/const COLOR_(MARCA|FONDO) = "#[0-9a-fA-F]{6}";/g, ""))) p.push("el manifest tiene otro color escrito");
+  if (!marca || !new RegExp(`themeColor: "${marca}"`, "i").test(layout)) p.push("el themeColor del layout no es el token");
+  return p;
+}
+
+describe("el service worker y la app instalable", () => {
+  const sw = readFileSync(path.join(RAIZ, SW), "utf8");
+  const manifest = sinComentarios(readFileSync(path.join(RAIZ, MANIFEST), "utf8"));
+  const css = readFileSync(path.join(RAIZ, "src/app/globals.css"), "utf8");
+  const layout = sinComentarios(readFileSync(path.join(RAIZ, "src/app/layout.tsx"), "utf8"));
+
+  it("5A. el service worker solo maneja push y el toque: sin fetch, sin caché, sin almacenamiento, sin temporizadores", () => {
+    assert.deepEqual(problemasDelServiceWorker(sw), []);
+  });
+
+  it("CONTRAPRUEBA: atrapa un fetch, una caché, un almacenamiento, un import, un temporizador y una URL sin validar", () => {
+    const casos: Record<string, string> = {
+      fetch: `${sw}\nself.addEventListener("fetch", (e) => e.respondWith(fetch(e.request)));\n`,
+      cache: `${sw}\nself.addEventListener("install", (e) => e.waitUntil(caches.open("v1")));\n`,
+      guardar: `${sw}\nconst db = indexedDB.open("x");\n`,
+      importar: `importScripts("/otro.js");\n${sw}`,
+      temporizador: `${sw}\nsetInterval(() => {}, 1000);\n`,
+      sync: `${sw}\nself.addEventListener("sync", () => {});\n`,
+      otraUrl: sw.replace("return self.clients.openWindow(url);", "return self.clients.openWindow(datos.url);"),
+      sinValidar: sw.replace("const RUTA_LOCAL = /^\\/\\?vista=local&localId=[1-9][0-9]{0,9}$/;", "const RUTA_LOCAL = /./;"),
+    };
+    for (const [nombre, codigo] of Object.entries(casos)) {
+      assert.notEqual(codigo, sw, `el cambio ${nombre} no se aplicó`);
+      assert.notDeepEqual(problemasDelServiceWorker(codigo), [], nombre);
+    }
+  });
+
+  it("5A. el manifest y el themeColor usan los tokens de color", () => {
+    assert.deepEqual(problemasDelManifest(manifest, css, layout), []);
+  });
+
+  it("CONTRAPRUEBA: un color que no es el token, en el manifest o en el layout, es rojo", () => {
+    assert.notDeepEqual(problemasDelManifest(manifest.replace('const COLOR_MARCA = "#0fa3a3";', 'const COLOR_MARCA = "#123456";'), css, layout), []);
+    assert.notDeepEqual(problemasDelManifest(manifest.replace("theme_color: COLOR_MARCA", 'theme_color: "#000000"'), css, layout), []);
+    assert.notDeepEqual(problemasDelManifest(manifest, css, layout.replace('themeColor: "#0fa3a3"', 'themeColor: "#ff0000"')), []);
   });
 });

@@ -76,7 +76,21 @@ export async function conDelegacion<T>(
   const leida = await sesionDeLaSolicitud(headers, deps);
   if (leida.tipo === "SIN_SESION") return { tipo: "SIN_SESION", vinculoInvalidado: false };
   if (leida.tipo === "SERVICIO_NO_DISPONIBLE") return leida;
-  const { config, db, sesion } = leida.contexto;
+  return delegarConContexto(leida.contexto, deps, llamar);
+}
+
+/**
+ * Lo mismo que `conDelegacion`, con una sesión ya leída: descifra el token,
+ * llama y, si el ERP dice VINCULO_NO_VALIDO, invalida el vínculo y revoca sus
+ * sesiones. La sincronización de fondo (Tanda 5A, interno/sincronizar.ts) entra
+ * por acá con la sesión vigente de cada persona: el mismo camino, sin cookie.
+ */
+export async function delegarConContexto<T>(
+  contexto: Contexto,
+  deps: DependenciasSesion,
+  llamar: (token: string, contexto: Contexto) => Promise<ResultadoConsulta<T>>,
+): Promise<ResultadoDelegado<T>> {
+  const { config, db, sesion } = contexto;
 
   const token = config.cifrador.descifrar(sesion.vinculo.tokenCifrado, {
     instalacionId: config.instalacionId,
@@ -89,7 +103,7 @@ export async function conDelegacion<T>(
     return { tipo: "SERVICIO_NO_DISPONIBLE" };
   }
 
-  const resultado = await llamar(token, leida.contexto);
+  const resultado = await llamar(token, contexto);
   if (resultado.ok) return { tipo: "OK", datos: resultado.datos };
 
   if (resultado.origen === "erp" && resultado.codigo === "VINCULO_NO_VALIDO") {

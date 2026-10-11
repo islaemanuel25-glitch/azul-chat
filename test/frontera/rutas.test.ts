@@ -2,7 +2,9 @@
 //
 // Lo que el navegador puede pedir es: ver el estado de su sesión, vincular con
 // un código, cerrar, y —desde la Tanda 2B— ver sus chats (la lista, un local,
-// General) y marcar leído; desde la Tanda 3A, las ventas de hoy de un local. No hay una ruta que reciba una capacidad, una URL o un
+// General) y marcar leído; desde la Tanda 3A, las ventas de hoy de un local;
+// desde la Tanda 5A, activar y desactivar las notificaciones push (y una ruta
+// interna que NO es del navegador). No hay una ruta que reciba una capacidad, una URL o un
 // camino del ERP y lo reenvíe. Una ruta nueva entra a propósito, con su
 // manejador y sus tests, y ese día se actualiza la lista de abajo.
 
@@ -55,6 +57,18 @@ const RUTAS = {
     metodos: ["GET"],
     importa: ["../../../../server/chats/manejadores.ts", "../../../../server/sesion/dependencias.ts"],
   },
+  // Tanda 5A: notificaciones push. La clave pública VAPID (no es secreta) y
+  // suscribir/dar de baja ESTE dispositivo, con sesión y Origin. Ninguna llama
+  // al ERP ni recibe una URL que reenviar: el endpoint de push se valida contra
+  // una lista cerrada de servicios (src/server/push/suscripcion.ts).
+  "src/app/api/push/clave/route.ts": { metodos: ["GET"], importa: ["../../../../server/push/manejadores.ts"] },
+  "src/app/api/push/suscribir/route.ts": { metodos: ["DELETE", "POST"], importa: ["../../../../server/push/manejadores.ts"] },
+  // Tanda 5A: la sincronización en segundo plano. NO es del navegador: solo el
+  // timer del VPS, por 127.0.0.1 y con su secreto; si no, 404 (GET también,
+  // para que Next no conteste un 405 que delate que existe). Que el navegador
+  // no la llama lo fija secretoSoloServidor.test.ts; que sin secreto, por nginx
+  // o desde el navegador no anda, test/db/interno.test.ts.
+  "src/app/api/interno/sincronizar/route.ts": { metodos: ["GET", "POST"], importa: ["../../../../server/interno/sincronizar.ts"] },
 };
 
 const METODOS_HTTP = /\bexport\s+(?:async\s+)?function\s+(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\b|\bexport\s+const\s+(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\b/g;

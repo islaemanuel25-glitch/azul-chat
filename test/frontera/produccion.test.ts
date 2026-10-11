@@ -76,6 +76,11 @@ const VARIABLES_APP = [
   "AZUL_CHAT_INSTALACION_ID",
   "AZUL_CHAT_INTEGRACION_SECRET",
   "AZUL_CHAT_TOKEN_ENCRYPTION_KEY",
+  // Tanda 5A: notificaciones push y la sincronización en segundo plano.
+  "AZUL_CHAT_VAPID_PUBLICA",
+  "AZUL_CHAT_VAPID_PRIVADA",
+  "AZUL_CHAT_VAPID_CONTACTO",
+  "AZUL_CHAT_TAREA_SECRET",
 ];
 
 /** Las violaciones del compose. Vacío = cumple. */
@@ -230,9 +235,10 @@ describe("el Dockerfile", () => {
     const lineas = leer(".dockerignore").split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
     assert.equal(lineas[0], "*");
     assert.ok(lineas.includes("**/.env") && lineas.includes("**/.env.*"));
-    // Lo que se deja pasar es código y configuración de build, nada más.
+    // Lo que se deja pasar es código y configuración de build, nada más; desde
+    // la Tanda 5A, también public/ (el service worker y los íconos).
     const permitidos = lineas.filter((l) => l.startsWith("!"));
-    for (const p of permitidos) assert.match(p, /^!(package(-lock)?\.json|next\.config\.ts|tsconfig\.json|src\/\*\*|prisma\/|ops\/prisma-cli\/package(-lock)?\.json)/, p);
+    for (const p of permitidos) assert.match(p, /^!(package(-lock)?\.json|next\.config\.ts|tsconfig\.json|src\/\*\*|public\/\*\*|prisma\/|ops\/prisma-cli\/package(-lock)?\.json)/, p);
   });
 });
 
@@ -251,7 +257,7 @@ describe("el CLI de Prisma de la imagen", () => {
 });
 
 describe("los ejemplos de entorno de producción", () => {
-  const SECRETOS = /^(DATABASE_URL|AZUL_CHAT_INTEGRACION_SECRET|AZUL_CHAT_TOKEN_ENCRYPTION_KEY|AZUL_CHAT_INSTALACION_ID|POSTGRES_PASSWORD)=/;
+  const SECRETOS = /^(DATABASE_URL|AZUL_CHAT_INTEGRACION_SECRET|AZUL_CHAT_TOKEN_ENCRYPTION_KEY|AZUL_CHAT_INSTALACION_ID|POSTGRES_PASSWORD|AZUL_CHAT_VAPID_PUBLICA|AZUL_CHAT_VAPID_PRIVADA|AZUL_CHAT_TAREA_SECRET)=/;
 
   it("traen las variables, sin ningún valor secreto", () => {
     const app = leer("ops/produccion/app.env.example");
@@ -360,6 +366,72 @@ describe("las unidades de systemd del backup", () => {
     for (const [i, [s, t]] of casos.entries()) {
       assert.ok(s !== servicio || t !== timer, `el reemplazo ${i} no se aplicó`);
       assert.notDeepEqual(problemasDeUnidades(s, t), [], `caso ${i}`);
+    }
+  });
+});
+
+// ── La sincronización en segundo plano (Tanda 5A) ────────────────────────────
+//
+// Un timer de USUARIO, como el del backup, que cada 2 minutos corre EL script
+// del repo desde el clon de producción. El script le pega SOLO a
+// 127.0.0.1:3100/api/interno/sincronizar y pasa el secreto por la entrada
+// estándar de curl (-K -), nunca como argumento: no aparece en `ps`. Ni la
+// unidad ni el script traen el secreto; el script exige el archivo en 600.
+
+const SCRIPT_SINCRONIZAR = "ops/sincronizar/sincronizar-azul-chat.sh";
+
+function problemasDeSincronizar(servicio: string, timer: string, script: string): string[] {
+  const p: string[] = [];
+  const s = leerUnidad(servicio);
+  const t = leerUnidad(timer);
+  const uno = (u: Map<string, string[]>, k: string) => (u.get(k)?.length === 1 ? u.get(k)![0] : undefined);
+  if (uno(s, "Service.Type") !== "oneshot") p.push("el servicio no es oneshot");
+  if (uno(s, "Service.ExecStart") !== `${RUTA_CLON}/${SCRIPT_SINCRONIZAR}`) p.push(`ExecStart no es el script del repo: ${s.get("Service.ExecStart")?.join(" | ")}`);
+  if (uno(s, "Service.WorkingDirectory") !== RUTA_CLON) p.push("WorkingDirectory no es el clon de producción");
+  if (Number(uno(s, "Service.TimeoutStartSec")) >= 120) p.push("una corrida puede durar más que el intervalo");
+  if ([...s.keys()].some((k) => /Environment/.test(k))) p.push("la unidad define variables de entorno (el secreto va en un archivo aparte)");
+  if (uno(t, "Timer.OnUnitActiveSec") !== "2min") p.push(`el intervalo no es de 2 minutos: ${t.get("Timer.OnUnitActiveSec")?.join(" | ")}`);
+  if (uno(t, "Install.WantedBy") !== "timers.target") p.push("el timer no se habilita con timers.target");
+  const destino = uno(t, "Timer.Unit");
+  if (destino !== undefined && destino !== "azul-chat-sincronizar.service") p.push(`el timer dispara ${destino}`);
+  const codigo = script.split("\n").filter((l) => !l.trim().startsWith("#")).join("\n");
+  const urls = codigo.match(/https?:\/\/[^\s"']+/g) ?? [];
+  if (JSON.stringify(urls) !== JSON.stringify(["http://127.0.0.1:3100/api/interno/sincronizar"])) p.push(`el script llama a: ${urls.join(", ")}`);
+  if (!/--config -/.test(codigo)) p.push("el secreto no va por la entrada estándar de curl");
+  if (/(-H|--header)\s/.test(codigo)) p.push("el secreto va como argumento de curl");
+  if (!/stat -c '%a'[^\n]*= "600"/.test(codigo)) p.push("no exige permisos 600 en el archivo del secreto");
+  if (/echo[^\n]*\$SECRETO|echo[^\n]*\$\{SECRETO|set -x/.test(codigo)) p.push("el script puede imprimir el secreto");
+  return p;
+}
+
+describe("las unidades de systemd de la sincronización", () => {
+  const servicio = leer("ops/sincronizar/systemd/azul-chat-sincronizar.service");
+  const timer = leer("ops/sincronizar/systemd/azul-chat-sincronizar.timer");
+  const script = leer(SCRIPT_SINCRONIZAR);
+
+  it("5A. el servicio corre el script del repo una vez, cada 2 minutos, sin secretos en la unidad ni en los argumentos", () => {
+    assert.deepEqual(problemasDeSincronizar(servicio, timer, script), []);
+    const modo = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-s", SCRIPT_SINCRONIZAR], { cwd: RAIZ, encoding: "utf8" });
+    assert.match(script, /^#!\/usr\/bin\/env bash/);
+    assert.ok(modo.startsWith("100755"), `el script no está en git como ejecutable: ${modo || "no está"}`);
+  });
+
+  it("CONTRAPRUEBA: atrapa otro script, otro intervalo, el secreto en la unidad o como argumento, otra URL y un eco del secreto", () => {
+    const casos: [string, string, string][] = [
+      [servicio.replace("ops/sincronizar/sincronizar-azul-chat.sh", "ops/sincronizar/otro.sh"), timer, script],
+      [servicio.replace("Type=oneshot", "Type=simple"), timer, script],
+      [servicio.replace("TimeoutStartSec=115", "TimeoutStartSec=300"), timer, script],
+      [`${servicio}\nEnvironment=AZUL_CHAT_TAREA_SECRET=x\n`, timer, script],
+      [servicio, timer.replace("OnUnitActiveSec=2min", "OnUnitActiveSec=10s"), script],
+      [servicio, timer.replace("WantedBy=timers.target", "WantedBy=default.target"), script],
+      [servicio, timer, script.replace("--config -", '--header "x-azul-chat-tarea: $SECRETO"')],
+      [servicio, timer, script.replace('URL="http://127.0.0.1:3100/api/interno/sincronizar"', 'URL="https://chat.operix.cloud/api/interno/sincronizar"')],
+      [servicio, timer, script.replace('= "600"', '= "644"')],
+      [servicio, timer, script.replace("unset SECRETO", 'echo "$SECRETO"')],
+    ];
+    for (const [i, [s, t, sc]] of casos.entries()) {
+      assert.ok(s !== servicio || t !== timer || sc !== script, `el reemplazo ${i} no se aplicó`);
+      assert.notDeepEqual(problemasDeSincronizar(s, t, sc), [], `caso ${i}`);
     }
   });
 });

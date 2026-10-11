@@ -100,14 +100,28 @@ export function conAutorizacionViva<T>(
   trabajo: (a: Autorizacion) => Promise<ResultadoConsulta<T>>,
 ): Promise<ResultadoDelegado<T>> {
   return conDelegacion<T>(headers, deps, async (token, contexto) => {
-    const alcance = await deps.erp.miAlcance(token);
-    if (!alcance.ok) return alcance;
-    return trabajo({
+    const a = await autorizacionViva(deps, token, contexto);
+    return a.ok ? trabajo(a.datos) : a;
+  });
+}
+
+/**
+ * `mi_alcance` vivo con ese token, convertido en la autorización de AHORA.
+ * La usa cada solicitud de chats y, desde la Tanda 5A, la sincronización de
+ * fondo para cada persona: el mismo criterio, sin caché.
+ */
+export async function autorizacionViva(deps: DependenciasSesion, token: string, contexto: Contexto): Promise<ResultadoConsulta<Autorizacion>> {
+  const alcance = await deps.erp.miAlcance(token);
+  if (!alcance.ok) return alcance;
+  return {
+    ok: true,
+    requestId: alcance.requestId,
+    datos: {
       token,
       contexto,
       usuario: { nombre: alcance.datos.usuario.nombre },
       autorizados: localesAutorizadosAhora(alcance.datos),
       conVentas: localesConCapacidad(alcance.datos, CAPACIDAD_VENTAS_RESUMEN),
-    });
-  });
+    },
+  };
 }

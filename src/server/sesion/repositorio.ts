@@ -133,6 +133,22 @@ export async function leerSesionVigente(db: Db, idSesion: string, instalacionId:
   return { sesionId: s.id, vinculo: { id: v.id, erpUsuarioId: v.erpUsuarioId, erpVinculoId: v.erpVinculoId, tokenCifrado: v.tokenCifrado } };
 }
 
+/**
+ * Tanda 5A: para la sincronización de fondo, UNA sesión vigente por cada
+ * persona con el vínculo vigente en esta instalación (la más reciente). Una
+ * persona sin ninguna sesión que valga —cerró en todos lados, o vencieron— no
+ * se sincroniza ni recibe avisos: no está usando Azul Chat.
+ */
+export async function sesionesParaSegundoPlano(db: Db, instalacionId: string, ahora: Date): Promise<SesionVigente[]> {
+  const sesiones = await db.sesion.findMany({
+    where: { revocadaEn: null, expiraEn: { gt: ahora }, vinculo: { instalacionId, invalidadoEn: null } },
+    orderBy: [{ vinculoId: "asc" }, { creadaEn: "desc" }, { id: "asc" }],
+    distinct: ["vinculoId"],
+    select: { id: true, vinculo: { select: { id: true, erpUsuarioId: true, erpVinculoId: true, tokenCifrado: true } } },
+  });
+  return sesiones.map((s) => ({ sesionId: s.id, vinculo: s.vinculo }));
+}
+
 /** Revoca SOLO la sesión de ese identificador. Las demás de la persona siguen. */
 export async function revocarSesion(db: Db, idSesion: string, ahora: Date): Promise<boolean> {
   const r = await db.sesion.updateMany({ where: { idHash: hashIdSesion(idSesion), revocadaEn: null }, data: { revocadaEn: ahora } });
