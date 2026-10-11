@@ -78,7 +78,10 @@ no toca a los demás.
 - `src/app/` — Next.js App Router. Las rutas `api/` solo delegan:
   `salud`, `version`, `sesion` (GET, DELETE), `sesion/vincular` (POST) y los
   chats: `chats`, `chats/local`, `chats/general` y `chats/ventas` (GET) y
-  `chats/leido` (POST), descritos en `docs/CHATS.md`. No hay proxy genérico.
+  `chats/leido` (POST), descritos en `docs/CHATS.md`; desde la Tanda 5A,
+  `push/clave` (GET) y `push/suscribir` (POST, DELETE), y
+  `interno/sincronizar`, que NO es del navegador (solo el timer del VPS, por
+  127.0.0.1 y con su secreto; a todo lo demás, 404). No hay proxy genérico.
   - `GET /api/salud` — healthcheck: 200 si la configuración es válida, la base
     contesta y está migrada. No llama al ERP ni escribe.
   - `GET /api/version` — el SHA del commit con que se construyó la imagen
@@ -89,7 +92,8 @@ no toca a los demás.
     cambiar de versión (`version.ts`, Tanda 3B), con un único cliente HTTP
     (`clienteChats.ts`) para las cinco rutas de chats y `/api/version`.
     Descrita en `docs/INTERFAZ.md`.
-  - `sesion/PanelSesion.tsx` — vincular, ver la sesión y cerrarla.
+  - `sesion/PanelSesion.tsx` — vincular, ver la sesión y cerrarla, y desde la
+    Tanda 5A la fila "Notificaciones" (`push/`).
   - `shell/ShellMovil.tsx` — el marco: encabezado fijo, volver y acciones.
 - `src/shared/` — tipos y validaciones que puede usar la interfaz. Sin secretos ni red.
 - `src/server/` — solo servidor. Cada archivo importa `server-only`.
@@ -102,6 +106,10 @@ no toca a los demás.
     sesión al token (`delegacion.ts`).
   - `chats/` — autorización viva por capacidad, sincronización con frecuencia
     mínima, historial paginado y las cinco rutas de chats.
+  - `interno/` — la sincronización en segundo plano (Tanda 5A): la ruta que
+    llama el timer del VPS, con su secreto y su puerta (`docs/DEPLOY.md`).
+  - `push/` — notificaciones push (Tanda 5A): claves VAPID, suscripciones,
+    qué se avisa una sola vez y el envío (`docs/EVENTOS.md`).
   - `eventos/` — ingesta (una maquinaria, una definición por capacidad en
     `capacidades.ts`), eventos guardados de los cuatro tipos y lectura
     (`docs/EVENTOS.md`).
@@ -116,6 +124,10 @@ no toca a los demás.
   mentira con estado; ningún test llama al ERP real. `test/ui/` dibuja los
   componentes con `react-dom/server`, sin navegador (los `.tsx` se cargan con
   `test/ayuda/tsx.mjs`).
+- `public/` — el service worker mínimo (solo push y el toque, sin caché) y los
+  íconos de la app instalable (Tanda 5A).
+- `ops/sincronizar/` — el script y las unidades de systemd del timer de
+  sincronización (Tanda 5A).
 - `scripts/verificar-bundle-cliente.mjs` — compila con secretos canario y los
   busca en todo lo que baja al navegador.
 
@@ -155,6 +167,16 @@ de ellas, Azul Chat no crea ni lee sesiones (fail closed).
 - `AZUL_CHAT_TOKEN_ENCRYPTION_KEY` — 32 bytes al azar en base64 o base64url.
   **Distinta** del secreto de la integración. Perderla obliga a volver a vincular.
 
+Desde la Tanda 5A, opcionales (sin ellas el resto anda igual):
+
+- `AZUL_CHAT_VAPID_PUBLICA`, `AZUL_CHAT_VAPID_PRIVADA`, `AZUL_CHAT_VAPID_CONTACTO`
+  — las claves de las notificaciones push y su `mailto:`. La pública se entrega
+  al navegador por `GET /api/push/clave`, no por `NEXT_PUBLIC_`.
+- `AZUL_CHAT_TAREA_SECRET` — el secreto de la ruta que llama el timer de
+  sincronización. Mínimo 32 caracteres y distinto de todos los demás.
+
+Cómo generarlas en el VPS sin imprimirlas: `docs/DEPLOY.md`.
+
 Ninguna lleva `NEXT_PUBLIC_`.
 
 ## Firma
@@ -169,6 +191,13 @@ sobre bytes UTF-8, con `marca` = Unix timestamp en segundos y `cuerpo` =
 `x-erp-integracion-marca`, `x-erp-integracion-firma`.
 
 ## Límites conocidos
+
+- Los avisos push son "a lo sumo una vez": si el servicio de push no contesta,
+  ese aviso se pierde (la novedad sigue en la app). En iPhone, el navegador solo
+  entrega push a la app instalada en la pantalla de inicio. La sincronización
+  de fondo puede chocar con una apertura de la app en el mismo minuto del cupo
+  del ERP: esa capacidad queda "Actualización demorada" hasta la siguiente
+  (`docs/DEPLOY.md`, "Sincronización en segundo plano").
 
 - El cupo de vinculación vive en memoria del proceso (5 por IP y 15 en total
   por minuto, por debajo de los 20 canjes por minuto que el ERP da a la
