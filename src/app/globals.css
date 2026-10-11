@@ -225,6 +225,13 @@ body {
   border-bottom: 1px solid var(--ac-color-borde);
 }
 
+/* Tanda 6E: la versión de la página, al pie del panel. Chica y discreta. */
+.ac-version {
+  margin: var(--ac-espacio-3) 0 0;
+  color: var(--ac-color-texto-suave);
+  font-size: var(--ac-letra-mini);
+}
+
 .ac-mensaje {
   margin: var(--ac-espacio-3) 0 0;
   color: var(--ac-color-texto);

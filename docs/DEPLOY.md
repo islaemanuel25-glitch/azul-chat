@@ -208,6 +208,11 @@ pregunta y el cupo del ERP que gasta (1 + N) están en `docs/CHATS.md`.
 
 ### Tanda 6D: la cabecera con el commit
 
+Y desde la Tanda 6E, en el teléfono: abrir ☰ ("Tu sesión") y mirar la línea
+"Versión" al pie del panel. Tiene que decir los primeros 7 caracteres del SHA
+desplegado (`echo "${OBJETIVO:0:7}"`). Si dice otros, ese teléfono sigue con la
+página anterior: volver a primer plano o abrir un chat la hace recargar.
+
 Toda respuesta de las rutas propias trae `X-Azul-Chat-Commit` con el commit de
 la imagen: con ella, una página abierta durante el despliegue recarga en su
 próxima consulta, aunque la persona no salga del chat. No hay nada que

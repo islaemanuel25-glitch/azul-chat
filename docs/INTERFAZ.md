@@ -114,6 +114,14 @@ grande se centra en una columna de 480 px; no hay un diseño de escritorio.
   (`PreguntaGuardadaVista` en `Preguntas.tsx`; `elementosEnOrden` y
   `sinLasGuardadas` en `logica.ts`).
 
+- **Versión (Tanda 6E).** Al pie del panel que abre ☰, debajo de "Ver chats"
+  y "Cerrar sesión", una línea chica: "Versión " y los primeros 7 caracteres
+  del commit con que se armó la página. Es la misma referencia que usa la
+  recarga por versión (el `commit` que `src/app/page.tsx` le pasa a la app):
+  no se le pide nada al servidor. Sirve para ver a simple vista si el teléfono
+  tomó un despliegue. Sin commit (desarrollo), no se muestra
+  (`VersionDeLaPagina`, en `PanelSesion.tsx`).
+
 - **Notificaciones (Tanda 5A).** En el panel que abre ☰, debajo de los locales,
   una sección "Notificaciones" con UNA fila (Figma pantalla 06, nodo 1:277,
   adaptada): "Avisos en este teléfono", el estado ("Activadas" /
