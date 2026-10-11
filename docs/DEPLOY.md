@@ -206,6 +206,23 @@ pregunta y el cupo del ERP que gasta (1 + N) están en `docs/CHATS.md`.
   tiene que decir `no-store` y `DYNAMIC`. Si Cloudflare dijera `HIT`, hay una
   regla de caché que guarda HTML: se quita (no la pone este repo).
 
+### Tanda 6D: la cabecera con el commit
+
+Toda respuesta de las rutas propias trae `X-Azul-Chat-Commit` con el commit de
+la imagen: con ella, una página abierta durante el despliegue recarga en su
+próxima consulta, aunque la persona no salga del chat. No hay nada que
+configurar. En el POST, comprobar que la cabecera llega desde afuera (nginx y
+Cloudflare no la sacan) y que es el commit desplegado:
+
+```sh
+curl -s -D - -o /dev/null https://chat.operix.cloud/api/version | grep -i '^x-azul-chat-commit:'   # = OBJETIVO
+curl -s -D - -o /dev/null https://chat.operix.cloud/api/chats | grep -i '^x-azul-chat-commit:'   # = OBJETIVO (contesta 401 sin sesión, con la cabecera igual)
+```
+
+Si no aparece, el bloque de nginx la está filtrando (`proxy_hide_header`) o
+hay una regla de Cloudflare que la saca: se corrige ahí, el repo no la pone en
+otro lado.
+
 ## La imagen
 
 La publica el workflow **Imagen** (`.github/workflows/imagen.yml`):
