@@ -294,6 +294,15 @@ es seguro mientras las migraciones nuevas sean compatibles con el código viejo
 2. restaurar el backup del PRE (ver abajo);
 3. levantar la imagen anterior.
 
+**`20261011120000_eventos_pedidos_envios_cancelaciones` (Tanda 4B).** Aplicada
+sola, sin código nuevo, es compatible con la imagen anterior: solo agrega
+valores al enum y CHECKs. Pero en cuanto la imagen de la Tanda 4B ingiere un
+`PEDIDO_SOLICITADO`, `TRANSFERENCIA_ENVIADA` o `TRANSFERENCIA_CANCELADA`, la
+imagen anterior ya no sabe mostrarlo: los chats de ese local contestarían
+`SERVICIO_NO_DISPONIBLE` (no muestra a medias un evento que no puede leer).
+Volver a una imagen anterior a la Tanda 4B después de eso es el caso de arriba:
+restaurar el backup del PRE.
+
 **Primer despliegue.** No hay versión anterior: `$C stop azul-chat-app` (o
 `$C down`, que conserva `pgdata/`) y quitar el bloque de nginx. El ERP no se ve
 afectado en ningún caso.

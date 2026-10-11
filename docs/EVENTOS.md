@@ -8,7 +8,10 @@ leído) están en `docs/CHATS.md`, y la interfaz que las usa en `docs/INTERFAZ.m
 ## Cuatro cosas distintas
 
 - **Hecho operacional.** Un `Evento`: algo que pasó en el ERP. Se guarda UNA vez
-  por instalación, sin dueño. Hoy hay un solo tipo, `TRANSFERENCIA_RECIBIDA`.
+  por instalación, sin dueño. Hay cuatro tipos, uno por capacidad del ERP:
+  `TRANSFERENCIA_RECIBIDA` (`transferencias_eventos`, Tanda 2) y, desde la
+  Tanda 4B, `PEDIDO_SOLICITADO` (`pedidos_eventos`), `TRANSFERENCIA_ENVIADA`
+  (`envios_eventos`) y `TRANSFERENCIA_CANCELADA` (`cancelaciones_eventos`).
 - **Visibilidad.** Quién puede ver los hechos de un local. NO se guarda: la
   decide el ERP en cada consulta, con `mi_alcance` vivo, que anuncia en cada
   local las capacidades que la persona puede usar hoy (`capacidades`, ERP
@@ -20,11 +23,18 @@ leído) están en `docs/CHATS.md`, y la interfaz que las usa en `docs/INTERFAZ.m
 
 ## El ERP sigue siendo la autoridad
 
-- El cliente pide `transferencias_eventos` por la misma frontera de siempre
+- El cliente pide cada capacidad de eventos por la misma frontera de siempre
   (`POST /api/integraciones/azul-chat/consultar`), firmada, con el token de
-  delegación de la persona. El ERP vuelve a autorizar cada página.
+  delegación de la persona, con un método por capacidad
+  (`transferenciasEventos`, `pedidosEventos`, `enviosEventos`,
+  `cancelacionesEventos`). El ERP vuelve a autorizar cada página.
 - `capacidades` de `mi_alcance` es un anuncio para armar la interfaz. No se
-  guarda y no reemplaza la autorización del ERP.
+  guarda y no reemplaza la autorización del ERP. Una capacidad de eventos se
+  ingiere en un local SOLO si `mi_alcance` la anuncia en ese local en esa
+  solicitud, y de ese local la persona ve solo los tipos de las capacidades que
+  tiene anunciadas: un `PEDIDO_SOLICITADO` guardado (porque otra persona lo
+  trajo) no se le muestra ni se le cuenta a quien no tiene `pedidos_eventos`
+  en ese local.
 - **ERP no disponible: fallo cerrado (decisión P1).** Si no se puede verificar
   la autorización actual con el ERP, no se muestra historial operacional: ni
   autorización guardada, ni ventana de gracia, ni caída silenciosa a lo que
@@ -47,19 +57,55 @@ Respuesta: `capacidad`, `version: 1`, `local`, `grupoId`, `hasta`, `eventos`,
 `fechaRecepcion`, `origen { id, nombre, esDeposito }`, `destino { id, nombre }`,
 `tieneDiferencias`, `lineasConDiferencia`.
 
+### Las tres capacidades de la Tanda 4B
+
+Copiadas del ERP en producción en 76b9a71 (erpmanual PR #167,
+`lib/integraciones/azul-chat/pedidosEventos.js`, `enviosEventos.js`,
+`cancelacionesEventos.js` y el cursor común `cursorDeEventos.js`). El fixture
+`test/fixtures/erp-76b9a71.json` es una copia sin tocar de
+`docs/integraciones/azul-chat/erp-eventos-tanda-4a.json` de ese commit,
+generado por el ERP ejecutando su puerta contra una base descartable.
+
+Mismo pedido, misma respuesta y mismo cursor que `transferencias_eventos`
+(`desde` con exactamente dos claves, `limite` 1 a 100, por defecto 50,
+`siguiente` = el último devuelto o el mismo `desde`, `hayMas` por una fila de
+más, nada más nuevo que `hasta` = ahora − 60 s, `version: 1`). Cambian los
+nombres de las claves del cursor y la forma del evento:
+
+- `pedidos_eventos` → `PEDIDO_SOLICITADO`: `pedidoId`, `fechaSolicitud`,
+  `origen { id, nombre }`, `lineas`. Cursor `{ fechaSolicitud, pedidoId }`.
+  Permiso `pedidos.ver`. Es del local que PIDIÓ. `lineas` es la cantidad de
+  líneas AL LEER: dos lecturas pueden traer distinto número con la misma
+  clave. Un pedido cancelado se BORRA en el ERP: no hay evento de cancelación
+  de pedido; si Azul Chat ya lo guardó, lo conserva como historia.
+- `envios_eventos` → `TRANSFERENCIA_ENVIADA`: `transferenciaId`, `fechaEnvio`,
+  `origen { id, nombre }`, `lineas`, `pedidoId` (o null). Cursor
+  `{ fechaEnvio, transferenciaId }`. Permiso `transferencias.ver`. Es del local
+  DESTINO.
+- `cancelaciones_eventos` → `TRANSFERENCIA_CANCELADA`: `transferenciaId`,
+  `fechaCancelacion`, `origen { id, nombre }`, `pedidoId` (o null). Cursor
+  `{ fechaCancelacion, transferenciaId }`. Permiso `transferencias.ver`. Es del
+  local DESTINO. Las cancelaciones anteriores al 2026-08-20 no tienen fecha y
+  no salen.
+
+Ninguno de los tres trae `destino`: el local del evento es el de la respuesta,
+que se comprueba igual al pedido.
+
 ## Validación antes de guardar
 
 Una página se valida ENTERA antes de tocar la base. Si falla una sola cosa, es
 `RESPUESTA_INVALIDA`: no se guarda nada de ella y el cursor no se mueve.
 
-- Forma (`src/shared/erp/contrato.ts`): capacidad y versión; cada evento bien
-  formado; `eventoId` igual a `TRANSFERENCIA_RECIBIDA:<transferenciaId>:<fechaRecepcion>`;
-  orden estricto por (fecha, id); ningún evento más nuevo que `hasta`;
-  `siguiente` igual al último evento; `hayMas` solo con eventos.
-- Contra el pedido (`src/server/eventos/pagina.ts`): el local es el pedido; el
-  destino de TODOS los eventos es ese local; el primero viene después del
-  `desde`; una página vacía repite el `desde`; no más eventos que el `limite`, y
-  `hayMas` solo con la página llena.
+- Forma (`src/shared/erp/contrato.ts`, `esDatosEventosDe`, uno para las cuatro
+  capacidades con el contrato de cada una): capacidad y versión; cada evento
+  bien formado; `eventoId` igual a `<TIPO>:<id>:<fecha>`; orden estricto por
+  (fecha, id); ningún evento más nuevo que `hasta`; `siguiente` igual al último
+  evento; `hayMas` solo con eventos.
+- Contra el pedido (`src/server/eventos/pagina.ts`, `validarPaginaDe`): el
+  local es el pedido; en `TRANSFERENCIA_RECIBIDA`, el destino de TODOS los
+  eventos es ese local; el primero viene después del `desde`; una página vacía
+  repite el `desde`; no más eventos que el `limite`, y `hayMas` solo con la
+  página llena.
 
 ## Evento
 
@@ -73,6 +119,22 @@ Columnas para indexar, payload para mostrar:
   capacidades, token, sesión ni filas del ERP.
 - Unique `(instalacionId, claveExterna)`. La base además exige que la clave de
   una `TRANSFERENCIA_RECIBIDA` coincida con su id y su fecha.
+
+Los tres tipos de la Tanda 4B (`src/server/eventos/pedidosEnviosCancelaciones.ts`),
+con el local de la respuesta como `erpLocalId`:
+
+- `PEDIDO_SOLICITADO`: referencia = `pedidoId`, fecha = `fechaSolicitud`,
+  payload v1 `{ origen { id, nombre }, lineas }`.
+- `TRANSFERENCIA_ENVIADA`: referencia = `transferenciaId`, fecha =
+  `fechaEnvio`, payload v1 `{ origen { id, nombre }, lineas, pedidoId }`.
+- `TRANSFERENCIA_CANCELADA`: referencia = `transferenciaId`, fecha =
+  `fechaCancelacion`, payload v1 `{ origen { id, nombre }, pedidoId }`.
+
+La migración `20261011120000_eventos_pedidos_envios_cancelaciones` agrega los
+tres valores al enum `TipoEvento`, amplía el CHECK de `CursorIngesta.capacidad`
+a las cuatro capacidades y exige, como para las recepciones, que la clave de
+cada tipo nuevo sea exactamente `<TIPO>:<id>:<fecha ISO>`. No toca filas
+existentes.
 
 **Identidad y foto.** La `claveExterna` identifica el hecho. Lo que está
 guardado de un evento son dos cosas distintas:
@@ -102,6 +164,11 @@ texto del JSON (`src/server/eventos/repetido.ts`):
   Ese diagnóstico no es un error —la sincronización salió bien— y por eso no va
   en `ultimoErrorCodigo`, que dice que la última sincronización falló y se
   limpia con un éxito; el diagnóstico de contenido no se limpia.
+- **`PEDIDO_SOLICITADO` con otra cantidad de líneas**: es lo ESPERADO (el ERP
+  cuenta las líneas al leer y el depósito puede ajustar un pedido Solicitado).
+  Cuenta como duplicado idéntico: se conserva la foto de la primera vez y NO se
+  anota como diferencia. El origen sí cuenta. Para los otros tipos, cualquier
+  campo del payload cuenta, como siempre.
 
 **Idempotencia y carreras.** Dentro de la transacción de la página: se insertan
 las claves que faltan con `INSERT … ON CONFLICT DO NOTHING` y después se relee
@@ -123,17 +190,25 @@ desaparece porque el ERP borre la transferencia; queda como historia.
   se mide con esto. Dos eventos del mismo milisegundo se distinguen sin
   ambigüedad, y uno con fecha vieja que se conoce tarde cuenta como nuevo.
 
-## CursorIngesta: un cursor por local, compartido
+## CursorIngesta: un cursor por local y capacidad, compartido
 
 Uno por (instalación, local, capacidad), para todas las personas: el mismo
 evento no se baja una vez por persona. Guarda el `siguiente` del ERP **tal cual**;
 nunca se arma un cursor ni se usa el reloj de Azul Chat para fabricarlo.
 
-`sincronizarTransferenciasLocal` (`src/server/eventos/ingesta.ts`) NO autoriza:
-recibe un local ya autorizado y una función que llama al ERP con la delegación
-de quien pregunta. `sincronizarTransferenciasDeLaSesion` lo une con la sesión,
-para que un `VINCULO_NO_VALIDO` siga el flujo de siempre (invalida el vínculo y
-revoca sus sesiones) y nada más lo haga.
+La maquinaria es UNA para las cuatro capacidades: `sincronizarEventosLocal`
+(`src/server/eventos/ingesta.ts`), con la definición de cada capacidad en
+`src/server/eventos/capacidades.ts` (contrato, tipo, cómo se pasa un evento a
+fila). `sincronizarTransferenciasLocal` es la de siempre con la definición de
+`transferencias_eventos`; `test/db/huellaTransferencias.test.ts` fija con un
+sha256, tomado antes de generalizar, que las recepciones se ingieren
+exactamente igual que antes. Cada capacidad tiene su fila de cursor: avanza,
+falla y completa su backfill por separado.
+
+La ingesta NO autoriza: recibe un local ya autorizado y una función que llama
+al ERP con la delegación de quien pregunta. `sincronizarTransferenciasDeLaSesion`
+la une con la sesión, para que un `VINCULO_NO_VALIDO` siga el flujo de siempre
+(invalida el vínculo y revoca sus sesiones) y nada más lo haga.
 
 Cada página es un ciclo:
 
@@ -162,12 +237,20 @@ Sin cursor, el ERP devuelve la historia desde el evento más viejo. Mientras
 aunque lleve varias visitas. La primera página con `hayMas: false` completa el
 backfill. Lo que entra después es `historico = false`, y lo histórico no cambia.
 
+El backfill es POR CAPACIDAD: cuando un local empieza a anunciar una capacidad
+nueva (o en el primer despliegue de la Tanda 4B), toda su historia entra como
+`historico = true`, aunque se ingiera mucho después que lo nuevo de otra
+capacidad del mismo local. Por eso puede haber eventos históricos con ids
+mayores que eventos no leídos: un id alto no dice que un evento sea nuevo para
+la persona, y la regla de no leído mira `historico` siempre.
+
 ## Lectura
 
 `LecturaLocal (vinculoId, erpLocalId, leidoHastaEventoId)`, del Vinculo y no de
 la sesión: dos dispositivos de la misma persona leen lo mismo.
 
-- **No leído** = `historico = false` y `Evento.id > leidoHastaEventoId`.
+- **No leído** = `historico = false` y `Evento.id > leidoHastaEventoId`, de los
+  tipos que la persona puede ver hoy en ese local.
 - **Línea de base**: la primera vez que una persona ve un local, su lectura se
   fija en el mayor `Evento.id` actual del local (0 si no hay). Todo lo anterior
   a su primera visita es historia para ella.

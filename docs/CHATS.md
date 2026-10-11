@@ -18,23 +18,32 @@ estado, y en `test/unidad/cursorChats.test.ts`.
 
 Cada solicitud de chats —las tres de lectura y la de marcar leído— pide
 `mi_alcance` al ERP con el token de la persona, UNA vez, y se queda con los
-locales cuyo `capacidades` incluye `transferencias_eventos`
-(`localesAutorizadosAhora`, en `autorizacion.ts`). Todo lo demás se restringe a
-ese conjunto.
+locales cuyo `capacidades` incluye al menos una capacidad de eventos:
+`transferencias_eventos` y, desde la Tanda 4B, `pedidos_eventos`,
+`envios_eventos` o `cancelaciones_eventos` (`localesAutorizadosAhora`, en
+`autorizacion.ts`). De cada local se queda también CUÁLES anuncia: de ese
+local, la persona ve solo los tipos de evento de esas capacidades
+(`TRANSFERENCIA_RECIBIDA`, `PEDIDO_SOLICITADO`, `TRANSFERENCIA_ENVIADA`,
+`TRANSFERENCIA_CANCELADA`), y solo esas se ingieren. Todo lo demás —historial,
+último evento, no leídos, General— se restringe a ese conjunto, por local Y
+por tipo.
 
 - No hay caché de autorización. Ni `Evento`, ni `CursorIngesta`, ni
   `LecturaLocal`, ni `Vinculo`, ni `Sesion` prueban que alguien pueda ver un
   local. Tener eventos guardados de un local no autoriza a nadie a verlo.
 - No se infiere nada de roles ni de territorio: un local que aparece en
-  `mi_alcance` sin la capacidad no forma parte de los chats y no se sincroniza
-  nunca.
+  `mi_alcance` sin ninguna capacidad de eventos no forma parte de los chats y
+  no se sincroniza nunca. Una capacidad no anunciada en un local no se pide al
+  ERP en ese local, y lo que otra persona haya traído de ella no se muestra ni
+  se cuenta.
 - Una capacidad desconocida se ignora. Un `mi_alcance` sin `capacidades` (un
   ERP anterior a 25172fe) no autoriza ningún local.
-- Quitar la capacidad saca el local en la solicitud siguiente; devolverla lo
-  restaura sin revincular, con la lectura que la persona tenía.
-- Si al sincronizar el ERP niega `transferencias_eventos` a un local que
-  `mi_alcance` anunció (algo cambió entre las dos llamadas), ese local sale de
-  la respuesta: fallo cerrado para él.
+- Quitar las capacidades saca el local en la solicitud siguiente; devolverlas
+  lo restaura sin revincular, con la lectura que la persona tenía.
+- Si al sincronizar el ERP niega UNA capacidad en un local que `mi_alcance`
+  anunció (algo cambió entre las dos llamadas), esa capacidad sale de la
+  respuesta —sus tipos no se muestran ni se cuentan— y el local sigue con las
+  otras. Si no le queda ninguna, el local sale: fallo cerrado.
 
 ## Fallo cerrado (P1)
 
@@ -44,7 +53,7 @@ lleva un solo evento: ni autorización guardada, ni ventana de gracia, ni caída
 silenciosa a lo que haya en la base. Tampoco se marca leído.
 
 `VINCULO_NO_VALIDO` conserva su significado de siempre, venga de `mi_alcance` o
-de `transferencias_eventos`: el vínculo se invalida, sus sesiones se revocan, la
+de cualquier capacidad de eventos: el vínculo se invalida, sus sesiones se revocan, la
 cookie se borra y la respuesta es `SIN_SESION` con motivo `VINCULO_INVALIDO`.
 
 ## Frecuencia de ingesta, que no es autorización
@@ -52,10 +61,12 @@ cookie se borra y la respuesta es `SIN_SESION` con motivo `VINCULO_INVALIDO`.
 Son dos cosas distintas y conviene no confundirlas:
 
 - **Autorización:** se pide en cada solicitud, siempre.
-- **Ingesta:** si un local se sincronizó bien hace menos de 30 s
-  (`FRECUENCIA_MINIMA_INGESTA_MS`, contra `CursorIngesta.ultimaSincronizacionEn`),
-  no se vuelve a pedir `transferencias_eventos`: se usa lo guardado. Es seguro
-  porque solo decide qué tan fresco está lo guardado, nunca quién lo ve.
+- **Ingesta:** si una capacidad de un local se sincronizó bien hace menos de
+  30 s (`FRECUENCIA_MINIMA_INGESTA_MS`, contra
+  `CursorIngesta.ultimaSincronizacionEn` de ESE local y ESA capacidad), no se
+  vuelve a pedir al ERP: se usa lo guardado. Una capacidad recién anunciada se
+  pide aunque las otras del local estén frescas. Es seguro porque solo decide
+  qué tan fresco está lo guardado, nunca quién lo ve.
 
 El cursor de ingesta es de la instalación, no de la persona: si una persona
 acaba de sincronizar Casiano, la siguiente que lo mire dentro de los 30 s no lo
@@ -68,16 +79,19 @@ los locales que esa solicitud necesita (la lista y General, todos; un local,
 ese). Marcar leído no sincroniza.
 
 Por solicitud, entonces: una `mi_alcance` y, como mucho, una sincronización por
-local autorizado y vencido.
+capacidad anunciada y vencida de cada local autorizado (hasta cuatro por local,
+en el orden del catálogo: recepciones, pedidos, envíos, cancelaciones).
 
 ## Si falla la ingesta de un local
 
-Cuando la autorización de ahora ya se comprobó, que falle la ingesta de un local
-—ERP caído para esa llamada, cupo, contrato, contradicción, base— no le quita
-nada a los demás ni al historial ya guardado de ese local. El local queda con
-`sincronizacion: "DEMORADA"` y muestra lo que había; los demás siguen
-`AL_DIA`. Una falla no deja al local fresco: la solicitud siguiente lo vuelve a
-intentar. No hay reintentos automáticos.
+Cuando la autorización de ahora ya se comprobó, que falle la ingesta de una
+capacidad en un local —ERP caído para esa llamada, cupo, contrato,
+contradicción, base— no le quita nada a las otras capacidades de ese local, a
+los demás locales ni al historial ya guardado. Las otras capacidades se
+sincronizan igual; el local queda con `sincronizacion: "DEMORADA"` y muestra
+lo que había; los demás siguen `AL_DIA`. Una falla no deja fresca a esa
+capacidad: la solicitud siguiente la vuelve a intentar. No hay reintentos
+automáticos.
 
 ## Las rutas
 
@@ -178,24 +192,35 @@ sincroniza y no marca leído. Por solicitud: una `mi_alcance` y una
 
 ## El evento público
 
-`{ id, tipo, fecha, transferenciaId, origen: { id, nombre, esDeposito },
-destino: { id, nombre }, tieneDiferencias, lineasConDiferencia }`.
+Común a los cuatro tipos: `{ id, tipo, fecha, historico }`. Además, según `tipo`:
 
-`id` es el `Evento.id` en texto y `fecha` es la `fechaOperacion` (cuándo se
-recibió en el ERP). No salen la instalación, la clave externa, la versión, la
-marca de histórico, la fecha de ingesta ni el payload crudo. Un evento guardado
-que no se puede leer como `TRANSFERENCIA_RECIBIDA` v1 no se muestra a medias: la
-solicitud falla con `SERVICIO_NO_DISPONIBLE`.
+- `TRANSFERENCIA_RECIBIDA`: `transferenciaId, origen: { id, nombre, esDeposito },
+  destino: { id, nombre }, tieneDiferencias, lineasConDiferencia`.
+- `PEDIDO_SOLICITADO` (Tanda 4B): `pedidoId, origen: { id, nombre }, lineas`.
+- `TRANSFERENCIA_ENVIADA` (Tanda 4B): `transferenciaId, origen: { id, nombre }, lineas`.
+- `TRANSFERENCIA_CANCELADA` (Tanda 4B): `transferenciaId, origen: { id, nombre }`.
+
+`id` es el `Evento.id` en texto y `fecha` es la `fechaOperacion` (cuándo pasó
+en el ERP: recepción, solicitud, envío o cancelación). `historico` (Tanda 4B)
+dice si el evento entró con el backfill de su capacidad: es un booleano y nada
+más, y existe para que la interfaz cuente los no leídos con la misma regla que
+el servidor (`docs/INTERFAZ.md`). No salen la instalación, la clave externa, la
+versión, la fecha de ingesta, el `pedidoId` de un envío o una cancelación ni el
+payload crudo. Un evento guardado que no se puede leer como la v1 de su tipo
+no se muestra a medias: la solicitud falla con `SERVICIO_NO_DISPONIBLE`.
 
 ## No leídos
 
 Por vínculo y por local, como en la fundación: `historico = false` y
-`Evento.id > leidoHastaEventoId`. General es la suma.
+`Evento.id > leidoHastaEventoId`, de los tipos que la persona puede ver hoy en
+ese local. General es la suma.
 
 - La primera vez que una persona ve un local, su lectura se fija en el mayor
   `Evento.id` del local DESPUÉS de sincronizar. Lo que esa primera vista trae
   del ERP es historia para ella, no novedad.
-- Lo que trae el backfill es histórico y no cuenta nunca.
+- Lo que trae el backfill es histórico y no cuenta nunca. El backfill es por
+  capacidad: la historia de una capacidad recién anunciada entra después que lo
+  nuevo de otra, con ids MAYORES que no leídos reales, y tampoco cuenta.
 - Dos sesiones de la misma persona comparten la lectura; otra persona no.
 - La lectura se ordena por `Evento.id` (orden de ingesta) y el historial por
   fecha. Un evento con fecha vieja que se conoció tarde aparece en su lugar por
