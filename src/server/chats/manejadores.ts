@@ -76,7 +76,7 @@ const STATUS: Record<FallaChats["estado"], number> = {
   SERVICIO_NO_DISPONIBLE: 503,
 };
 
-function falla(f: FallaChats, request: Request, deps: DependenciasSesion): Response {
+export function falla(f: FallaChats, request: Request, deps: DependenciasSesion): Response {
   // Si el navegador trae una cookie que ya no vale, se le borra, como en GET /api/sesion.
   const borrar = f.estado === "SIN_SESION" && !!request.headers.get("cookie");
   const produccion = deps.config.ok ? deps.config.config.produccion : true;
@@ -84,7 +84,7 @@ function falla(f: FallaChats, request: Request, deps: DependenciasSesion): Respo
 }
 
 /** El resultado de la autorización viva → la falla pública. P1: sin `mi_alcance`, sin historial. */
-function fallaDeDelegacion<T>(r: Exclude<ResultadoDelegado<T>, { tipo: "OK" }>): FallaChats {
+export function fallaDeDelegacion<T>(r: Exclude<ResultadoDelegado<T>, { tipo: "OK" }>): FallaChats {
   switch (r.tipo) {
     case "SIN_SESION":
       return r.vinculoInvalidado ? { estado: "SIN_SESION", motivo: "VINCULO_INVALIDO" } : { estado: "SIN_SESION" };
@@ -100,7 +100,7 @@ function fallaDeDelegacion<T>(r: Exclude<ResultadoDelegado<T>, { tipo: "OK" }>):
  * El cupo (LIMITE_EXCEDIDO) tiene la suya: no es que el ERP no responda, es
  * que se le pidió mucho seguido, y la interfaz lo dice así (Tanda 5B).
  */
-function fallaDeRechazo(r: Extract<ResultadoConsulta<unknown>, { ok: false }>): FallaChats {
+export function fallaDeRechazo(r: Extract<ResultadoConsulta<unknown>, { ok: false }>): FallaChats {
   if (r.origen === "erp" && r.codigo === "NO_AUTORIZADO") return { estado: "NO_AUTORIZADO" };
   if (esFalloDeCupo(r)) return { estado: "ERP_CUPO_EXCEDIDO" };
   return { estado: "ERP_NO_DISPONIBLE" };
@@ -222,6 +222,7 @@ export function manejarLocal(request: Request, deps: DependenciasSesion): Promis
       estado: "OK",
       local: { localId, nombre: local.nombre, esDeposito: local.esDeposito, ventas: a.conVentas.some((l) => l.localId === localId) },
       sincronizacion: local.sincronizacion,
+      preguntas: deps.ia?.ok === true,
       noLeidos: await contarNoLeidos(db, sesion.vinculo.id, localId, tiposVisibles(local.capacidades)),
       leidoHasta: ((await leerLectura(db, sesion.vinculo.id, localId)) ?? 0n).toString(),
       eventos: pagina.filas.map((f) => f.evento),
@@ -250,6 +251,7 @@ export function manejarGeneral(request: Request, deps: DependenciasSesion): Prom
       noLeidos,
       eventos: pagina.filas.map((f) => ({ ...f.evento, local: { localId: f.erpLocalId, nombre: porId.get(f.erpLocalId)!.nombre } })),
       siguiente: pagina.siguiente,
+      preguntas: deps.ia?.ok === true,
       localesDemorados: preparados.filter((l) => l.sincronizacion === "DEMORADA").map((l) => l.localId),
     });
   });

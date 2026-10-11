@@ -58,6 +58,39 @@ grande se centra en una columna de 480 px; no hay un diseño de escritorio.
   navegador, y no toca la lectura (`useVentas` y `AccionesDelLocal`, en
   `Conversacion.tsx`; `reducirVentas`, en `logica.ts`).
 
+- **Preguntas (Tanda 6A).** Si `chats/local` o `chats/general` traen
+  `preguntas: true` (el servidor tiene la IA configurada), hay una caja de texto
+  en la barra fija (Figma "Azul Chat — Mobile V1", nodo 1:152): en un Local,
+  debajo del chip "Ventas" (o sola, si el local no tiene Ventas), con
+  "Preguntá sobre este local…"; en General, sin chip, con "Preguntá sobre tus
+  locales…". 300 caracteres como mucho; "Enviar" no anda con la caja vacía ni
+  mientras espera. Sin la IA no hay caja: ni deshabilitada ni con aviso.
+  Al enviar, la pregunta queda como una burbuja propia a la derecha con la hora
+  (nodo 1:124) y debajo "Buscando la respuesta…"; después, la respuesta como
+  tarjeta, con los mismos tokens que la de Ventas:
+  - ventas de un local: la tarjeta de Ventas (nodo 1:127), con el título del
+    período: "Ventas de hoy · Casiano", "Ventas de ayer · Casiano" o "Ventas del
+    1/10 al 7/10 · Casiano";
+  - ventas de todos: el total, la cantidad y cada medio sumados, y una línea por
+    local; si alguno no se pudo consultar, lo dice y NO muestra total;
+  - eventos: "{local o Todos los locales} · {período}", la cantidad en palabras
+    ("3 transferencias recibidas con diferencias"), hasta 10 eventos con el
+    mismo resumen de la lista de chats y "y N más";
+  - no entendió: "No entendí la pregunta. Podés preguntar, por ejemplo:" y
+    cuatro ejemplos fijos;
+  - saldo agotado (nodo 1:333): "Saldo de IA agotado" y "Eventos, historial y
+    Ventas siguen funcionando.";
+  - fallas (nodo 1:329): "La IA no respondió.", "No se pudo consultar ERP
+    Azul." o el texto del cupo, con "Reintentar", que solo repite esa pregunta
+    si la persona lo toca.
+
+  Las preguntas viven solo en la pantalla: no se guardan (ni en el servidor ni
+  en el navegador), salir del chat las descarta, no marcan leído y no agregan
+  chips. Una por vez: mientras una espera, no se manda otra (`usePreguntas` y
+  `ListaDePreguntas`, en `Preguntas.tsx`; `reducirPreguntas`, en `logica.ts`;
+  la decisión de mostrar la caja, en `AccionesDelLocal` y `AccionesDeGeneral`,
+  por `iaDisponible`).
+
 - **Notificaciones (Tanda 5A).** En el panel que abre ☰, debajo de los locales,
   una sección "Notificaciones" con UNA fila (Figma pantalla 06, nodo 1:277,
   adaptada): "Avisos en este teléfono", el estado ("Activadas" /
@@ -249,9 +282,10 @@ estaba. No hay scroll infinito ni refresco automático.
   Para ventas: la barra con y sin el anuncio, la carga, la tarjeta (singular,
   plural, advertencias), el error con "Reintentar" y la consulta que reemplaza.
 - `test/frontera/alcanceUi.test.ts`: la interfaz no muestra "Ver diferencias",
-  "Abrir en ERP", "Última transferencia", "Ver detalle", "Comparar", el campo
-  "Preguntá…" ni los chips Caja, Transferencias, Pedidos o Stock; "Ventas de
-  hoy" se admite SOLO como título de la tarjeta, en `formato.ts`; no tiene refresco
+  "Abrir en ERP", "Última transferencia", "Ver detalle", "Comparar" ni los chips
+  Caja, Transferencias, Pedidos o Stock; "Ventas de hoy" y "Ventas de ayer" se
+  admiten SOLO como títulos de la tarjeta, en `formato.ts`; "Preguntá" y el
+  único `<input>`, SOLO en la caja de `Preguntas.tsx` (Tanda 6A); no tiene refresco
   automático —salvo la recarga por versión, con cada pieza en su único archivo:
   escuchar el primer plano en `version.ts`, el corte por tiempo en el cliente y
   `location.reload` solo como el `recargar` del comprobador en `AzulChat.tsx`—;
@@ -286,16 +320,23 @@ estaba. No hay scroll infinito ni refresco automático.
   worker y Push API solo en su cliente; el manifest con los colores de los
   tokens; y los textos de la pantalla 06 que no existen siguen prohibidos.
 
+- `test/ui/chats.test.ts` (Tanda 6A): sin IA no hay caja ni burbujas (con
+  preguntas en curso igual); con IA, la caja debajo del chip y su texto en un
+  Local y en General; la burbuja con la hora; cada respuesta (un local, todos,
+  todos con uno caído y sin total, eventos con "y N más", no entendí, saldo
+  agotado, las fallas con y sin espera); el cliente HTTP de la pregunta.
+
 ## Fuera de alcance
 
 No existen todavía, y la interfaz no los muestra ni los insinúa: Pendientes,
 buscar en el historial, la configuración completa, el compositor y los mensajes
-de personas, la IA, las acciones sobre el ERP ("Ver diferencias", "Abrir en
+de personas, la IA más allá de interpretar una pregunta, las acciones sobre el ERP ("Ver diferencias", "Abrir en
 ERP"), las notificaciones y cualquier actualización en vivo (WebSocket, SSE o
 refresco periódico). La recarga por versión no es eso: no trae datos, solo
 reemplaza el JS de un despliegue viejo, y solo en los dos momentos de arriba.
 
-De las acciones rápidas del diseño existe solo "Ventas", y solo para hoy. No
-existen: los chips Caja, Transferencias, Pedidos y Stock; el campo "Preguntá
-sobre este local…"; "Ver detalle" y "Comparar" en la tarjeta de ventas; otros
-períodos (ayer, rango); y nada de ventas en General.
+De las acciones rápidas del diseño existe solo "Ventas", y solo para hoy; otros
+períodos (ayer, rango) y las ventas de todos los locales se piden con una
+pregunta (Tanda 6A), no con un chip. No existen: los chips Caja,
+Transferencias, Pedidos y Stock; "Ver detalle" y "Comparar" en la tarjeta de
+ventas; y el chip "Ventas" en General.

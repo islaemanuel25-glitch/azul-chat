@@ -653,3 +653,109 @@ body {
   color: var(--ac-color-texto-suave);
   font-size: var(--ac-letra-mini);
 }
+
+/* ── Tanda 6A: preguntas en lenguaje natural ─────────────────────────────────
+   Figma pantalla 02: la caja 1:152 (pastilla clara a lo ancho, debajo del chip
+   Ventas), la burbuja propia 1:124 (a la derecha, sobre el color suave de la
+   marca, con la hora) y la tarjeta 1:127 (la de ventas de siempre). Pantalla
+   07: la falla 1:329 y el saldo agotado 1:333. Solo tokens. */
+
+.ac-barra-acciones--con-pregunta {
+  flex-wrap: wrap;
+}
+
+.ac-pregunta {
+  display: flex;
+  flex: 1 1 100%;
+  align-items: center;
+  gap: var(--ac-espacio-2);
+}
+
+.ac-pregunta__campo {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--ac-alto-toque);
+  padding: 0 var(--ac-espacio-4);
+  border: 1px solid var(--ac-color-borde);
+  border-radius: var(--ac-radio-pastilla);
+  background: var(--ac-color-fondo);
+  color: var(--ac-color-texto);
+  font: inherit;
+  font-size: var(--ac-letra-chica);
+}
+
+.ac-pregunta__campo::placeholder {
+  color: var(--ac-color-texto-suave);
+}
+
+.ac-pregunta__campo:focus-visible {
+  outline: 2px solid var(--ac-color-foco);
+  outline-offset: 1px;
+}
+
+.ac-pregunta__enviar {
+  color: var(--ac-color-marca-fuerte);
+  font-size: var(--ac-letra-base);
+}
+
+.ac-pregunta__enviar:disabled {
+  opacity: 0.5;
+}
+
+.ac-preguntas {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ac-espacio-3);
+  margin: var(--ac-espacio-3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ac-preguntas__item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ac-espacio-2);
+}
+
+.ac-burbuja-propia {
+  align-self: flex-end;
+  max-width: 80%;
+  padding: var(--ac-espacio-2) var(--ac-espacio-3);
+  border-radius: var(--ac-radio-tarjeta);
+  border-top-right-radius: var(--ac-espacio-1);
+  background: var(--ac-color-marca-suave);
+  color: var(--ac-color-texto);
+}
+
+.ac-burbuja-propia p {
+  margin: 0;
+}
+
+.ac-burbuja-propia__texto {
+  font-size: var(--ac-letra-chica);
+  overflow-wrap: anywhere;
+}
+
+.ac-burbuja-propia__hora {
+  color: var(--ac-color-marca-fuerte);
+  font-size: var(--ac-letra-mini);
+}
+
+.ac-respuesta-eventos {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ac-espacio-2);
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ac-respuesta-eventos .ac-evento {
+  max-width: 100%;
+}
+
+.ac-ventas__saldo {
+  font-size: var(--ac-letra-chica);
+  font-weight: 600;
+}

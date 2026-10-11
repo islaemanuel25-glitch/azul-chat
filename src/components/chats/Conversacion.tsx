@@ -51,6 +51,7 @@ import {
   type InfoGeneral,
   type InfoLocal,
 } from "./logica.ts";
+import { CajaPregunta, ListaDePreguntas, TEXTO_CAJA, usePreguntas } from "./Preguntas.tsx";
 import { AvisoDemorada, BarraVentas, EstadoChat, EstadoCupoErp, EstadoErpNoDisponible, ResultadoVentas, TarjetaEvento } from "./Piezas.tsx";
 
 type Pagina<E, I> = { readonly eventos: readonly E[]; readonly siguiente: string | null; readonly info: I };
@@ -295,6 +296,7 @@ export function PantallaLocal({
             leidoHasta: d.leidoHasta,
             noLeidos: d.noLeidos,
             ventas: d.local.ventas,
+            preguntas: d.preguntas,
           },
         },
       };
@@ -307,6 +309,7 @@ export function PantallaLocal({
   const lectura = useLecturaLocal(estado, despachar, alPerderSesion);
   const info = estado.fase === "LISTA" ? estado.info : null;
   const ventas = useVentas(localId, alPerderSesion, espera.anotar);
+  const preguntas = usePreguntas(localId, alPerderSesion, espera.anotar);
 
   return (
     <ShellMovil
@@ -324,7 +327,14 @@ export function PantallaLocal({
         alVolver={alVolver}
         alCargarAnteriores={cargarAnteriores}
       />
-      <AccionesDelLocal anuncia={info?.ventas === true} estado={ventas.estado} alPedir={ventas.pedir} enEspera={espera.enEspera} />
+      <AccionesDelLocal
+        anuncia={info?.ventas === true}
+        estado={ventas.estado}
+        alPedir={ventas.pedir}
+        enEspera={espera.enEspera}
+        iaDisponible={info?.preguntas === true}
+        preguntas={preguntas}
+      />
     </ShellMovil>
   );
 }
@@ -357,24 +367,83 @@ function useVentas(localId: number, alPerderSesion: AlPerderSesion, alFallar: (f
   return { estado, pedir };
 }
 
+/** Las preguntas de una pantalla, como las arma usePreguntas (Tanda 6A). */
+type PreguntasDeLaPantalla = Pick<ReturnType<typeof usePreguntas>, "preguntas" | "enviando" | "alEnviar" | "alReintentar">;
+
 /**
  * La tarjeta al final del historial y la barra fija con "Ventas". Sin el anuncio
  * de `ventas_resumen` en este local (o con la conversación todavía sin cargar),
- * no hay barra ni tarjeta. Exportado para los tests.
+ * no hay chip ni tarjeta. Tanda 6A: con preguntas, las burbujas y sus
+ * respuestas van al final, y la caja en la barra, debajo del chip; sin
+ * `iaDisponible` (el servidor no tiene clave) no hay caja ni burbujas.
+ * Exportado para los tests.
  */
-export function AccionesDelLocal({ anuncia, estado, alPedir, enEspera = false }: { anuncia: boolean; estado: EstadoVentas; alPedir: () => void; enEspera?: boolean }) {
+export function AccionesDelLocal({
+  anuncia,
+  estado,
+  alPedir,
+  enEspera = false,
+  iaDisponible = false,
+  preguntas: todasLasPreguntas = null,
+}: {
+  anuncia: boolean;
+  estado: EstadoVentas;
+  alPedir: () => void;
+  enEspera?: boolean;
+  iaDisponible?: boolean;
+  preguntas?: PreguntasDeLaPantalla | null;
+}) {
+  const preguntas = iaDisponible ? todasLasPreguntas : null;
   const tarjeta = useRef<HTMLDivElement | null>(null);
+  const cantidadDePreguntas = preguntas?.preguntas.length ?? 0;
+  const ultimaFase = preguntas?.preguntas.at(-1)?.estado.fase;
   // La tarjeta nueva queda a la vista, como un mensaje que llega al final del chat.
   useLayoutEffect(() => {
-    if (estado.fase === "LISTA" || estado.fase === "FALLA") tarjeta.current?.scrollIntoView({ block: "end" });
-  }, [estado]);
-  if (!anuncia) return null;
+    if (estado.fase === "LISTA" || estado.fase === "FALLA" || cantidadDePreguntas > 0) tarjeta.current?.scrollIntoView({ block: "end" });
+  }, [estado, cantidadDePreguntas, ultimaFase]);
+  if (!anuncia && !preguntas) return null;
   return (
     <>
       <div ref={tarjeta} className="ac-ventas-al-final">
-        <ResultadoVentas estado={estado} alReintentar={alPedir} enEspera={enEspera} />
+        {anuncia && <ResultadoVentas estado={estado} alReintentar={alPedir} enEspera={enEspera} />}
+        {preguntas && <ListaDePreguntas preguntas={preguntas.preguntas} alReintentar={preguntas.alReintentar} enEspera={enEspera} />}
       </div>
-      <BarraVentas cargando={estado.fase === "CARGANDO"} alPedir={alPedir} enEspera={enEspera} />
+      <BarraVentas cargando={estado.fase === "CARGANDO"} alPedir={alPedir} enEspera={enEspera} conVentas={anuncia}>
+        {preguntas && <CajaPregunta texto={TEXTO_CAJA.local} enviando={preguntas.enviando} alEnviar={preguntas.alEnviar} />}
+      </BarraVentas>
+    </>
+  );
+}
+
+/**
+ * General (Tanda 6A): sin chip; con la IA disponible, las burbujas y la caja
+ * "sobre tus locales"; sin ella, nada. Exportado para los tests.
+ */
+export function AccionesDeGeneral({
+  iaDisponible,
+  preguntas: todasLasPreguntas,
+  enEspera = false,
+}: {
+  iaDisponible: boolean;
+  preguntas: PreguntasDeLaPantalla;
+  enEspera?: boolean;
+}) {
+  const preguntas = iaDisponible ? todasLasPreguntas : null;
+  const final = useRef<HTMLDivElement | null>(null);
+  const cantidad = preguntas?.preguntas.length ?? 0;
+  const ultimaFase = preguntas?.preguntas.at(-1)?.estado.fase;
+  useLayoutEffect(() => {
+    if (cantidad > 0) final.current?.scrollIntoView({ block: "end" });
+  }, [cantidad, ultimaFase]);
+  if (!preguntas) return null;
+  return (
+    <>
+      <div ref={final} className="ac-ventas-al-final">
+        <ListaDePreguntas preguntas={preguntas.preguntas} alReintentar={preguntas.alReintentar} enEspera={enEspera} />
+      </div>
+      <BarraVentas conVentas={false} etiqueta="Acciones de General">
+        <CajaPregunta texto={TEXTO_CAJA.general} enviando={preguntas.enviando} alEnviar={preguntas.alEnviar} />
+      </BarraVentas>
     </>
   );
 }
@@ -386,12 +455,17 @@ export function PantallaGeneral({ alVolver, alPerderSesion }: { alVolver: () => 
     const r = await pedirGeneral(cursor, signal);
     if (!r.ok) return r;
     const d = r.datos;
-    return { ok: true, datos: { eventos: d.eventos, siguiente: d.siguiente, info: { tipo: "GENERAL", localesDemorados: d.localesDemorados } } };
+    return {
+      ok: true,
+      datos: { eventos: d.eventos, siguiente: d.siguiente, info: { tipo: "GENERAL", localesDemorados: d.localesDemorados, preguntas: d.preguntas } },
+    };
   }, []);
   // General no marca leído (Tanda 2C): no puede demostrar que mostró todos los no leídos de cada local.
   const espera = useEsperaTrasCupo();
   const { estado, reintentar, cargarAnteriores } = useConversacion(pedirPagina, alPerderSesion, espera.anotar);
   const demorados = estado.fase === "LISTA" ? estado.info.localesDemorados.length : 0;
+  const preguntas = usePreguntas(null, alPerderSesion, espera.anotar);
+  const iaDisponible = estado.fase === "LISTA" && estado.info.preguntas;
 
   return (
     <ShellMovil titulo="General" subtitulo="Eventos de todos los locales" volver={{ etiqueta: "Volver a chats", alVolver }}>
@@ -405,6 +479,7 @@ export function PantallaGeneral({ alVolver, alPerderSesion }: { alVolver: () => 
         alVolver={alVolver}
         alCargarAnteriores={cargarAnteriores}
       />
+      <AccionesDeGeneral iaDisponible={iaDisponible} preguntas={preguntas} enEspera={espera.enEspera} />
     </ShellMovil>
   );
 }

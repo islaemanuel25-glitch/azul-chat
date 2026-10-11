@@ -40,7 +40,7 @@ describe("la migración", () => {
     const tablas = await base.db.$queryRawUnsafe<{ t: string }[]>(
       `SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' ORDER BY 1`,
     );
-    assert.deepEqual(tablas.map((x) => x.t), ["AvisoLocal", "CursorIngesta", "Evento", "Instalacion", "LecturaLocal", "PushSuscripcion", "Sesion", "Vinculo", "_prisma_migrations"]);
+    assert.deepEqual(tablas.map((x) => x.t), ["AvisoLocal", "ConsumoIa", "CursorIngesta", "Evento", "Instalacion", "LecturaLocal", "PushSuscripcion", "Sesion", "Vinculo", "_prisma_migrations"]);
     const aplicadas = await base.db.$queryRawUnsafe<{ n: string }[]>(`SELECT migration_name AS n FROM _prisma_migrations WHERE finished_at IS NOT NULL`);
     const enElRepo = readdirSync(path.join(RAIZ, "prisma/migrations"), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name);
     assert.deepEqual(aplicadas.map((x) => x.n).sort(), enElRepo.sort());
@@ -60,11 +60,19 @@ describe("la migración", () => {
     // al suscribirse (el endpoint del servicio de push y sus claves PÚBLICAS de
     // cifrado), no un secreto de Azul Chat ni del ERP; `AvisoLocal` es una
     // marca de agua sobre Evento.id, como LecturaLocal.
+    // La de la Tanda 6A: `ConsumoIa` son cuentas del mes (tokens, costo,
+    // preguntas): ni la pregunta, ni la respuesta, ni quién preguntó.
     assert.deepEqual(columnas.map((x) => x.c), [
       "AvisoLocal.actualizadoEn",
       "AvisoLocal.avisadoHastaEventoId",
       "AvisoLocal.erpLocalId",
       "AvisoLocal.vinculoId",
+      "ConsumoIa.actualizadoEn",
+      "ConsumoIa.costoMicroUsd",
+      "ConsumoIa.mes",
+      "ConsumoIa.preguntas",
+      "ConsumoIa.tokensEntrada",
+      "ConsumoIa.tokensSalida",
       "CursorIngesta.arrendadoHasta",
       "CursorIngesta.arrendadoPor",
       "CursorIngesta.backfillCompletoEn",
@@ -259,6 +267,15 @@ describe("40. invariantes que sostiene la base", () => {
     await sql(aviso("0"));
     await sql(`DELETE FROM "AvisoLocal"`);
     await sql(`DELETE FROM "PushSuscripcion"`);
+  });
+
+  it("6A. el consumo de IA: un mes real por fila, una sola fila por mes y ninguna cuenta negativa", async () => {
+    const consumo = (mes: string, extra = "") => `INSERT INTO "ConsumoIa" (mes${extra ? ", " + extra.split("=")[0] : ""}) VALUES ('${mes}'${extra ? ", " + extra.split("=")[1] : ""})`;
+    await sql(consumo("2026-10"));
+    await rechaza(consumo("2026-10"), UNICO);
+    for (const mal of ["2026-13", "2026-00", "26-10", "2026-1", "2026-10-01"]) await rechaza(consumo(mal), CHECK);
+    for (const col of ['"costoMicroUsd"=-1', '"tokensEntrada"=-1', '"tokensSalida"=-1', '"preguntas"=-1']) await rechaza(consumo("2026-11", col), CHECK);
+    await sql(`DELETE FROM "ConsumoIa"`);
   });
 
   it("no se borra un vínculo con sesiones ni una instalación con vínculos", async () => {

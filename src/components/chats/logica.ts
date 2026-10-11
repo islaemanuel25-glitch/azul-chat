@@ -9,7 +9,7 @@
 // con BigInt y no se convierten nunca a Number.
 
 import type { EstadoSincronizacion, EventoGeneral, EventoPublico, LocalDeChats, RespuestaChats, RespuestaVentas } from "../../shared/chats/api.ts";
-import type { FallaCliente, Resultado } from "./clienteChats.ts";
+import type { FallaCliente, RespuestaDePregunta, Resultado } from "./clienteChats.ts";
 
 // ── La lista ────────────────────────────────────────────────────────────────
 
@@ -113,9 +113,11 @@ export type InfoLocal = {
   readonly noLeidos: number;
   /** El ERP anuncia `ventas_resumen` en este local, en esta respuesta: hay barra con "Ventas" (Tanda 3A). */
   readonly ventas: boolean;
+  /** Hay preguntas en lenguaje natural (Tanda 6A): la caja se muestra. */
+  readonly preguntas: boolean;
 };
-/** General no lleva lectura: en la Tanda 2C no marca leído (docs/INTERFAZ.md). */
-export type InfoGeneral = { readonly tipo: "GENERAL"; readonly localesDemorados: readonly number[] };
+/** General no lleva lectura: en la Tanda 2C no marca leído (docs/INTERFAZ.md). Tanda 6A: sí preguntas. */
+export type InfoGeneral = { readonly tipo: "GENERAL"; readonly localesDemorados: readonly number[]; readonly preguntas: boolean };
 
 export type EstadoConversacion<E extends EventoPublico, I extends InfoLocal | InfoGeneral> =
   | { readonly fase: "CARGANDO" }
@@ -243,6 +245,54 @@ export function reducirVentas(estado: EstadoVentas, accion: AccionVentas): Estad
   // Cancelada: la pantalla se fue o se volvió a pedir; no es una falla que mostrar.
   if (r.falla.estado === "CANCELADA") return { fase: "QUIETO" };
   return { fase: "FALLA", cupo: r.falla.estado === "ERP_CUPO_EXCEDIDO" };
+}
+
+// ── Preguntas (Tanda 6A) ────────────────────────────────────────────────────
+//
+// Cada pregunta queda en la conversación como una burbuja propia y, debajo, su
+// respuesta. Viven mientras la pantalla está abierta, como la tarjeta de
+// Ventas: no se guardan y no marcan leído. Una a la vez: mientras una espera,
+// no se manda otra. Reintentar es un toque de la persona y vuelve a mandar la
+// MISMA pregunta, en su mismo lugar.
+
+export type EstadoDeUnaPregunta =
+  | { readonly fase: "CARGANDO" }
+  | { readonly fase: "LISTA"; readonly respuesta: RespuestaDePregunta }
+  | { readonly fase: "FALLA"; readonly falla: FallaCliente };
+
+export type IntercambioDePregunta = {
+  readonly id: number;
+  readonly pregunta: string;
+  /** Cuándo se preguntó (ISO), para la hora de la burbuja. */
+  readonly cuando: string;
+  readonly estado: EstadoDeUnaPregunta;
+};
+
+export type AccionPreguntas =
+  | { readonly tipo: "PREGUNTAR"; readonly id: number; readonly pregunta: string; readonly cuando: string }
+  | { readonly tipo: "REINTENTAR"; readonly id: number }
+  | { readonly tipo: "RESPUESTA"; readonly id: number; readonly resultado: Resultado<RespuestaDePregunta> };
+
+/** ¿Hay una pregunta esperando respuesta? Mientras tanto, no se manda otra. */
+export const hayPreguntaEnCurso = (lista: readonly IntercambioDePregunta[]) => lista.some((i) => i.estado.fase === "CARGANDO");
+
+export function reducirPreguntas(lista: readonly IntercambioDePregunta[], accion: AccionPreguntas): readonly IntercambioDePregunta[] {
+  switch (accion.tipo) {
+    case "PREGUNTAR":
+      if (hayPreguntaEnCurso(lista)) return lista;
+      return [...lista, { id: accion.id, pregunta: accion.pregunta, cuando: accion.cuando, estado: { fase: "CARGANDO" } }];
+    case "REINTENTAR":
+      if (hayPreguntaEnCurso(lista)) return lista;
+      return lista.map((i) => (i.id === accion.id && i.estado.fase !== "CARGANDO" ? { ...i, estado: { fase: "CARGANDO" } } : i));
+    case "RESPUESTA": {
+      const r = accion.resultado;
+      // Cancelada: la pantalla se fue. No hay nada que mostrar.
+      if (!r.ok && r.falla.estado === "CANCELADA") return lista.filter((i) => i.id !== accion.id);
+      return lista.map((i) =>
+        i.id === accion.id && i.estado.fase === "CARGANDO" ? { ...i, estado: r.ok ? { fase: "LISTA", respuesta: r.datos } : { fase: "FALLA", falla: r.falla } } : i,
+      );
+    }
+  }
 }
 
 // ── Navegación ──────────────────────────────────────────────────────────────

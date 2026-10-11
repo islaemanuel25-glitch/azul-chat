@@ -21,9 +21,11 @@ import { afterEach, describe, it } from "node:test";
 import { createElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { marcarLeido, pedirChats, pedirGeneral, pedirLocal, pedirVentas, RUTAS_DEL_CLIENTE } from "../../src/components/chats/clienteChats.ts";
-import { AccionesDelLocal, CuerpoConversacion, ListaDeEventos, PantallaGeneral, PantallaLocal } from "../../src/components/chats/Conversacion.tsx";
+import { marcarLeido, pedirChats, pedirGeneral, pedirLocal, pedirVentas, preguntar, RUTAS_DEL_CLIENTE } from "../../src/components/chats/clienteChats.ts";
+import { AccionesDeGeneral, AccionesDelLocal, CuerpoConversacion, ListaDeEventos, PantallaGeneral, PantallaLocal } from "../../src/components/chats/Conversacion.tsx";
+import { ListaDePreguntas, TEXTO_CAJA } from "../../src/components/chats/Preguntas.tsx";
 import {
+  cantidadDeEventos,
   cantidadDeVentas,
   detalleDeDiferencias,
   etiquetaDeDia,
@@ -38,6 +40,9 @@ import {
   destinoDeFalla,
   ESPERA_TRAS_CUPO_MS,
   esperaTrasFalla,
+  hayPreguntaEnCurso,
+  reducirPreguntas,
+  type IntercambioDePregunta,
   tituloDeLocal,
   filasDeChats,
   leerVista,
@@ -119,7 +124,7 @@ const cuerpoChats = (estado: EstadoChats, filtro: "TODOS" | "NO_LEIDOS" = "TODOS
   dibujar(createElement(CuerpoChats, { estado, filtro, alCambiarFiltro: nada, alAbrir: nada, alReintentar: nada, ahora: AHORA, zona: ZONA }));
 
 type EstLocal = EstadoConversacion<EventoPublico, InfoLocal>;
-const INFO_LOCAL: InfoLocal = { tipo: "LOCAL", localId: 3, nombre: "Casiano", sincronizacion: "AL_DIA", leidoHasta: "2", noLeidos: 2, ventas: true };
+const INFO_LOCAL: InfoLocal = { tipo: "LOCAL", localId: 3, nombre: "Casiano", sincronizacion: "AL_DIA", leidoHasta: "2", noLeidos: 2, ventas: true, preguntas: false };
 const lista = (eventos: readonly EventoPublico[], extra: Partial<Extract<EstLocal, { fase: "LISTA" }>> = {}): EstLocal => ({
   fase: "LISTA",
   eventos,
@@ -835,5 +840,159 @@ describe("(d) Tanda 5B: el título del chat con el nombre que ya se conocía", (
     }
     // Y la URL de un aviso push (sin nombre) sigue igual que siempre.
     assert.deepEqual(leerVista("vista=local&localId=3"), { tipo: "LOCAL", localId: 3 });
+  });
+});
+
+// ── Tanda 6A: preguntas en lenguaje natural ─────────────────────────────────
+
+describe("6A. preguntas: la caja, la burbuja y las respuestas", () => {
+  const CASIANO_VENTAS = { local: { id: 3, nombre: "Casiano" }, cantidadVentas: 2, totalVendido: "1500.00", mediosDePago: [{ medio: "EFECTIVO", etiqueta: "Efectivo", total: "1500.00", cantidadPagos: 2 }], advertencias: [] };
+  const HOY_P = { tipo: "hoy", desde: "2026-10-07", hasta: "2026-10-07" } as const;
+  const conPregunta = (estado: IntercambioDePregunta["estado"], pregunta = "¿Cuánto vendió hoy?"): IntercambioDePregunta => ({ id: 1, pregunta, cuando: "2026-10-07T21:40:00.000Z", estado });
+  const lista = (p: IntercambioDePregunta[], enEspera = false) => dibujar(createElement(ListaDePreguntas, { preguntas: p, alReintentar: nada, enEspera, zona: ZONA }));
+
+  it("sin preguntas en la API (sin IA), no hay caja: ni en un Local con Ventas, ni en uno sin, ni en General", () => {
+    // Las preguntas de la pantalla existen igual (el hook se monta siempre): lo que decide es iaDisponible.
+    const p = { preguntas: [conPregunta({ fase: "CARGANDO" })], enviando: false, alEnviar: nada, alReintentar: nada };
+    const sinIa = dibujar(createElement(AccionesDelLocal, { anuncia: true, estado: { fase: "QUIETO" }, alPedir: nada, iaDisponible: false, preguntas: p }));
+    assert.doesNotMatch(sinIa, /<input/);
+    assert.doesNotMatch(sinIa, /ac-burbuja-propia/);
+    assert.equal(dibujar(createElement(AccionesDelLocal, { anuncia: false, estado: { fase: "QUIETO" }, alPedir: nada, iaDisponible: false, preguntas: p })), "");
+    assert.equal(dibujar(createElement(AccionesDeGeneral, { iaDisponible: false, preguntas: p })), "");
+  });
+
+  it("con IA: la caja va debajo del chip Ventas, con el texto del Local; en General, el suyo y sin chip", () => {
+    const p = { preguntas: [], enviando: false, alEnviar: nada, alReintentar: nada };
+    const local = dibujar(createElement(AccionesDelLocal, { anuncia: true, estado: { fase: "QUIETO" }, alPedir: nada, iaDisponible: true, preguntas: p }));
+    const barra = /<nav[^>]*class="ac-barra-acciones[^"]*"[\s\S]*<\/nav>/.exec(local)?.[0] ?? "";
+    assert.ok(barra.indexOf(">Ventas<") < barra.indexOf("<input"), "el chip, y debajo la caja");
+    assert.match(barra, /placeholder="Preguntá sobre este local…"/);
+    assert.match(barra, /maxLength="300"/);
+    assert.match(barra, /aria-label="Enviar pregunta"[^>]*disabled=""/, "vacía, enviar no anda");
+    const sinVentas = dibujar(createElement(AccionesDelLocal, { anuncia: false, estado: { fase: "QUIETO" }, alPedir: nada, iaDisponible: true, preguntas: p }));
+    assert.doesNotMatch(sinVentas, />Ventas</);
+    assert.match(sinVentas, /<input/);
+    const general = dibujar(createElement(AccionesDeGeneral, { iaDisponible: true, preguntas: p }));
+    assert.match(general, /placeholder="Preguntá sobre tus locales…"/);
+    assert.doesNotMatch(general, />Ventas</);
+    assert.equal(TEXTO_CAJA.general, "Preguntá sobre tus locales…");
+  });
+
+  it("la pregunta es una burbuja propia con la hora; mientras espera, un aviso; nada de chips nuevos", () => {
+    const html = lista([conPregunta({ fase: "CARGANDO" })]);
+    assert.match(html, /class="ac-burbuja-propia"/);
+    assert.equal(texto(html), "¿Cuánto vendió hoy? 18:40 Buscando la respuesta…");
+    for (const chip of ["Caja", "Stock", "Pedidos", "Transferencias"]) assert.doesNotMatch(html, new RegExp(`>${chip}<`));
+  });
+
+  it("ventas de un local: la tarjeta de siempre, con el título del período", () => {
+    const hoy = lista([conPregunta({ fase: "LISTA", respuesta: { estado: "VENTAS", alcance: "LOCAL", periodo: HOY_P, ventas: CASIANO_VENTAS } })]);
+    assert.match(hoy, /Ventas de hoy · Casiano/);
+    assert.match(texto(hoy), /\$ 1\.500,00 2 ventas Efectivo · \$ 1\.500,00/);
+    const ayer = lista([conPregunta({ fase: "LISTA", respuesta: { estado: "VENTAS", alcance: "LOCAL", periodo: { tipo: "ayer", desde: "2026-10-06", hasta: "2026-10-06" }, ventas: CASIANO_VENTAS } })]);
+    assert.match(ayer, /Ventas de ayer · Casiano/);
+    const rango = lista([conPregunta({ fase: "LISTA", respuesta: { estado: "VENTAS", alcance: "LOCAL", periodo: { tipo: "rango", desde: "2026-10-01", hasta: "2026-10-07" }, ventas: CASIANO_VENTAS } })]);
+    assert.match(rango, /Ventas del 1\/10 al 7\/10 · Casiano/);
+  });
+
+  it("ventas de todos: el total y una línea por local; si falta alguno, cuál, y sin total", () => {
+    const completo = lista([
+      conPregunta({
+        fase: "LISTA",
+        respuesta: {
+          estado: "VENTAS",
+          alcance: "TODOS",
+          periodo: HOY_P,
+          total: { cantidadVentas: 3, totalVendido: "1600.00", mediosDePago: [{ medio: "EFECTIVO", etiqueta: "Efectivo", total: "1600.00", cantidadPagos: 3 }] },
+          locales: [CASIANO_VENTAS, { ...CASIANO_VENTAS, local: { id: 9, nombre: "Depósito Central" }, totalVendido: "100.00", cantidadVentas: 1 }],
+          fallidos: [],
+        },
+      }),
+    ]);
+    assert.match(texto(completo), /Ventas de hoy · Todos los locales \$ 1\.600,00 3 ventas Efectivo · \$ 1\.600,00 Casiano · \$ 1\.500,00 Depósito Central · \$ 100,00/);
+    const parcial = lista([
+      conPregunta({
+        fase: "LISTA",
+        respuesta: { estado: "VENTAS", alcance: "TODOS", periodo: HOY_P, total: null, locales: [CASIANO_VENTAS], fallidos: [{ id: 9, nombre: "Depósito Central" }] },
+      }),
+    ]);
+    assert.doesNotMatch(texto(parcial), /\$ 1\.600/);
+    assert.match(texto(parcial), /Casiano · \$ 1\.500,00 No se pudo consultar: Depósito Central\. Sin total: faltan locales\./);
+  });
+
+  it("eventos: cantidad, la lista con los textos de la interfaz (con su local en 'todos') y 'y N más'", () => {
+    const e = enLocal(E181, 3, "Casiano");
+    const html = lista([
+      conPregunta({
+        fase: "LISTA",
+        respuesta: { estado: "EVENTOS", tipo: "recibidas_con_diferencias", local: null, periodo: { tipo: "ayer", desde: "2026-10-06", hasta: "2026-10-06" }, cantidad: 12, eventos: [e], restantes: 11 },
+      }),
+    ]);
+    const t = texto(html);
+    assert.match(t, /Todos los locales · ayer 12 transferencias recibidas con diferencias/);
+    assert.ok(t.includes(resumenDeEvento(E181)), "el mismo texto que la tarjeta del historial");
+    assert.match(t, /Casiano/);
+    assert.match(t, /y 11 más$/);
+    assert.equal(cantidadDeEventos("pedidos", 0), "Ningún pedido solicitado");
+    assert.equal(cantidadDeEventos("enviadas", 1), "1 transferencia enviada");
+  });
+
+  it("no entendí, saldo agotado (1:333), la IA caída y las fallas del ERP, con Reintentar donde corresponde", () => {
+    const no = texto(lista([conPregunta({ fase: "LISTA", respuesta: { estado: "NO_ENTIENDO", ejemplos: ["¿Cuánto vendió hoy?", "¿Qué pedidos se hicieron ayer?"] } })]));
+    assert.match(no, /No entendí la pregunta\. Podés preguntar, por ejemplo: ¿Cuánto vendió hoy\? ¿Qué pedidos se hicieron ayer\?$/);
+    const saldo = lista([conPregunta({ fase: "LISTA", respuesta: { estado: "SALDO_AGOTADO" } })]);
+    assert.match(texto(saldo), /Saldo de IA agotado Eventos, historial y Ventas siguen funcionando\.$/);
+    assert.doesNotMatch(saldo, /Reintentar/);
+    const ia = lista([conPregunta({ fase: "LISTA", respuesta: { estado: "IA_NO_DISPONIBLE" } })]);
+    assert.match(texto(ia), /La IA no respondió\. Reintentar$/);
+    const erpCaido = lista([conPregunta({ fase: "FALLA", falla: { estado: "ERP_NO_DISPONIBLE" } })]);
+    assert.match(texto(erpCaido), /No se pudo consultar ERP Azul\. Reintentar$/);
+    const cupo = lista([conPregunta({ fase: "FALLA", falla: { estado: "ERP_CUPO_EXCEDIDO" } })], true);
+    assert.match(texto(cupo), new RegExp(`${TEXTO_CUPO_ERP.replace(/\./g, "\\.")} Reintentar$`));
+    assert.match(cupo, /<button[^>]*disabled=""[^>]*>Reintentar/, "en espera tras el cupo");
+  });
+
+  it("el estado: una pregunta a la vez, la respuesta en su lugar, Reintentar repite la misma y cancelada no queda", () => {
+    let l = reducirPreguntas([], { tipo: "PREGUNTAR", id: 1, pregunta: "a", cuando: "2026-10-07T21:40:00.000Z" });
+    assert.equal(hayPreguntaEnCurso(l), true);
+    assert.equal(reducirPreguntas(l, { tipo: "PREGUNTAR", id: 2, pregunta: "b", cuando: "x" }), l, "mientras una espera, no entra otra");
+    l = reducirPreguntas(l, { tipo: "RESPUESTA", id: 1, resultado: { ok: false, falla: { estado: "RED" } } });
+    assert.deepEqual(l[0]!.estado, { fase: "FALLA", falla: { estado: "RED" } });
+    l = reducirPreguntas(l, { tipo: "REINTENTAR", id: 1 });
+    assert.deepEqual(l.map((x) => [x.id, x.pregunta, x.estado.fase]), [[1, "a", "CARGANDO"]]);
+    l = reducirPreguntas(l, { tipo: "RESPUESTA", id: 1, resultado: { ok: true, datos: { estado: "SALDO_AGOTADO" } } });
+    assert.deepEqual(l[0]!.estado, { fase: "LISTA", respuesta: { estado: "SALDO_AGOTADO" } });
+    l = reducirPreguntas(l, { tipo: "PREGUNTAR", id: 2, pregunta: "b", cuando: "y" });
+    l = reducirPreguntas(l, { tipo: "RESPUESTA", id: 2, resultado: { ok: false, falla: { estado: "CANCELADA" } } });
+    assert.deepEqual(l.map((x) => x.id), [1]);
+  });
+
+  it("el cliente: POST /api/chats/preguntar con { pregunta, localId }; lee cada respuesta y cada falla por su código", async () => {
+    const original = globalThis.fetch;
+    const pedidos: { url: string; init: RequestInit | undefined }[] = [];
+    const contestar = (cuerpo: unknown, status = 200) => {
+      globalThis.fetch = (async (url: string, init?: RequestInit) => {
+        pedidos.push({ url: String(url), init });
+        return new Response(JSON.stringify(cuerpo), { status, headers: { "content-type": "application/json" } });
+      }) as typeof fetch;
+    };
+    try {
+      contestar({ estado: "SALDO_AGOTADO" });
+      assert.deepEqual(await preguntar({ pregunta: "hola", localId: 3 }), { ok: true, datos: { estado: "SALDO_AGOTADO" } });
+      assert.equal(pedidos[0]!.url, "/api/chats/preguntar");
+      assert.equal(pedidos[0]!.init?.method, "POST");
+      assert.equal(pedidos[0]!.init?.body, '{"pregunta":"hola","localId":3}');
+      assert.equal(RUTAS_DEL_CLIENTE.preguntar, RUTAS_CHATS.preguntar);
+      contestar({ estado: "IA_NO_DISPONIBLE" }, 503);
+      assert.deepEqual(await preguntar({ pregunta: "hola" }), { ok: true, datos: { estado: "IA_NO_DISPONIBLE" } });
+      contestar({ estado: "ERP_CUPO_EXCEDIDO" }, 429);
+      assert.deepEqual(await preguntar({ pregunta: "hola" }), { ok: false, falla: { estado: "ERP_CUPO_EXCEDIDO" } });
+      contestar({ estado: "SIN_SESION", motivo: "VINCULO_INVALIDO" }, 401);
+      assert.deepEqual(await preguntar({ pregunta: "hola" }), { ok: false, falla: { estado: "SIN_SESION", motivo: "VINCULO_INVALIDO" } });
+      contestar({ estado: "INVENTADO" }, 200);
+      assert.deepEqual(await preguntar({ pregunta: "hola" }), { ok: false, falla: { estado: "SERVICIO_NO_DISPONIBLE" } });
+    } finally {
+      globalThis.fetch = original;
+    }
   });
 });

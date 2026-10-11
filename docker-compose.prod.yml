@@ -119,6 +119,8 @@ networks:
   interna:
     name: azul-chat-interna
     internal: true
-  # Solo la app: su salida hacia el ERP por HTTPS y la publicación en 127.0.0.1.
+  # Solo la app: su salida por HTTPS hacia el ERP y, desde la Tanda 6A, hacia
+  # generativelanguage.googleapis.com (la IA de las preguntas); y la
+  # publicación en 127.0.0.1.
   salida:
     name: azul-chat-salida
