@@ -12,26 +12,42 @@ import { afterEach, describe, it } from "node:test";
 
 import { ESPERA_VERSION_MS, pedirVersion } from "../../src/components/chats/clienteChats.ts";
 import type { Vista } from "../../src/components/chats/logica.ts";
-import { comprobarAlAbrir, comprobarAlVolverAPrimerPlano, crearComprobadorDeVersion, type DocumentoVisible } from "../../src/components/chats/version.ts";
+import {
+  comprobarAlAbrir,
+  comprobarAlVolverAPrimerPlano,
+  crearComprobadorDeVersion,
+  leerMarcaDeRecarga,
+  urlConMarca,
+  urlSinMarca,
+  type DocumentoVisible,
+  type VentanaVisible,
+} from "../../src/components/chats/version.ts";
 
 const A = "95702bed5cb9b82612411c1cb887c7008852ea95";
 const B = "3d8b849bf840bd7eea803055461726c6d736d0bd";
+const C = "dda5b80d4c05796452c03d767422d1e4dc315deb";
 
 /** Un servidor de mentira: contesta lo que diga `respuestas`, en orden (null = falló o tardó). */
 function escenario(...respuestas: (string | null | Error)[]) {
+  return escenarioCon({}, ...respuestas);
+}
+
+/** Tanda 6C: con el commit de la página (`propia`) y la marca de una recarga anterior. */
+function escenarioCon(o: { propia?: string | null; yaRecargadoPor?: string | null }, ...respuestas: (string | null | Error)[]) {
   let pedidos = 0;
-  let recargas = 0;
+  const recargadas: string[] = [];
   const comprobador = crearComprobadorDeVersion({
+    ...o,
     pedir: async () => {
       const r = respuestas[pedidos++];
       if (r instanceof Error) throw r;
       return r ?? null;
     },
-    recargar: () => {
-      recargas++;
+    recargar: (nueva) => {
+      recargadas.push(nueva);
     },
   });
-  return { comprobador, pedidos: () => pedidos, recargas: () => recargas };
+  return { comprobador, pedidos: () => pedidos, recargas: () => recargadas.length, recargadas: () => recargadas };
 }
 
 /** Un documento de mentira: un EventTarget con visibilityState que el test cambia. */
@@ -46,7 +62,10 @@ function documentoDePrueba() {
     doc.visibilityState = v;
     objetivo.dispatchEvent(new Event("visibilitychange"));
   };
-  return { doc: doc as unknown as DocumentoVisible, cambiar };
+  // Tanda 6C: la ventana, para pageshow y focus.
+  const ventana = new EventTarget();
+  const avisar = (evento: "pageshow" | "focus") => ventana.dispatchEvent(new Event(evento));
+  return { doc: doc as unknown as DocumentoVisible, ventana: ventana as unknown as VentanaVisible, cambiar, avisar };
 }
 
 /** Espera a que terminen las promesas pendientes (sin temporizadores). */
@@ -107,8 +126,8 @@ describe("recarga por versión: cuándo se pregunta", () => {
   it("3B-6. al volver a primer plano, sí; al pasar a segundo plano, no; desconectado, nunca más", async () => {
     const e = escenario(A, A, B, B);
     await e.comprobador.arrancar();
-    const { doc, cambiar } = documentoDePrueba();
-    const desconectar = comprobarAlVolverAPrimerPlano(doc, e.comprobador);
+    const { doc, ventana, cambiar } = documentoDePrueba();
+    const desconectar = comprobarAlVolverAPrimerPlano(doc, ventana, e.comprobador);
     cambiar("hidden");
     await vaciar();
     assert.equal(e.pedidos(), 1, "ocultarse no pregunta");
@@ -143,12 +162,72 @@ describe("recarga por versión: cuándo se pregunta", () => {
   it("3B-8. sin abrir chats ni volver a primer plano, no pregunta nunca: ni intervalos ni temporizadores", async () => {
     const e = escenario(A, B);
     await e.comprobador.arrancar();
-    const { doc } = documentoDePrueba();
-    comprobarAlVolverAPrimerPlano(doc, e.comprobador);
+    const { doc, ventana } = documentoDePrueba();
+    comprobarAlVolverAPrimerPlano(doc, ventana, e.comprobador);
     await vaciar();
     await new Promise((r) => setImmediate(r));
     assert.equal(e.pedidos(), 1);
     assert.equal(e.recargas(), 0);
+  });
+});
+
+describe("6C. la referencia es el commit de la página, no el primero que contesta el servidor", () => {
+  it("6C-1. el caso del 11/10: página vieja (A) que arranca con el servidor nuevo (B) → recarga EN EL ARRANQUE", async () => {
+    const e = escenarioCon({ propia: A }, B);
+    await e.comprobador.arrancar();
+    assert.deepEqual(e.recargadas(), [B], "con la referencia de antes (el primero del servidor) esto daba 0 recargas");
+  });
+
+  it("6C-1 CONTRAPRUEBA: sin el commit propio, el mismo escenario NO recarga nunca (el defecto de producción)", async () => {
+    const e = escenarioCon({}, B, B, B);
+    await e.comprobador.arrancar();
+    await e.comprobador.comprobar();
+    await e.comprobador.comprobar();
+    assert.equal(e.recargas(), 0);
+  });
+
+  it("6C-2. página y servidor iguales → no recarga, ni al arrancar ni después", async () => {
+    const e = escenarioCon({ propia: A }, A, A);
+    await e.comprobador.arrancar();
+    await e.comprobador.comprobar();
+    assert.equal(e.recargas(), 0);
+  });
+
+  it("6C-3. sin bucle: si ya se recargó por B y la página sigue siendo A, no se insiste por B; por un C nuevo, sí", async () => {
+    const e = escenarioCon({ propia: A, yaRecargadoPor: B }, B, B, C);
+    await e.comprobador.arrancar();
+    await e.comprobador.comprobar();
+    assert.equal(e.recargas(), 0);
+    await e.comprobador.comprobar();
+    assert.deepEqual(e.recargadas(), [C]);
+  });
+
+  it("6C-4. la marca de recarga: se escribe en la URL de la pestaña y se lee solo si es un commit completo", () => {
+    const u = { pathname: "/", search: "?vista=local&localId=3" };
+    assert.equal(urlConMarca(u, B), `/?vista=local&localId=3#recarga=${B}`);
+    assert.equal(leerMarcaDeRecarga(`#recarga=${B}`), B);
+    assert.equal(urlSinMarca(u), "/?vista=local&localId=3");
+    for (const malo of ["", "#recarga=", "#recarga=abc", `#recarga=${B}x`, `#otra=${B}`]) assert.equal(leerMarcaDeRecarga(malo), null, malo);
+    assert.equal(urlConMarca(u, "no-es-un-sha"), "/?vista=local&localId=3");
+  });
+
+  it("6C-5. pageshow (vuelta desde la caché de atrás/adelante) y focus también comparan; desconectado, ninguno", async () => {
+    const e = escenarioCon({ propia: A }, A, A, B, B);
+    await e.comprobador.arrancar();
+    const { doc, ventana, avisar } = documentoDePrueba();
+    const desconectar = comprobarAlVolverAPrimerPlano(doc, ventana, e.comprobador);
+    avisar("pageshow");
+    await vaciar();
+    assert.equal(e.pedidos(), 2);
+    avisar("focus");
+    await vaciar();
+    assert.equal(e.pedidos(), 3);
+    assert.deepEqual(e.recargadas(), [B]);
+    desconectar();
+    avisar("pageshow");
+    avisar("focus");
+    await vaciar();
+    assert.equal(e.pedidos(), 3, "desconectado no escucha");
   });
 });
 

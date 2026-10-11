@@ -14,7 +14,9 @@
 //
 // Tanda 3B: como la página no se recarga al navegar, una pestaña vieja seguiría
 // con el JS de otro despliegue. Se compara GET /api/version al volver a primer
-// plano y al abrir un chat, y si cambió se recarga (version.ts).
+// plano y al abrir un chat, y si cambió se recarga (version.ts). Tanda 6C: se
+// compara contra el commit de ESTA página (`commit`, lo pone src/app/page.tsx
+// en el HTML), no contra el primero que conteste el servidor.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -24,14 +26,23 @@ import { pedirVersion } from "./clienteChats.ts";
 import { PantallaGeneral, PantallaLocal } from "./Conversacion.tsx";
 import { leerVista, urlDeVista, type Vista } from "./logica.ts";
 import { PantallaChats } from "./PantallaChats.tsx";
-import { comprobarAlAbrir, comprobarAlVolverAPrimerPlano, crearComprobadorDeVersion, type ComprobadorDeVersion } from "./version.ts";
+import {
+  comprobarAlAbrir,
+  comprobarAlVolverAPrimerPlano,
+  crearComprobadorDeVersion,
+  leerMarcaDeRecarga,
+  urlConMarca,
+  urlSinMarca,
+  type ComprobadorDeVersion,
+} from "./version.ts";
 
 /** Marca de las entradas de historial que agrega la app: volver con la flecha usa el "atrás" solo si la entrada es nuestra. */
 const MARCA_HISTORIAL = "azul-chat";
 
 type Modo = { readonly tipo: "CHATS" } | { readonly tipo: "SESION"; readonly motivo?: "VINCULO_INVALIDO" };
 
-export function AzulChat() {
+/** `commit`: el de la imagen que sirvió ESTE HTML (null en desarrollo). */
+export function AzulChat({ commit = null }: { commit?: string | null }) {
   // La vista se lee de la URL recién en el navegador (no hay URL en el servidor).
   const [vista, setVista] = useState<Vista | null>(null);
   const [modo, setModo] = useState<Modo>({ tipo: "CHATS" });
@@ -47,11 +58,17 @@ export function AzulChat() {
 
   // Tanda 3B: la versión con la que arrancó la página, y recargar si el servidor cambió (version.ts).
   useEffect(() => {
-    const comprobador = crearComprobadorDeVersion({ pedir: pedirVersion, recargar: () => window.location.reload() });
+    const yaRecargadoPor = leerMarcaDeRecarga(window.location.hash);
+    if (yaRecargadoPor) window.history.replaceState(window.history.state, "", urlSinMarca(window.location));
+    const recargar = (nueva: string) => {
+      window.history.replaceState(window.history.state, "", urlConMarca(window.location, nueva));
+      window.location.reload();
+    };
+    const comprobador = crearComprobadorDeVersion({ propia: commit, yaRecargadoPor, pedir: pedirVersion, recargar });
     version.current = comprobador;
     void comprobador.arrancar();
-    return comprobarAlVolverAPrimerPlano(document, comprobador);
-  }, []);
+    return comprobarAlVolverAPrimerPlano(document, window, comprobador);
+  }, [commit]);
 
   const abrir = useCallback((v: Vista) => {
     window.history.pushState({ [MARCA_HISTORIAL]: true }, "", urlDeVista(v));

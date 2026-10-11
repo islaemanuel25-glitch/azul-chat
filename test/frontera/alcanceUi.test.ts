@@ -104,11 +104,16 @@ const PIEZAS_PUSH = /serviceWorker|PushManager|pushManager|requestPermission/;
  */
 const PIEZAS_DE_LA_RECARGA: readonly { readonly patron: RegExp; readonly archivo: string; readonly forma?: RegExp }[] = [
   { patron: /visibilitychange|visibilityState/, archivo: "src/components/chats/version.ts" },
+  // Tanda 6C: también la vuelta desde la caché de atrás/adelante y el foco de la ventana, en el mismo lugar.
+  { patron: /addEventListener\(\s*["'`](pageshow|focus)["'`]/, archivo: "src/components/chats/version.ts" },
   { patron: /AbortSignal\.timeout/, archivo: "src/components/chats/clienteChats.ts" },
   {
     patron: /location\.reload/,
     archivo: "src/components/chats/AzulChat.tsx",
-    forma: /crearComprobadorDeVersion\(\{ pedir: pedirVersion, recargar: \(\) => window\.location\.reload\(\) \}\)/,
+    // Tanda 6C: recargar deja la marca `#recarga=<commit>` (sin bucle) y es SOLO el `recargar` del comprobador,
+    // que compara contra el commit de la página.
+    forma:
+      /const recargar = \(nueva: string\) => \{\s*window\.history\.replaceState\(window\.history\.state, "", urlConMarca\(window\.location, nueva\)\);\s*window\.location\.reload\(\);\s*\};\s*const comprobador = crearComprobadorDeVersion\(\{ propia: commit, yaRecargadoPor, pedir: pedirVersion, recargar \}\);/,
   },
 ];
 
@@ -267,7 +272,9 @@ const t = setTimeout(() => setHasta(null), Math.max(0, hasta - Date.now()));
     const casos: Record<string, Record<string, string>> = {
       recargaEnOtroLado: { "src/components/chats/Conversacion.tsx": `${conv}\nconst r = () => window.location.reload();\n` },
       recargaSuelta: { [AZUL]: `${arbol[AZUL]}\nexport const r2 = () => window.location.reload();\n` },
-      recargaSinComprobador: { [AZUL]: arbol[AZUL]!.replace("recargar: () => window.location.reload()", "recargar: () => {}") + "\nwindow.location.reload();\n" },
+      recargaSinComprobador: { [AZUL]: arbol[AZUL]!.replace("pedir: pedirVersion, recargar });", "pedir: pedirVersion, recargar: () => {} });") },
+      sinCommitPropio: { [AZUL]: arbol[AZUL]!.replace("{ propia: commit, yaRecargadoPor, pedir", "{ yaRecargadoPor, pedir") },
+      pageshowEnOtroLado: { "src/components/chats/Conversacion.tsx": `${conv}\nwindow.addEventListener("pageshow", () => {});\n` },
       visibleEnOtroLado: { "src/components/chats/Conversacion.tsx": `${conv}\ndocument.addEventListener("visibilitychange", () => {});\n` },
       corteEnOtroLado: { "src/components/chats/Conversacion.tsx": `${conv}\nconst s = AbortSignal.timeout(1000);\n` },
       intervaloEnVersion: { [VERSION]: `${arbol[VERSION]}\nsetInterval(() => {}, 60000);\n` },
