@@ -13,16 +13,22 @@
 //     la persona (`mi_alcance` caído o rechazado). Fallo cerrado (P1): no se
 //     muestra historial, ni de la base. Estados `ERP_NO_DISPONIBLE`,
 //     `NO_AUTORIZADO`, `SIN_SESION`.
-//   · De SINCRONIZACIÓN de un local: la autorización SÍ se comprobó, pero traer
-//     lo nuevo de ese local falló. Ese local se muestra con lo que ya estaba
-//     guardado y `sincronizacion: "DEMORADA"`. Es seguro: la persona está
-//     autorizada ahora para ese local.
+//     `ERP_CUPO_EXCEDIDO` es un caso de estos con su propio texto: el ERP
+//     contestó, pero se le pidió mucho seguido (Tanda 5B).
+//   · De SINCRONIZACIÓN de un local: la autorización SÍ se comprobó, pero lo
+//     guardado de ese local no está al día (la sincronización de fondo no lo
+//     pudo traer). Ese local se muestra con lo que ya estaba guardado y
+//     `sincronizacion: "DEMORADA"`. Es seguro: la persona está autorizada ahora
+//     para ese local.
 
-/** Un local dentro de los chats: sincronizado ahora (o hace menos de 30 s), o con lo ya guardado. */
+/**
+ * Qué tan al día está lo guardado de un local, según los cursores que dejó la
+ * sincronización de fondo (Tanda 5B: el pedido del navegador no trae nada).
+ */
 export type EstadoSincronizacion =
-  /** Lo guardado está al día según la frecuencia de ingesta (sincronizado ahora, hace poco, o lo está haciendo otra solicitud). */
+  /** Todas sus capacidades se sincronizaron bien en las últimas 3 corridas del timer, y la última no falló. */
   | "AL_DIA"
-  /** Traer lo nuevo falló en esta solicitud: se muestra lo que ya estaba guardado. */
+  /** Alguna capacidad nunca se sincronizó, quedó con un error, o lleva más de 3 corridas sin sincronizar. */
   | "DEMORADA";
 
 /** Lo común a todo evento, como lo ve la interfaz. */
@@ -100,6 +106,8 @@ export type FallaChats =
   | { readonly estado: "NO_AUTORIZADO" }
   /** No se pudo comprobar la autorización con el ERP. Fallo cerrado: sin historial. */
   | { readonly estado: "ERP_NO_DISPONIBLE" }
+  /** El ERP rechazó la consulta por cupo (LIMITE_EXCEDIDO): muchas seguidas. Fallo cerrado igual: sin historial. */
+  | { readonly estado: "ERP_CUPO_EXCEDIDO" }
   /** Azul Chat mismo no está configurado o su base no responde. */
   | { readonly estado: "SERVICIO_NO_DISPONIBLE" }
   /** La solicitud no tiene la forma esperada. */
@@ -146,7 +154,7 @@ export type RespuestaGeneral =
       readonly noLeidos: number;
       readonly eventos: readonly EventoGeneral[];
       readonly siguiente: string | null;
-      /** Los locales autorizados cuyo intento de traer lo nuevo falló en esta solicitud. */
+      /** Los locales autorizados cuyo estado es DEMORADA (mismo criterio que la lista). */
       readonly localesDemorados: readonly number[];
     }
   | FallaChats;

@@ -54,7 +54,8 @@ export function EstadoChat({
 }: {
   titulo?: string;
   texto: string;
-  accion?: { readonly texto: string; readonly alTocar: () => void };
+  /** `deshabilitada`: en espera después de un rechazo por cupo (Tanda 5B). */
+  accion?: { readonly texto: string; readonly alTocar: () => void; readonly deshabilitada?: boolean };
   cargando?: boolean;
 }) {
   return (
@@ -62,7 +63,7 @@ export function EstadoChat({
       {titulo && <h2 className="ac-estado__titulo">{titulo}</h2>}
       <p className="ac-estado__texto">{texto}</p>
       {accion && (
-        <button type="button" className="ac-boton" onClick={accion.alTocar}>
+        <button type="button" className="ac-boton" onClick={accion.alTocar} disabled={accion.deshabilitada || undefined}>
           {accion.texto}
         </button>
       )}
@@ -79,6 +80,18 @@ export function EstadoErpNoDisponible({ alReintentar }: { alReintentar: () => vo
       accion={{ texto: "Reintentar", alTocar: alReintentar }}
     />
   );
+}
+
+/** El texto del rechazo por cupo del ERP, para la pantalla y para la tarjeta de ventas. */
+export const TEXTO_CUPO_ERP = "Muchas consultas seguidas al ERP. Probá de nuevo en un minuto.";
+
+/**
+ * El ERP rechazó por cupo (Tanda 5B). Sigue siendo P1 —sin historial detrás—,
+ * pero no dice "no responde": contestó. "Reintentar" queda deshabilitado
+ * mientras dure la espera (logica.ts, ESPERA_TRAS_CUPO_MS).
+ */
+export function EstadoCupoErp({ alReintentar, enEspera }: { alReintentar: () => void; enEspera: boolean }) {
+  return <EstadoChat texto={TEXTO_CUPO_ERP} accion={{ texto: "Reintentar", alTocar: alReintentar, deshabilitada: enEspera }} />;
 }
 
 /**
@@ -114,10 +127,10 @@ export function TarjetaEvento({ evento, local, zona }: { evento: EventoPublico |
 // existen todavía (test/frontera/alcanceUi.test.ts).
 
 /** La barra fija de abajo del chat de un Local: UN chip, "Ventas". Mientras consulta, deshabilitado. */
-export function BarraVentas({ cargando, alPedir }: { cargando: boolean; alPedir: () => void }) {
+export function BarraVentas({ cargando, alPedir, enEspera = false }: { cargando: boolean; alPedir: () => void; enEspera?: boolean }) {
   return (
     <nav className="ac-barra-acciones" aria-label="Acciones del local">
-      <button type="button" className="ac-chip ac-chip--accion" onClick={alPedir} disabled={cargando} aria-busy={cargando || undefined}>
+      <button type="button" className="ac-chip ac-chip--accion" onClick={alPedir} disabled={cargando || enEspera} aria-busy={cargando || undefined}>
         {cargando ? "Consultando ventas…" : "Ventas"}
       </button>
     </nav>
@@ -145,12 +158,15 @@ export function TarjetaVentas({ ventas }: { ventas: Extract<RespuestaVentas, { e
   );
 }
 
-/** No hubo respuesta buena del ERP. Reintentar es un toque de la persona, nunca automático. */
-export function TarjetaVentasFalla({ alReintentar }: { alReintentar: () => void }) {
+/**
+ * No hubo respuesta buena del ERP. Reintentar es un toque de la persona, nunca
+ * automático. Por cupo (Tanda 5B), su texto y Reintentar en espera.
+ */
+export function TarjetaVentasFalla({ alReintentar, cupo = false, enEspera = false }: { alReintentar: () => void; cupo?: boolean; enEspera?: boolean }) {
   return (
     <article className="ac-ventas ac-ventas--falla" role="alert">
-      <p className="ac-ventas__falla">No se pudo consultar ERP Azul.</p>
-      <button type="button" className="ac-pastilla-accion" onClick={alReintentar}>
+      <p className="ac-ventas__falla">{cupo ? TEXTO_CUPO_ERP : "No se pudo consultar ERP Azul."}</p>
+      <button type="button" className="ac-pastilla-accion" onClick={alReintentar} disabled={enEspera || undefined}>
         Reintentar
       </button>
     </article>
@@ -158,8 +174,8 @@ export function TarjetaVentasFalla({ alReintentar }: { alReintentar: () => void 
 }
 
 /** Lo que va al final del historial según el estado de la consulta. */
-export function ResultadoVentas({ estado, alReintentar }: { estado: EstadoVentas; alReintentar: () => void }) {
+export function ResultadoVentas({ estado, alReintentar, enEspera = false }: { estado: EstadoVentas; alReintentar: () => void; enEspera?: boolean }) {
   if (estado.fase === "LISTA") return <TarjetaVentas ventas={estado.ventas} />;
-  if (estado.fase === "FALLA") return <TarjetaVentasFalla alReintentar={alReintentar} />;
+  if (estado.fase === "FALLA") return <TarjetaVentasFalla alReintentar={alReintentar} cupo={estado.cupo} enEspera={enEspera} />;
   return null;
 }

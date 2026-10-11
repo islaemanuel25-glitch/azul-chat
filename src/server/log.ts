@@ -67,6 +67,12 @@ export type RegistroTarea = {
   readonly enviados: number;
   readonly fallidos: number;
   readonly suscripcionesBorradas: number;
+  /** Tanda 5B: el ERP dijo LIMITE_EXCEDIDO y la corrida se cortó. */
+  readonly cortadaPorCupo: boolean;
+  /** Tanda 5B: personas cuya corrida llegó al presupuesto y dejó locales para la siguiente. */
+  readonly personasConPendientes: number;
+  /** Tanda 5B: consultas al ERP de toda la corrida, `mi_alcance` incluida. */
+  readonly consultasErp: number;
 };
 
 export type Registro = RegistroConsultaErp | RegistroVinculacion | RegistroInvalidacion | RegistroFallaLocal | RegistroTarea;

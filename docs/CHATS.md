@@ -7,12 +7,17 @@ debajo —eventos, ingesta, lectura— está en `docs/EVENTOS.md`.
 El camino de cada solicitud es siempre el mismo:
 
 sesión → `mi_alcance` vivo → capacidades de hoy → locales autorizados →
-sincronización → eventos guardados → lectura → respuesta.
+eventos guardados → lectura → respuesta.
+
+Desde la Tanda 5B no hay sincronización en ese camino: lo nuevo del ERP lo
+trae solo la corrida de fondo, y el pedido lee lo que ella guardó.
 
 El código vive en `src/server/chats/` y los tipos públicos en
 `src/shared/chats/api.ts`. Los candados están en `test/db/chats.test.ts`, que
 ejerce las rutas con una sesión real contra PostgreSQL y el ERP de mentira con
-estado, y en `test/unidad/cursorChats.test.ts`.
+estado (y corre la sincronización de fondo donde antes la disparaba el
+pedido), en `test/db/cupo.test.ts` (el cupo del ERP, Tanda 5B) y en
+`test/unidad/cursorChats.test.ts`.
 
 ## Autorización viva
 
@@ -40,58 +45,80 @@ por tipo.
   ERP anterior a 25172fe) no autoriza ningún local.
 - Quitar las capacidades saca el local en la solicitud siguiente; devolverlas
   lo restaura sin revincular, con la lectura que la persona tenía.
-- Si al sincronizar el ERP niega UNA capacidad en un local que `mi_alcance`
-  anunció (algo cambió entre las dos llamadas), esa capacidad sale de la
-  respuesta —sus tipos no se muestran ni se cuentan— y el local sigue con las
-  otras. Si no le queda ninguna, el local sale: fallo cerrado.
+- Qué tipos ve la persona de cada local lo dice SOLO `mi_alcance` vivo (sus
+  `capacidades`). Desde la Tanda 5B el pedido del navegador no ingiere, así
+  que no se entera si el ERP le niega a la corrida de fondo una capacidad
+  anunciada: esa capacidad no avanza, su cursor queda con `NO_AUTORIZADO` y el
+  local se ve "Actualización demorada", con lo ya guardado. Quitar la
+  capacidad en `mi_alcance` sí saca sus tipos en la solicitud siguiente.
 
 ## Fallo cerrado (P1)
 
 Si `mi_alcance` no se puede comprobar —ERP caído, lento, cupo, respuesta que
-no cumple el contrato— la solicitud falla entera con `ERP_NO_DISPONIBLE` y no
-lleva un solo evento: ni autorización guardada, ni ventana de gracia, ni caída
-silenciosa a lo que haya en la base. Tampoco se marca leído.
+no cumple el contrato— la solicitud falla entera y no lleva un solo evento: ni
+autorización guardada, ni ventana de gracia, ni caída silenciosa a lo que haya
+en la base. Tampoco se marca leído. La falla es `ERP_NO_DISPONIBLE`, salvo
+cuando el ERP contestó LIMITE_EXCEDIDO: ahí es `ERP_CUPO_EXCEDIDO` (429), para
+que la interfaz no diga "ERP Azul no responde" cuando sí respondió (Tanda 5B).
 
 `VINCULO_NO_VALIDO` conserva su significado de siempre, venga de `mi_alcance` o
 de cualquier capacidad de eventos: el vínculo se invalida, sus sesiones se revocan, la
 cookie se borra y la respuesta es `SIN_SESION` con motivo `VINCULO_INVALIDO`.
 
-## Frecuencia de ingesta, que no es autorización
+## Quién trae lo nuevo: solo la sincronización de fondo (Tanda 5B)
 
 Son dos cosas distintas y conviene no confundirlas:
 
-- **Autorización:** se pide en cada solicitud, siempre.
-- **Ingesta:** si una capacidad de un local se sincronizó bien hace menos de
-  30 s (`FRECUENCIA_MINIMA_INGESTA_MS`, contra
-  `CursorIngesta.ultimaSincronizacionEn` de ESE local y ESA capacidad), no se
-  vuelve a pedir al ERP: se usa lo guardado. Una capacidad recién anunciada se
-  pide aunque las otras del local estén frescas. Es seguro porque solo decide
-  qué tan fresco está lo guardado, nunca quién lo ve.
+- **Autorización:** se pide en cada solicitud del navegador, siempre: UNA
+  `mi_alcance`, sin caché.
+- **Ingesta:** la hace SOLO la sincronización de fondo
+  (`POST /api/interno/sincronizar`, un timer cada 2 minutos; `docs/EVENTOS.md`).
+  Ningún pedido del navegador —la lista, un local, General, marcar leído,
+  "Actualizar"— llama al ERP para traer eventos: leen la base propia.
 
-El cursor de ingesta es de la instalación, no de la persona: si una persona
-acaba de sincronizar Casiano, la siguiente que lo mire dentro de los 30 s no lo
-vuelve a pedir, pero sí pide su propio `mi_alcance`.
+Por qué (11/10, visto en los logs de Chat y del ERP): abrir la app costaba 22 a
+27 consultas (una `mi_alcance` y la ingesta de cada local y capacidad), la
+corrida de fondo 21, y el cupo del ERP es de 30 por persona en una ventana fija
+de 60 s. Las dos en el mismo minuto: 13 rechazos de la corrida, 10 de la app
+(la persona tocó Reintentar 10 veces) y la pantalla "ERP Azul no responde".
 
-Un local vencido se sincroniza con la ingesta de la fundación tal cual:
-arriendo, hasta 3 páginas de 100, cursor y backfill. No hay worker, cron,
-polling ni Redis: solo se sincroniza cuando una persona pide los chats, y solo
-los locales que esa solicitud necesita (la lista y General, todos; un local,
-ese). Marcar leído no sincroniza.
+Lo que cuesta ahora cada pedido del navegador, medido contra el ERP de
+mentira (`test/db/chats.test.ts`, caso (a)): la lista, un local, una página
+anterior, General, marcar leído y "Actualizar", 1 consulta cada uno
+(`mi_alcance`); Ventas, 2 (`mi_alcance` y `ventas_resumen`). La corrida de
+fondo gasta como mucho 18 por persona y le deja 12 a la app: el cupo y el
+presupuesto, con números, están en `docs/DEPLOY.md`.
 
-Por solicitud, entonces: una `mi_alcance` y, como mucho, una sincronización por
-capacidad anunciada y vencida de cada local autorizado (hasta cuatro por local,
-en el orden del catálogo: recepciones, pedidos, envíos, cancelaciones).
+## "Actualización demorada", desde los cursores
 
-## Si falla la ingesta de un local
+El estado de cada local (`sincronizacion`) sale de los cursores que dejó la
+corrida de fondo, sin llamar al ERP (`estadoDeLocales`,
+`src/server/chats/sincronizacion.ts`). Un local es `DEMORADA` si alguna de las
+capacidades que `mi_alcance` le anuncia HOY:
 
-Cuando la autorización de ahora ya se comprobó, que falle la ingesta de una
-capacidad en un local —ERP caído para esa llamada, cupo, contrato,
-contradicción, base— no le quita nada a las otras capacidades de ese local, a
-los demás locales ni al historial ya guardado. Las otras capacidades se
-sincronizan igual; el local queda con `sincronizacion: "DEMORADA"` y muestra
-lo que había; los demás siguen `AL_DIA`. Una falla no deja fresca a esa
-capacidad: la solicitud siguiente la vuelve a intentar. No hay reintentos
-automáticos.
+- no tiene cursor todavía, o nunca se sincronizó bien (una capacidad recién
+  anunciada lo está hasta la próxima corrida);
+- quedó con un error en su última vez (`ultimoErrorCodigo`: ERP caído, cupo,
+  contrato, contradicción, base, `NO_AUTORIZADO`); o
+- se sincronizó bien por última vez hace más de
+  `ANTIGUEDAD_MAXIMA_SINCRONIZACION_MS`: 3 corridas del timer
+  (`CORRIDAS_TOLERADAS` × `PERIODO_SINCRONIZACION_MS`, 3 × 2 min = 6 min).
+  Una corrida que se saltea no alcanza para avisar; tres seguidas, sí.
+
+Si no, `AL_DIA`. El pedido no reintenta nada: lo que falló lo vuelve a
+intentar la corrida siguiente. `PERIODO_SINCRONIZACION_MS` es el
+`OnUnitActiveSec` del timer, y `test/frontera/produccion.test.ts` exige que
+coincidan.
+
+## La línea de base de lectura
+
+La primera vez que una persona ve un local (la lista, General o el local), su
+lectura se fija en el mayor `Evento.id` de ese local QUE YA ESTÁ en la base:
+desde la Tanda 5B el pedido no trae nada antes. Lo que la corrida de fondo
+trajo antes de esa primera vista es historia para la persona; lo que trae
+después, si no es `historico`, cuenta como nuevo. Si la persona mira antes de
+que el fondo haya traído nada, la base es 0 y el backfill que llega después no
+cuenta, porque es `historico`. Lo fija `test/db/cupo.test.ts`, caso (f).
 
 ## Las rutas
 
@@ -216,8 +243,9 @@ Por vínculo y por local, como en la fundación: `historico = false` y
 ese local. General es la suma.
 
 - La primera vez que una persona ve un local, su lectura se fija en el mayor
-  `Evento.id` del local DESPUÉS de sincronizar. Lo que esa primera vista trae
-  del ERP es historia para ella, no novedad.
+  `Evento.id` que el local ya tiene en la base (ver "La línea de base de
+  lectura"): lo que el fondo trajo antes de esa primera vista es historia para
+  ella, no novedad.
 - Lo que trae el backfill es histórico y no cuenta nunca. El backfill es por
   capacidad: la historia de una capacidad recién anunciada entra después que lo
   nuevo de otra, con ids MAYORES que no leídos reales, y tampoco cuenta.
@@ -254,10 +282,13 @@ Solo un estado, sin mensaje, stack, URL interna, respuesta del ERP ni token:
 - `SOLICITUD_INVALIDA` (400).
 - `ERP_NO_DISPONIBLE` (503): no se pudo comprobar la autorización. Sin
   historial. En ventas, además, el ERP no dio unas ventas que se puedan mostrar.
+- `ERP_CUPO_EXCEDIDO` (429, Tanda 5B): el ERP contestó LIMITE_EXCEDIDO, en
+  `mi_alcance` o, en ventas, en `ventas_resumen`. Sin historial, igual que el
+  anterior; la interfaz lo dice con su propio texto.
 - `SERVICIO_NO_DISPONIBLE` (503): configuración o base.
 
-La ingesta demorada de un local no es un error: es `sincronizacion: "DEMORADA"`
-dentro de una respuesta buena.
+Un local demorado no es un error: es `sincronizacion: "DEMORADA"` dentro de una
+respuesta buena.
 
 ## Notificaciones push (Tanda 5A)
 

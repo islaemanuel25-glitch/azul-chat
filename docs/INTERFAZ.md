@@ -77,6 +77,13 @@ flecha "Volver a chats", que no depende del historial: si la entrada no es de
 la app, reemplaza la URL y muestra la lista. Una URL que no se entiende muestra
 la lista.
 
+Desde la Tanda 5B, abrir un local desde la lista lleva también su nombre en la
+URL (`/?vista=local&localId=N&nombre=…`). Sirve SOLO para el título mientras
+carga o si la carga falla: cuando la API contesta, manda el nombre de la API.
+Si no se conoce (por ejemplo, al abrir desde un aviso push), el título es
+"Chat". Un nombre vacío, de más de 80 caracteres o con caracteres de control se
+ignora. No autoriza nada: el local lo decide el servidor.
+
 ## Recarga al cambiar de versión
 
 Tanda 3B. Navegar no recarga la página (es `history.pushState`), así que una
@@ -189,11 +196,22 @@ estaba. No hay scroll infinito ni refresco automático.
   "Todavía no hay eventos para mostrar."; con el filtro "No leídos" y nada sin
   leer, "No hay chats sin leer.".
 - **Actualización demorada:** se ve lo guardado (ya autorizado en esa misma
-  solicitud) con un aviso discreto. No es una caída.
+  solicitud) con un aviso discreto. No es una caída. Desde la Tanda 5B lo
+  decide el estado que dejó la sincronización de fondo (un error, o más de 3
+  corridas sin sincronizar; `docs/CHATS.md`), no un intento del pedido: abrir o
+  "Actualizar" no traen nada del ERP.
 - **ERP Azul no responde (P1):** si la API contesta `ERP_NO_DISPONIBLE`, la
   vista entera se reemplaza: "ERP Azul no responde", "Para ver el historial
   hace falta verificar tu acceso." y "Reintentar". No queda historial detrás ni
   una lista vieja a la vista, y no hay caché en el navegador.
+- **Muchas consultas al ERP (Tanda 5B):** si la API contesta
+  `ERP_CUPO_EXCEDIDO` (el ERP rechazó por cupo), la vista se reemplaza igual
+  (P1), con "Muchas consultas seguidas al ERP. Probá de nuevo en un minuto." y
+  "Reintentar", que queda DESHABILITADO 20 s (`ESPERA_TRAS_CUPO_MS`); en un
+  Local, también "Ventas" y el "Reintentar" de su tarjeta, y en la lista, el ↻.
+  Es un límite a la persona para no repetir el pedido en ráfaga, no un
+  reintento automático: pasada la espera, pedir sigue siendo un toque. La
+  tarjeta de Ventas usa el mismo texto si el rechazo por cupo fue suyo.
 - **Sin acceso:** un local que no está entre los de hoy (o que no existe: la API
   no lo distingue) dice "Este chat no está entre los que podés ver hoy." y
   ofrece volver.
@@ -236,7 +254,9 @@ estaba. No hay scroll infinito ni refresco automático.
   hoy" se admite SOLO como título de la tarjeta, en `formato.ts`; no tiene refresco
   automático —salvo la recarga por versión, con cada pieza en su único archivo:
   escuchar el primer plano en `version.ts`, el corte por tiempo en el cliente y
-  `location.reload` solo como el `recargar` del comprobador en `AzulChat.tsx`—
+  `location.reload` solo como el `recargar` del comprobador en `AzulChat.tsx`—;
+  el único temporizador es el que levanta la espera por cupo (Tanda 5B), uno
+  solo, en `esperaCupo.ts`, con una sola forma: vuelve a habilitar y nada más;
   ni almacenamiento del navegador; hace HTTP solo desde sus dos
   clientes; no sabe nada de la delegación ni del ERP; y POST leído se llama
   desde un solo lugar, la lectura del Local, que General no usa.
@@ -256,6 +276,11 @@ estaba. No hay scroll infinito ni refresco automático.
 
 - `test/ui/notificaciones.test.ts` (Tanda 5A): la fila en cada estado y el
   cliente de notificaciones con un navegador de mentira.
+- `test/ui/chats.test.ts` (Tanda 5B, casos (d)): el texto del cupo en la lista,
+  en un Local y en General, sin historial detrás; "Reintentar" deshabilitado
+  con la espera y habilitado sin ella; la espera de 20 s solo tras un cupo;
+  Ventas con el mismo texto y en espera; el cliente leyendo el 429; y el
+  título con el nombre de la lista (por la URL), "Chat" sin él.
 - `test/frontera/alcanceUi.test.ts` (Tanda 5A): el service worker solo escucha
   push y el toque, sin fetch, caché, almacenamiento ni temporizadores; service
   worker y Push API solo en su cliente; el manifest con los colores de los

@@ -18,7 +18,12 @@
 //     local, así que no puede demostrar que los mostró todos. Es solo lectura
 //     visual (docs/INTERFAZ.md);
 //   · cualquier falla de la API al cargar reemplaza la vista: con
-//     ERP_NO_DISPONIBLE no queda historial detrás (P1).
+//     ERP_NO_DISPONIBLE no queda historial detrás (P1). Con el rechazo por cupo
+//     del ERP (Tanda 5B), su propio texto y "Reintentar" en espera 20 s.
+//
+// El título de un Local es el nombre que da la API; mientras carga, o si la
+// carga falla, el que ya se conocía de la lista (viaja en la URL); si no se
+// conoce, "Chat".
 //
 // Ningún GET marca leído, y no hay refresco automático.
 //
@@ -31,6 +36,7 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useReducer, useRef, 
 import type { EventoGeneral, EventoPublico } from "../../shared/chats/api.ts";
 import { ShellMovil } from "../shell/ShellMovil.tsx";
 import { marcarLeido, pedirGeneral, pedirLocal, pedirVentas, type FallaCliente, type Resultado } from "./clienteChats.ts";
+import { useEsperaTrasCupo } from "./esperaCupo.ts";
 import { diaDe, etiquetaDeDia } from "./formato.ts";
 import {
   decidirLecturaLocal,
@@ -38,13 +44,14 @@ import {
   ordenCronologico,
   reducirConversacion,
   reducirVentas,
+  tituloDeLocal,
   type AccionConversacion,
   type EstadoConversacion,
   type EstadoVentas,
   type InfoGeneral,
   type InfoLocal,
 } from "./logica.ts";
-import { AvisoDemorada, BarraVentas, EstadoChat, EstadoErpNoDisponible, ResultadoVentas, TarjetaEvento } from "./Piezas.tsx";
+import { AvisoDemorada, BarraVentas, EstadoChat, EstadoCupoErp, EstadoErpNoDisponible, ResultadoVentas, TarjetaEvento } from "./Piezas.tsx";
 
 type Pagina<E, I> = { readonly eventos: readonly E[]; readonly siguiente: string | null; readonly info: I };
 type PedirPagina<E, I> = (cursor: string | null, signal?: AbortSignal) => Promise<Resultado<Pagina<E, I>>>;
@@ -52,8 +59,12 @@ type AlPerderSesion = (motivo?: "VINCULO_INVALIDO") => void;
 
 const raizDelScroll = () => document.scrollingElement ?? document.documentElement;
 
-/** El estado de una conversación con su red: primera página y anteriores. No marca leído. */
-function useConversacion<E extends EventoPublico, I extends InfoLocal | InfoGeneral>(pedirPagina: PedirPagina<E, I>, alPerderSesion: AlPerderSesion) {
+/** El estado de una conversación con su red: primera página y anteriores. No marca leído. `alFallar` ve cada falla (la espera por cupo). */
+function useConversacion<E extends EventoPublico, I extends InfoLocal | InfoGeneral>(
+  pedirPagina: PedirPagina<E, I>,
+  alPerderSesion: AlPerderSesion,
+  alFallar: (f: FallaCliente) => void,
+) {
   const [estado, despachar] = useReducer(reducirConversacion<E, I>, { fase: "CARGANDO" });
   const [intento, setIntento] = useState(0);
   const distanciaAlFinal = useRef<number | null>(null);
@@ -62,9 +73,10 @@ function useConversacion<E extends EventoPublico, I extends InfoLocal | InfoGene
   const fallar = useCallback(
     (falla: FallaCliente) => {
       if (falla.estado === "SIN_SESION") return alPerderSesion(falla.motivo);
+      alFallar(falla);
       despachar({ tipo: "FALLA", falla });
     },
-    [alPerderSesion],
+    [alPerderSesion, alFallar],
   );
 
   useEffect(() => {
@@ -183,6 +195,7 @@ export function CuerpoConversacion<E extends EventoPublico, I extends InfoLocal 
   masSinLeer = false,
   local,
   alReintentar,
+  enEspera = false,
   alVolver,
   alCargarAnteriores,
   ahora,
@@ -195,6 +208,8 @@ export function CuerpoConversacion<E extends EventoPublico, I extends InfoLocal 
   masSinLeer?: boolean;
   local?: (e: E) => string;
   alReintentar: () => void;
+  /** "Reintentar" en espera después de un rechazo por cupo (Tanda 5B). */
+  enEspera?: boolean;
   alVolver: () => void;
   alCargarAnteriores: () => void;
   ahora?: Date;
@@ -205,6 +220,8 @@ export function CuerpoConversacion<E extends EventoPublico, I extends InfoLocal 
     switch (destinoDeFalla(estado.falla)) {
       case "ERP_NO_DISPONIBLE":
         return <EstadoErpNoDisponible alReintentar={alReintentar} />;
+      case "CUPO_ERP":
+        return <EstadoCupoErp alReintentar={alReintentar} enEspera={enEspera} />;
       case "NO_AUTORIZADO":
         return <EstadoChat titulo="Sin acceso" texto="Este chat no está entre los que podés ver hoy." accion={{ texto: "Volver a chats", alTocar: alVolver }} />;
       case "SIN_RED":
@@ -248,7 +265,18 @@ export function CuerpoConversacion<E extends EventoPublico, I extends InfoLocal 
 
 // ── Un Local ────────────────────────────────────────────────────────────────
 
-export function PantallaLocal({ localId, alVolver, alPerderSesion }: { localId: number; alVolver: () => void; alPerderSesion: AlPerderSesion }) {
+export function PantallaLocal({
+  localId,
+  nombreConocido,
+  alVolver,
+  alPerderSesion,
+}: {
+  localId: number;
+  /** El nombre que ya se conocía (de la fila de la lista, por la URL): solo para el título hasta que contesta la API. */
+  nombreConocido?: string;
+  alVolver: () => void;
+  alPerderSesion: AlPerderSesion;
+}) {
   const pedirPagina = useCallback<PedirPagina<EventoPublico, InfoLocal>>(
     async (cursor, signal) => {
       const r = await pedirLocal(localId, cursor, signal);
@@ -273,14 +301,16 @@ export function PantallaLocal({ localId, alVolver, alPerderSesion }: { localId: 
     },
     [localId],
   );
-  const { estado, despachar, reintentar, cargarAnteriores } = useConversacion(pedirPagina, alPerderSesion);
+  // Una sola espera por pantalla: la conversación y "Ventas" gastan el mismo cupo.
+  const espera = useEsperaTrasCupo();
+  const { estado, despachar, reintentar, cargarAnteriores } = useConversacion(pedirPagina, alPerderSesion, espera.anotar);
   const lectura = useLecturaLocal(estado, despachar, alPerderSesion);
   const info = estado.fase === "LISTA" ? estado.info : null;
-  const ventas = useVentas(localId, alPerderSesion);
+  const ventas = useVentas(localId, alPerderSesion, espera.anotar);
 
   return (
     <ShellMovil
-      titulo={info?.nombre ?? "Chat"}
+      titulo={tituloDeLocal(info?.nombre ?? null, nombreConocido)}
       subtitulo={info && info.noLeidos > 0 ? (info.noLeidos === 1 ? "1 sin leer" : `${info.noLeidos} sin leer`) : undefined}
       volver={{ etiqueta: "Volver a chats", alVolver }}
     >
@@ -290,10 +320,11 @@ export function PantallaLocal({ localId, alVolver, alPerderSesion }: { localId: 
         aviso={info?.sincronizacion === "DEMORADA" ? <AvisoDemorada /> : undefined}
         masSinLeer={lectura.tipo === "FALTAN"}
         alReintentar={reintentar}
+        enEspera={espera.enEspera}
         alVolver={alVolver}
         alCargarAnteriores={cargarAnteriores}
       />
-      <AccionesDelLocal anuncia={info?.ventas === true} estado={ventas.estado} alPedir={ventas.pedir} />
+      <AccionesDelLocal anuncia={info?.ventas === true} estado={ventas.estado} alPedir={ventas.pedir} enEspera={espera.enEspera} />
     </ShellMovil>
   );
 }
@@ -303,7 +334,7 @@ export function PantallaLocal({ localId, alVolver, alPerderSesion }: { localId: 
  * cancela la anterior; salir del chat (desmontar) también. No marca leído, no
  * guarda nada y no se repite sola.
  */
-function useVentas(localId: number, alPerderSesion: AlPerderSesion) {
+function useVentas(localId: number, alPerderSesion: AlPerderSesion, alFallar: (f: FallaCliente) => void) {
   const [estado, despachar] = useReducer(reducirVentas, { fase: "QUIETO" });
   const enCurso = useRef<AbortController | null>(null);
 
@@ -318,9 +349,10 @@ function useVentas(localId: number, alPerderSesion: AlPerderSesion) {
       if (control.signal.aborted) return;
       enCurso.current = null;
       if (!resultado.ok && resultado.falla.estado === "SIN_SESION") return alPerderSesion(resultado.falla.motivo);
+      if (!resultado.ok) alFallar(resultado.falla);
       despachar({ tipo: "RESPUESTA", resultado });
     });
-  }, [localId, alPerderSesion]);
+  }, [localId, alPerderSesion, alFallar]);
 
   return { estado, pedir };
 }
@@ -330,7 +362,7 @@ function useVentas(localId: number, alPerderSesion: AlPerderSesion) {
  * de `ventas_resumen` en este local (o con la conversación todavía sin cargar),
  * no hay barra ni tarjeta. Exportado para los tests.
  */
-export function AccionesDelLocal({ anuncia, estado, alPedir }: { anuncia: boolean; estado: EstadoVentas; alPedir: () => void }) {
+export function AccionesDelLocal({ anuncia, estado, alPedir, enEspera = false }: { anuncia: boolean; estado: EstadoVentas; alPedir: () => void; enEspera?: boolean }) {
   const tarjeta = useRef<HTMLDivElement | null>(null);
   // La tarjeta nueva queda a la vista, como un mensaje que llega al final del chat.
   useLayoutEffect(() => {
@@ -340,9 +372,9 @@ export function AccionesDelLocal({ anuncia, estado, alPedir }: { anuncia: boolea
   return (
     <>
       <div ref={tarjeta} className="ac-ventas-al-final">
-        <ResultadoVentas estado={estado} alReintentar={alPedir} />
+        <ResultadoVentas estado={estado} alReintentar={alPedir} enEspera={enEspera} />
       </div>
-      <BarraVentas cargando={estado.fase === "CARGANDO"} alPedir={alPedir} />
+      <BarraVentas cargando={estado.fase === "CARGANDO"} alPedir={alPedir} enEspera={enEspera} />
     </>
   );
 }
@@ -357,7 +389,8 @@ export function PantallaGeneral({ alVolver, alPerderSesion }: { alVolver: () => 
     return { ok: true, datos: { eventos: d.eventos, siguiente: d.siguiente, info: { tipo: "GENERAL", localesDemorados: d.localesDemorados } } };
   }, []);
   // General no marca leído (Tanda 2C): no puede demostrar que mostró todos los no leídos de cada local.
-  const { estado, reintentar, cargarAnteriores } = useConversacion(pedirPagina, alPerderSesion);
+  const espera = useEsperaTrasCupo();
+  const { estado, reintentar, cargarAnteriores } = useConversacion(pedirPagina, alPerderSesion, espera.anotar);
   const demorados = estado.fase === "LISTA" ? estado.info.localesDemorados.length : 0;
 
   return (
@@ -368,6 +401,7 @@ export function PantallaGeneral({ alVolver, alPerderSesion }: { alVolver: () => 
         aviso={demorados > 0 ? <AvisoDemorada texto={demorados === 1 ? "Actualización demorada en 1 local" : `Actualización demorada en ${demorados} locales`} /> : undefined}
         local={(e) => e.local.nombre}
         alReintentar={reintentar}
+        enEspera={espera.enEspera}
         alVolver={alVolver}
         alCargarAnteriores={cargarAnteriores}
       />

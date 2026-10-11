@@ -443,8 +443,9 @@ Azul Chat. Ahora un timer de systemd de **usuario**, en el mismo VPS, llama cada
   que pone nginx (Host público, `X-Real-IP`, `X-Forwarded-Proto: https`), o por
   GET. Desde afuera no funciona, y nginx además la corta (bloque de arriba);
 - por cada persona con el vínculo vigente y una sesión que valga, pide
-  `mi_alcance` vivo y corre **la misma ingesta** que al abrir la app (frecuencia
-  mínima, arriendo, reglas por código; `VINCULO_NO_VALIDO` revoca, caído no);
+  `mi_alcance` vivo y corre la ingesta (frecuencia mínima, arriendo, reglas por
+  código; `VINCULO_NO_VALIDO` revoca, caído no). Desde la Tanda 5B es lo
+  ÚNICO que ingiere: abrir la app ya no trae nada del ERP;
 - manda los avisos push de lo nuevo (`docs/EVENTOS.md`, "Avisos push").
 
 Las unidades viven en el repo, en `ops/sincronizar/systemd/`, con el mismo
@@ -457,24 +458,64 @@ estilo que las del backup:
   escribe en el journal solo el código HTTP y las cuentas de la corrida.
 - `azul-chat-sincronizar.timer`: `OnBootSec=2min`, `OnUnitActiveSec=2min`.
 
-**Por qué cada 2 minutos.** El ERP admite 30 consultas por minuto por persona y
-120 por aplicación, en ventanas fijas de un minuto (erpmanual,
-`lib/integraciones/azul-chat/limitador.js`). Una corrida gasta, por persona,
-una `mi_alcance` más una página por cada (local, capacidad) que no se sincronizó
-en los últimos 30 s: con N locales y las 4 capacidades de eventos, `1 + 4·N`.
-Con 6 locales (los cinco del ERP más el depósito) son 25: entra en el minuto
-con margen, y como cada corrida cae en una ventana distinta (cada 2 minutos)
-no se suman. Más seguido no se ganaría nada: casi todo estaría fresco y la
-corrida pediría lo mismo. Más espaciado no achica el pico de cada corrida, solo
-demora los avisos. Dos cosas a saber:
+**El cupo del ERP, con números (Tanda 5B).** El ERP admite 30 consultas por
+persona y 120 por aplicación, en una ventana FIJA de 60 s que arranca con la
+primera consulta contada; los rechazos no cuentan (erpmanual,
+`lib/integraciones/azul-chat/limitador.js`). La app abierta y esta corrida
+usan el mismo token: comparten las 30.
 
-- si una persona abre la app entre 30 y 60 s después de una corrida, su pedido
-  y la corrida pueden caer en el mismo minuto del ERP y pasarse de 30. El ERP
-  contesta `LIMITE_EXCEDIDO`, esa capacidad queda "Actualización demorada" en
-  esa respuesta y la siguiente la trae: no se pierde nada;
-- con **8 o más locales** una sola corrida ya pasa de 30 (`1 + 4·8 = 33`). Si
-  el ERP llega a tener tantos, hay que revisar esta cuenta antes (por ejemplo,
-  sincronizar menos capacidades por corrida).
+- **El incidente del 11/10.** Abrir la app costaba 22 a 27 consultas (una
+  `mi_alcance` por pedido más la ingesta de cada local y capacidad); la corrida,
+  21 (1 `mi_alcance` + 5 locales × 4 capacidades). 12:20:26 se abrió la app;
+  12:21:10 corrió el timer: 8 bien y 13 rechazadas; 12:21:12-25 la persona tocó
+  Reintentar 10 veces: 10 rechazadas. 49 rechazos, los mismos en Chat y en el
+  ERP, y la pantalla "ERP Azul no responde". Mitigación de ese día: el timer
+  instalado pasó a 5 minutos.
+- **Lo que cuesta la app ahora.** Ningún pedido ingiere. La lista, un local,
+  una página anterior, General, marcar leído y "Actualizar": 1 consulta cada
+  uno (`mi_alcance`). Ventas: 2. Una navegación intensa de un minuto —abrir la
+  lista, 5 locales, General, Ventas y Actualizar ×3— son **12**.
+- **Lo que cuesta la corrida ahora.** Como mucho **18 por persona**
+  (`PRESUPUESTO_FONDO_POR_PERSONA` = 30 − 12): `mi_alcance` más una página por
+  cada (local, capacidad) que no se sincronizó en los últimos 30 s, hasta
+  llegar a 18. Sin tope serían `1 + 4·N` (21 con 5 locales), y 21 + 12 = 33
+  pasa de 30: por eso el tope. Con él, en cualquier orden, corrida + app ≤ 30
+  dentro de la ventana; lo prueba `test/db/cupo.test.ts` con el cupo real
+  copiado al ERP de mentira (fondo antes, después y en el medio de la
+  navegación: cero 429; y la contraprueba, el fondo de antes, da 3).
+- **Lo que no entra en una corrida** queda para la siguiente, que empieza por
+  ahí (sin anotar error). Con 5 locales entran 17 de las 20 capacidades por
+  corrida: cada una se trae al menos cada 2 corridas (4 min). Hasta **8
+  locales** por persona eso sigue valiendo (34 ≥ 32) y nadie ve "Actualización
+  demorada" por esto; con 9 o más, alguna capacidad tardaría 3 corridas y
+  aparecería el aviso: habría que revisar esta cuenta antes.
+- **Si igual el ERP dice LIMITE_EXCEDIDO** (la persona tocó mucho más que
+  eso), la corrida se corta ahí, deja `LIMITE_EXCEDIDO` en lo que faltaba y
+  contesta 200 con `cortadaPorCupo: true`; la siguiente empieza por eso. La app
+  muestra "Muchas consultas seguidas al ERP. Probá de nuevo en un minuto." con
+  Reintentar deshabilitado 20 s.
+- **El cupo por aplicación (120)** no lo cubre esta cuenta: con 18 por
+  persona alcanza para 6 personas por corrida. Con más personas vinculadas a la
+  vez, hay que revisarlo.
+
+**Por qué cada 2 minutos.** Con 2 minutos entre corridas, dos nunca caen en la
+misma ventana de 60 s, que es lo que hace valer el tope de 18. Y el código usa
+ese mismo periodo para decir "Actualización demorada" (más de 3 corridas sin
+sincronizar = 6 min; `PERIODO_SINCRONIZACION_MS`, que
+`test/frontera/produccion.test.ts` exige igual al `OnUnitActiveSec` del timer).
+Más seguido, dos corridas podrían sumar en una ventana; más espaciado solo
+demora los avisos.
+
+**Al desplegar esta versión, volver el timer de 5 a 2 minutos.** La mitigación
+del 11/10 cambió solo la unidad instalada; el repo dice 2. Copiar la unidad del
+repo de nuevo y recargar:
+
+```sh
+cp /srv/produccion/azul-chat/ops/sincronizar/systemd/azul-chat-sincronizar.timer ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user restart azul-chat-sincronizar.timer
+systemctl --user cat azul-chat-sincronizar.timer | grep OnUnitActiveSec   # OnUnitActiveSec=2min
+```
 
 Instalar (después del despliegue que trae la ruta, y con el secreto ya
 generado, ver "Variables"):

@@ -173,6 +173,8 @@ export type DestinoDeFalla =
   | "SESION"
   /** P1: el ERP no respondió. Sin historial. */
   | "ERP_NO_DISPONIBLE"
+  /** P1 también, pero el ERP SÍ contestó: se le pidió mucho seguido (LIMITE_EXCEDIDO). Su propio texto y Reintentar en espera. */
+  | "CUPO_ERP"
   /** Este local no está entre los que la persona puede ver hoy (o no existe: no se distingue). */
   | "NO_AUTORIZADO"
   | "SIN_RED"
@@ -185,6 +187,8 @@ export function destinoDeFalla(f: FallaCliente): DestinoDeFalla {
       return "SESION";
     case "ERP_NO_DISPONIBLE":
       return "ERP_NO_DISPONIBLE";
+    case "ERP_CUPO_EXCEDIDO":
+      return "CUPO_ERP";
     case "NO_AUTORIZADO":
     case "SOLICITUD_INVALIDA":
       return "NO_AUTORIZADO";
@@ -198,6 +202,20 @@ export function destinoDeFalla(f: FallaCliente): DestinoDeFalla {
   }
 }
 
+// ── El cupo del ERP (Tanda 5B) ──────────────────────────────────────────────
+//
+// Después de un rechazo por cupo, "Reintentar" (y lo que pide lo mismo) queda
+// deshabilitado este tiempo: tocarlo diez veces seguidas era lo que el 11/10
+// mantuvo lleno el cupo. Es un límite a la persona, no un reintento
+// automático: pasado el tiempo, el botón vuelve y pedir sigue siendo un toque.
+
+export const ESPERA_TRAS_CUPO_MS = 20_000;
+
+/** Hasta cuándo queda en espera "Reintentar" después de esta falla, o null si no es de cupo. */
+export function esperaTrasFalla(f: FallaCliente, ahora: number): number | null {
+  return f.estado === "ERP_CUPO_EXCEDIDO" ? ahora + ESPERA_TRAS_CUPO_MS : null;
+}
+
 // ── Ventas de hoy (Tanda 3A) ────────────────────────────────────────────────
 //
 // Una consulta por toque: nada se guarda, nada se refresca solo. Tocar "Ventas"
@@ -209,7 +227,8 @@ export type EstadoVentas =
   | { readonly fase: "QUIETO" }
   | { readonly fase: "CARGANDO" }
   | { readonly fase: "LISTA"; readonly ventas: Extract<RespuestaVentas, { estado: "OK" }> }
-  | { readonly fase: "FALLA" };
+  /** `cupo`: el ERP la rechazó por cupo (Tanda 5B), con su propio texto. */
+  | { readonly fase: "FALLA"; readonly cupo: boolean };
 
 export type AccionVentas =
   | { readonly tipo: "PEDIR" }
@@ -223,22 +242,37 @@ export function reducirVentas(estado: EstadoVentas, accion: AccionVentas): Estad
   if (r.ok) return { fase: "LISTA", ventas: r.datos };
   // Cancelada: la pantalla se fue o se volvió a pedir; no es una falla que mostrar.
   if (r.falla.estado === "CANCELADA") return { fase: "QUIETO" };
-  return { fase: "FALLA" };
+  return { fase: "FALLA", cupo: r.falla.estado === "ERP_CUPO_EXCEDIDO" };
 }
 
 // ── Navegación ──────────────────────────────────────────────────────────────
 
-export type Vista = { readonly tipo: "CHATS" } | { readonly tipo: "LOCAL"; readonly localId: number } | { readonly tipo: "GENERAL" };
+/**
+ * La vista. Un Local puede llevar el `nombre` que ya se conocía (Tanda 5B): el
+ * de la fila de la lista que se tocó, que viaja en la URL. Es SOLO para el
+ * título mientras carga o si la carga falla; cuando la API contesta, manda el
+ * nombre de la API. No autoriza nada: el local lo decide el servidor.
+ */
+export type Vista =
+  | { readonly tipo: "CHATS" }
+  | { readonly tipo: "LOCAL"; readonly localId: number; readonly nombre?: string }
+  | { readonly tipo: "GENERAL" };
 
 const LOCAL_ID = /^[1-9][0-9]{0,9}$/;
+/** Un nombre de local en la URL: texto corto, sin caracteres de control. Si no, se ignora. */
+const MAX_NOMBRE = 80;
+const nombreValido = (v: string | null): v is string => v !== null && v.trim().length > 0 && v.length <= MAX_NOMBRE && !/\p{Cc}/u.test(v);
 
-/** La vista de la URL (`?vista=local&localId=N`, `?vista=general`). Cualquier otra cosa es la lista. */
+/** La vista de la URL (`?vista=local&localId=N[&nombre=…]`, `?vista=general`). Cualquier otra cosa es la lista. */
 export function leerVista(busqueda: string): Vista {
   const p = new URLSearchParams(busqueda);
   const vista = p.get("vista");
   if (vista === "general") return { tipo: "GENERAL" };
   const localId = p.get("localId");
-  if (vista === "local" && localId !== null && LOCAL_ID.test(localId)) return { tipo: "LOCAL", localId: Number(localId) };
+  if (vista === "local" && localId !== null && LOCAL_ID.test(localId)) {
+    const nombre = p.get("nombre");
+    return nombreValido(nombre) ? { tipo: "LOCAL", localId: Number(localId), nombre: nombre.trim() } : { tipo: "LOCAL", localId: Number(localId) };
+  }
   return { tipo: "CHATS" };
 }
 
@@ -249,6 +283,13 @@ export function urlDeVista(v: Vista): string {
     case "GENERAL":
       return "/?vista=general";
     case "LOCAL":
-      return `/?vista=local&localId=${v.localId}`;
+      return nombreValido(v.nombre ?? null)
+        ? `/?${new URLSearchParams({ vista: "local", localId: String(v.localId), nombre: v.nombre!.trim() }).toString()}`
+        : `/?vista=local&localId=${v.localId}`;
   }
+}
+
+/** El título de un Local: el de la API si ya contestó; si no, el que ya se conocía; si tampoco, "Chat". */
+export function tituloDeLocal(deLaApi: string | null, conocido: string | undefined): string {
+  return deLaApi ?? conocido ?? "Chat";
 }

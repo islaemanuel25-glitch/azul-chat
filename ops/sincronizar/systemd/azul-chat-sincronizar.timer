@@ -1,10 +1,13 @@
 # Dispara azul-chat-sincronizar.service cada 2 minutos (Tanda 5A).
 # Instalación y comandos: docs/DEPLOY.md, sección "Sincronización en segundo plano".
 #
-# Por qué 2 minutos y no menos: cada corrida pide al ERP, por persona, una
-# mi_alcance y una página por (local, capacidad) vencida. El ERP admite 30
-# consultas por minuto por persona (erpmanual, lib/integraciones/azul-chat/
-# limitador.js); con 6 locales son 25 por corrida. Ver docs/DEPLOY.md.
+# Por qué 2 minutos: el ERP admite 30 consultas por persona en una ventana
+# fija de 60 s (erpmanual, lib/integraciones/azul-chat/limitador.js), que la
+# app abierta comparte con esta corrida. Desde la Tanda 5B la corrida gasta
+# como mucho 18 por persona y le deja 12 a la app; con 2 minutos entre
+# corridas, dos nunca caen en la misma ventana. El código usa este mismo
+# periodo (PERIODO_SINCRONIZACION_MS) para "Actualización demorada": lo
+# controla test/frontera/produccion.test.ts. Ver docs/DEPLOY.md.
 
 [Unit]
 Description=Disparo cada 2 minutos de la sincronización de Azul Chat

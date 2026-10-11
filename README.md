@@ -104,10 +104,14 @@ no toca a los demás.
   - `http/` — Origin, cupo, lectura del cuerpo y respuestas.
   - `sesion/` — cookie, repositorio, vincular, estado, cerrar y el paso de la
     sesión al token (`delegacion.ts`).
-  - `chats/` — autorización viva por capacidad, sincronización con frecuencia
-    mínima, historial paginado y las cinco rutas de chats.
-  - `interno/` — la sincronización en segundo plano (Tanda 5A): la ruta que
-    llama el timer del VPS, con su secreto y su puerta (`docs/DEPLOY.md`).
+  - `chats/` — autorización viva por capacidad, la sincronización (frecuencia
+    mínima, presupuesto del cupo del ERP, orden por lo pendiente) y el estado
+    "Actualización demorada" desde los cursores, historial paginado y las cinco
+    rutas de chats. Desde la Tanda 5B las rutas NO ingieren: una `mi_alcance`
+    por pedido y la base propia.
+  - `interno/` — la sincronización en segundo plano (Tanda 5A), la única que
+    ingiere desde la 5B: la ruta que llama el timer del VPS, con su secreto y
+    su puerta (`docs/DEPLOY.md`).
   - `push/` — notificaciones push (Tanda 5A): claves VAPID, suscripciones,
     qué se avisa una sola vez y el envío (`docs/EVENTOS.md`).
   - `eventos/` — ingesta (una maquinaria, una definición por capacidad en
@@ -194,10 +198,15 @@ sobre bytes UTF-8, con `marca` = Unix timestamp en segundos y `cuerpo` =
 
 - Los avisos push son "a lo sumo una vez": si el servicio de push no contesta,
   ese aviso se pierde (la novedad sigue en la app). En iPhone, el navegador solo
-  entrega push a la app instalada en la pantalla de inicio. La sincronización
-  de fondo puede chocar con una apertura de la app en el mismo minuto del cupo
-  del ERP: esa capacidad queda "Actualización demorada" hasta la siguiente
-  (`docs/DEPLOY.md`, "Sincronización en segundo plano").
+  entrega push a la app instalada en la pantalla de inicio.
+- El cupo del ERP (30 por persona en 60 s) lo comparten la app y la
+  sincronización de fondo. Desde la Tanda 5B la app gasta 1 consulta por
+  pantalla (Ventas, 2) y el fondo como mucho 18 por persona por corrida: una
+  navegación intensa de un minuto (12) entra con la corrida en cualquier orden.
+  Lo nuevo llega a la app solo por el fondo, cada 2 minutos; con 5 locales
+  cada capacidad se trae al menos cada 4. Con 9 o más locales por persona, o
+  más de 6 personas a la vez (cupo de 120 por aplicación), hay que revisar la
+  cuenta (`docs/DEPLOY.md`, "Sincronización en segundo plano").
 
 - El cupo de vinculación vive en memoria del proceso (5 por IP y 15 en total
   por minuto, por debajo de los 20 canjes por minuto que el ERP da a la
