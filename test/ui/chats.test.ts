@@ -23,8 +23,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { marcarLeido, pedirChats, pedirGeneral, pedirLocal, pedirVentas, preguntar, RUTAS_DEL_CLIENTE } from "../../src/components/chats/clienteChats.ts";
 import { AccionesDeGeneral, AccionesDelLocal, CuerpoConversacion, ListaDeEventos, PantallaGeneral, PantallaLocal } from "../../src/components/chats/Conversacion.tsx";
-import { ListaDePreguntas, TEXTO_CAJA } from "../../src/components/chats/Preguntas.tsx";
+import { ListaDePreguntas, TEXTO_CAJA, TEXTO_POR_LOCAL, TEXTO_POR_MEDIO } from "../../src/components/chats/Preguntas.tsx";
 import {
+  avisoNoSepara,
   cantidadDeEventos,
   cantidadDeVentas,
   detalleDeDiferencias,
@@ -886,12 +887,12 @@ describe("6A. preguntas: la caja, la burbuja y las respuestas", () => {
   });
 
   it("ventas de un local: la tarjeta de siempre, con el título del período", () => {
-    const hoy = lista([conPregunta({ fase: "LISTA", respuesta: { estado: "VENTAS", alcance: "LOCAL", periodo: HOY_P, ventas: CASIANO_VENTAS } })]);
+    const hoy = lista([conPregunta({ fase: "LISTA", respuesta: { estado: "VENTAS", alcance: "LOCAL", periodo: HOY_P, ventas: CASIANO_VENTAS, noSeparaPor: [] } })]);
     assert.match(hoy, /Ventas de hoy · Casiano/);
     assert.match(texto(hoy), /\$ 1\.500,00 2 ventas Efectivo · \$ 1\.500,00/);
-    const ayer = lista([conPregunta({ fase: "LISTA", respuesta: { estado: "VENTAS", alcance: "LOCAL", periodo: { tipo: "ayer", desde: "2026-10-06", hasta: "2026-10-06" }, ventas: CASIANO_VENTAS } })]);
+    const ayer = lista([conPregunta({ fase: "LISTA", respuesta: { estado: "VENTAS", alcance: "LOCAL", periodo: { tipo: "ayer", desde: "2026-10-06", hasta: "2026-10-06" }, ventas: CASIANO_VENTAS, noSeparaPor: [] } })]);
     assert.match(ayer, /Ventas de ayer · Casiano/);
-    const rango = lista([conPregunta({ fase: "LISTA", respuesta: { estado: "VENTAS", alcance: "LOCAL", periodo: { tipo: "rango", desde: "2026-10-01", hasta: "2026-10-07" }, ventas: CASIANO_VENTAS } })]);
+    const rango = lista([conPregunta({ fase: "LISTA", respuesta: { estado: "VENTAS", alcance: "LOCAL", periodo: { tipo: "rango", desde: "2026-10-01", hasta: "2026-10-07" }, ventas: CASIANO_VENTAS, noSeparaPor: [] } })]);
     assert.match(rango, /Ventas del 1\/10 al 7\/10 · Casiano/);
   });
 
@@ -903,21 +904,26 @@ describe("6A. preguntas: la caja, la burbuja y las respuestas", () => {
           estado: "VENTAS",
           alcance: "TODOS",
           periodo: HOY_P,
+          noSeparaPor: [],
           total: { cantidadVentas: 3, totalVendido: "1600.00", mediosDePago: [{ medio: "EFECTIVO", etiqueta: "Efectivo", total: "1600.00", cantidadPagos: 3 }] },
           locales: [CASIANO_VENTAS, { ...CASIANO_VENTAS, local: { id: 9, nombre: "Depósito Central" }, totalVendido: "100.00", cantidadVentas: 1 }],
           fallidos: [],
         },
       }),
     ]);
-    assert.match(texto(completo), /Ventas de hoy · Todos los locales \$ 1\.600,00 3 ventas Efectivo · \$ 1\.600,00 Casiano · \$ 1\.500,00 Depósito Central · \$ 100,00/);
+    assert.match(
+      texto(completo),
+      /^¿Cuánto vendió hoy\? 18:40 Ventas de hoy · Todos los locales \$ 1\.600,00 3 ventas Por medio de pago Efectivo · \$ 1\.600,00 Por local Casiano · \$ 1\.500,00 Depósito Central · \$ 100,00$/,
+    );
     const parcial = lista([
       conPregunta({
         fase: "LISTA",
-        respuesta: { estado: "VENTAS", alcance: "TODOS", periodo: HOY_P, total: null, locales: [CASIANO_VENTAS], fallidos: [{ id: 9, nombre: "Depósito Central" }] },
+        respuesta: { estado: "VENTAS", alcance: "TODOS", periodo: HOY_P, noSeparaPor: [], total: null, locales: [CASIANO_VENTAS], fallidos: [{ id: 9, nombre: "Depósito Central" }] },
       }),
     ]);
     assert.doesNotMatch(texto(parcial), /\$ 1\.600/);
-    assert.match(texto(parcial), /Casiano · \$ 1\.500,00 No se pudo consultar: Depósito Central\. Sin total: faltan locales\./);
+    assert.match(texto(parcial), /Por local Casiano · \$ 1\.500,00 No se pudo consultar: Depósito Central\. Sin total: faltan locales\./);
+    assert.doesNotMatch(texto(parcial), /Por medio de pago/, "sin total no hay medios: serían de una suma parcial");
   });
 
   it("eventos: cantidad, la lista con los textos de la interfaz (con su local en 'todos') y 'y N más'", () => {
@@ -925,7 +931,7 @@ describe("6A. preguntas: la caja, la burbuja y las respuestas", () => {
     const html = lista([
       conPregunta({
         fase: "LISTA",
-        respuesta: { estado: "EVENTOS", tipo: "recibidas_con_diferencias", local: null, periodo: { tipo: "ayer", desde: "2026-10-06", hasta: "2026-10-06" }, cantidad: 12, eventos: [e], restantes: 11 },
+        respuesta: { estado: "EVENTOS", tipo: "recibidas_con_diferencias", local: null, periodo: { tipo: "ayer", desde: "2026-10-06", hasta: "2026-10-06" }, noSeparaPor: [], cantidad: 12, eventos: [e], restantes: 11 },
       }),
     ]);
     const t = texto(html);
@@ -994,5 +1000,74 @@ describe("6A. preguntas: la caja, la burbuja y las respuestas", () => {
     } finally {
       globalThis.fetch = original;
     }
+  });
+
+  // ── Tanda 6B ──────────────────────────────────────────────────────────────
+
+  it("6B. el aviso de lo que no se separa es una plantilla: una, varias, día o período completo; vacío, nada", () => {
+    assert.equal(avisoNoSepara(HOY_P, []), null);
+    assert.equal(avisoNoSepara(HOY_P, ["turno"]), "Día completo: todavía no puedo separar por turno.");
+    assert.equal(avisoNoSepara(HOY_P, ["turno", "vendedor"]), "Día completo: todavía no puedo separar por turno ni vendedor.");
+    assert.equal(avisoNoSepara(HOY_P, ["turno", "hora", "vendedor"]), "Día completo: todavía no puedo separar por turno, hora ni vendedor.");
+    assert.equal(avisoNoSepara(HOY_P, ["categoria", "medio_de_pago"]), "Día completo: todavía no puedo separar por categoría ni medio de pago.");
+    assert.equal(avisoNoSepara({ tipo: "rango", desde: "2026-10-10", hasta: "2026-10-10" }, ["producto"]), "Día completo: todavía no puedo separar por producto.");
+    assert.equal(avisoNoSepara({ tipo: "rango", desde: "2026-10-01", hasta: "2026-10-07" }, ["cliente"]), "Período completo: todavía no puedo separar por cliente.");
+  });
+
+  it("6B. ventas de un local con turno: el total del día CON el aviso arriba; sin restricciones, sin aviso", () => {
+    const sabado = { tipo: "rango", desde: "2026-10-10", hasta: "2026-10-10" } as const;
+    const conTurno = lista([
+      conPregunta({ fase: "LISTA", respuesta: { estado: "VENTAS", alcance: "LOCAL", periodo: sabado, ventas: CASIANO_VENTAS, noSeparaPor: ["turno"] } }, "¿Cuánto vendió el sábado pasado el turno tarde?"),
+    ]);
+    assert.match(
+      texto(conTurno),
+      /18:40 Día completo: todavía no puedo separar por turno\. Ventas el 10\/10 · Casiano \$ 1\.500,00 2 ventas/,
+      "el aviso va antes del título y del total",
+    );
+    assert.match(conTurno, /<p class="ac-ventas__aviso" role="note">/);
+    const sin = lista([conPregunta({ fase: "LISTA", respuesta: { estado: "VENTAS", alcance: "LOCAL", periodo: sabado, ventas: CASIANO_VENTAS, noSeparaPor: [] } })]);
+    assert.doesNotMatch(sin, /ac-ventas__aviso|todavía no puedo/);
+  });
+
+  it("6B. ventas de todos con hora y vendedor: el aviso arriba, y los dos subtítulos en su orden", () => {
+    const html = lista([
+      conPregunta({
+        fase: "LISTA",
+        respuesta: {
+          estado: "VENTAS",
+          alcance: "TODOS",
+          periodo: { tipo: "ayer", desde: "2026-10-06", hasta: "2026-10-06" },
+          noSeparaPor: ["hora", "vendedor"],
+          total: {
+            cantidadVentas: 3,
+            totalVendido: "1600.00",
+            mediosDePago: [
+              { medio: "EFECTIVO", etiqueta: "Efectivo", total: "1000.00", cantidadPagos: 2 },
+              { medio: "MERCADOPAGO", etiqueta: "Mercado Pago", total: "600.00", cantidadPagos: 1 },
+            ],
+          },
+          locales: [CASIANO_VENTAS, { ...CASIANO_VENTAS, local: { id: 9, nombre: "Depósito Central" }, totalVendido: "100.00", cantidadVentas: 1 }],
+          fallidos: [],
+        },
+      }),
+    ]);
+    const t = texto(html);
+    assert.match(
+      t,
+      /Día completo: todavía no puedo separar por hora ni vendedor\. Ventas de ayer · Todos los locales \$ 1\.600,00 3 ventas Por medio de pago Efectivo · \$ 1\.000,00 Mercado Pago · \$ 600,00 Por local Casiano · \$ 1\.500,00 Depósito Central · \$ 100,00$/,
+    );
+    assert.equal((html.match(/class="ac-ventas__subtitulo"/g) ?? []).length, 2);
+    assert.equal(TEXTO_POR_MEDIO, "Por medio de pago");
+    assert.equal(TEXTO_POR_LOCAL, "Por local");
+  });
+
+  it("6B. eventos con una restricción: el aviso arriba", () => {
+    const html = lista([
+      conPregunta({
+        fase: "LISTA",
+        respuesta: { estado: "EVENTOS", tipo: "pedidos", local: { localId: 3, nombre: "Casiano" }, periodo: HOY_P, noSeparaPor: ["producto"], cantidad: 0, eventos: [], restantes: 0 },
+      }),
+    ]);
+    assert.match(texto(html), /18:40 Día completo: todavía no puedo separar por producto\. Casiano · hoy Ningún pedido solicitado$/);
   });
 });

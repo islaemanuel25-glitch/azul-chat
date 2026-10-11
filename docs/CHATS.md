@@ -239,6 +239,19 @@ una lista cerrada que el esquema le da (`enum`); el id lo pone el código. Todo
 lo que se muestra lo arma el código: ningún texto ni número de la respuesta sale
 del modelo.
 
+**Lo que no se puede separar se dice (Tanda 6B).** `ventas_resumen` del ERP no
+filtra por turno, ni por hora, ni por vendedor: "¿cuánto vendió el sábado el
+turno tarde?" contestaba el día completo sin decirlo, que es un dato engañoso.
+Ahora el esquema trae además `restriccionesNoSoportadas`, una lista cerrada
+(`turno`, `hora`, `vendedor`, `producto`, `categoria`, `medio_de_pago`,
+`cliente`; vacía si no pide nada de eso) que la IA completa con lo que la
+pregunta pide separar. No cambia la intención: se contesta igual con el período
+completo, y la respuesta de `VENTAS` o `EVENTOS` lleva `noSeparaPor`, la lista
+de lo pedido que esa respuesta no separa, en el orden del catálogo. En ventas,
+`medio_de_pago` no entra: el desglose por medio ya lo muestra. En eventos entra
+todo. La interfaz convierte `noSeparaPor` en un aviso fijo; viajan códigos, no
+textos. Un valor fuera del catálogo, o que no sea una lista, es `NO_ENTIENDO`.
+
 En orden:
 
 1. Forma, Origin y cuerpo. Sin la clave de la IA (o mal configurada):
@@ -251,7 +264,7 @@ En orden:
 4. La IA (`src/server/ia/gemini.ts`), una sola llamada, sin reintentos. Si no
    contesta: `IA_NO_DISPONIBLE` (503).
 5. El código valida la intención (`src/server/preguntas/intencion.ts`): exactamente
-   las claves del esquema; el local, uno de los de hoy CON la capacidad que la
+   las siete claves del esquema; el local, uno de los de hoy CON la capacidad que la
    intención necesita (`ventas_resumen` o la del tipo de evento); fechas reales,
    `desde` ≤ `hasta` y un rango de 31 días como mucho. Lo que no cierra es
    `NO_ENTIENDO`, con ejemplos fijos de lo que sí se puede preguntar.
@@ -270,7 +283,8 @@ En orden:
      Argentina (`fechaOperacion`). La cantidad, los 10 más recientes y cuántos
      más hay (`restantes`, "y N más").
 
-Estados: `VENTAS` (`alcance` `LOCAL` o `TODOS`), `EVENTOS`, `NO_ENTIENDO`,
+Estados: `VENTAS` (`alcance` `LOCAL` o `TODOS`) y `EVENTOS`, los dos con
+`noSeparaPor`; `NO_ENTIENDO`,
 `SALDO_AGOTADO` (200), `IA_NO_DISPONIBLE` (503), y las fallas de siempre:
 `ERP_NO_DISPONIBLE` (503), `ERP_CUPO_EXCEDIDO` (429), `SIN_SESION`,
 `NO_AUTORIZADO`, `SOLICITUD_INVALIDA`, `ORIGEN_NO_PERMITIDO`,
@@ -302,7 +316,9 @@ la tarifa.
 
 No se guarda nada de la pregunta ni de la respuesta, no marca leído y no crea
 chips. El registro (`ia.pregunta`) lleva resultado, duración, tokens y costo;
-nunca la pregunta. Candados: `test/db/preguntas.test.ts`.
+nunca la pregunta. Candados: `test/db/preguntas.test.ts` (Tanda 6B: ninguna
+respuesta de ventas o eventos sale sin `noSeparaPor` cuando la intención trae
+una restricción que no separa, recorriendo el catálogo entero).
 
 ## El evento público
 

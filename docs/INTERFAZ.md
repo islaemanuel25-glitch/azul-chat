@@ -71,11 +71,23 @@ grande se centra en una columna de 480 px; no hay un diseño de escritorio.
   - ventas de un local: la tarjeta de Ventas (nodo 1:127), con el título del
     período: "Ventas de hoy · Casiano", "Ventas de ayer · Casiano" o "Ventas del
     1/10 al 7/10 · Casiano";
-  - ventas de todos: el total, la cantidad y cada medio sumados, y una línea por
-    local; si alguno no se pudo consultar, lo dice y NO muestra total;
+  - ventas de todos (ordenada en la Tanda 6B): el total y la cantidad arriba;
+    debajo el subtítulo "Por medio de pago" con una línea por medio; debajo
+    "Por local" con una línea por local. Mismas piezas y tokens, sin colores
+    nuevos (`SubtituloDeTarjeta`, `.ac-ventas__subtitulo`). Si alguno no se
+    pudo consultar, lo dice y NO muestra total ni medios (serían de una suma
+    parcial): solo "Por local" y cuáles faltan;
   - eventos: "{local o Todos los locales} · {período}", la cantidad en palabras
     ("3 transferencias recibidas con diferencias"), hasta 10 eventos con el
     mismo resumen de la lista de chats y "y N más";
+  - lo que no se separa (Tanda 6B): si la respuesta trae `noSeparaPor`, la
+    tarjeta de ventas o de eventos lleva arriba de todo una línea fija
+    (`AvisoDeRespuesta`, `.ac-ventas__aviso`): "Día completo: todavía no puedo
+    separar por turno." Con varias, "turno ni vendedor" o "turno, hora ni
+    vendedor"; con un rango de varios días, "Período completo: …". Los nombres
+    son turno, hora, vendedor, producto, categoría, medio de pago y cliente. La
+    plantilla es `avisoNoSepara`, en `formato.ts`: el texto nunca lo escribe la
+    IA. Sin `noSeparaPor`, no hay aviso;
   - no entendió: "No entendí la pregunta. Podés preguntar, por ejemplo:" y
     cuatro ejemplos fijos;
   - saldo agotado (nodo 1:333): "Saldo de IA agotado" y "Eventos, historial y
@@ -324,7 +336,10 @@ estaba. No hay scroll infinito ni refresco automático.
   preguntas en curso igual); con IA, la caja debajo del chip y su texto en un
   Local y en General; la burbuja con la hora; cada respuesta (un local, todos,
   todos con uno caído y sin total, eventos con "y N más", no entendí, saldo
-  agotado, las fallas con y sin espera); el cliente HTTP de la pregunta.
+  agotado, las fallas con y sin espera); el cliente HTTP de la pregunta. Tanda
+  6B: la plantilla del aviso (una, varias, día o período), el aviso arriba de
+  la tarjeta de un local, de todos y de eventos, ninguno sin `noSeparaPor`, y
+  la tarjeta de todos con "Por medio de pago" y "Por local" en su orden.
 
 ## Fuera de alcance
 

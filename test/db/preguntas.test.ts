@@ -28,7 +28,7 @@ import { NOMBRE_COOKIE } from "../../src/server/sesion/cookie.ts";
 import type { DependenciasSesion } from "../../src/server/sesion/dependencias.ts";
 import { manejarVincular } from "../../src/server/sesion/vincular.ts";
 import type { RespuestaGeneral, RespuestaLocal } from "../../src/shared/chats/api.ts";
-import { EJEMPLOS_DE_PREGUNTAS, type RespuestaPregunta } from "../../src/shared/chats/preguntas.ts";
+import { EJEMPLOS_DE_PREGUNTAS, RESTRICCIONES_NO_SOPORTADAS, type RespuestaPregunta } from "../../src/shared/chats/preguntas.ts";
 import type { DatosMiAlcance, EventoTransferenciaRecibida } from "../../src/shared/erp/contrato.ts";
 import { crearBaseDescartable, type BaseDescartable } from "../ayuda/baseDescartable.ts";
 import { levantarErpConEstado, type ErpConEstado } from "../ayuda/erpConEstado.ts";
@@ -101,7 +101,7 @@ function respuestaGemini(
   salida: Record<string, unknown>,
   { uso = { promptTokenCount: 600, candidatesTokenCount: 40, thoughtsTokenCount: 120 }, finishReason = "STOP", texto }: { uso?: Record<string, number>; finishReason?: string; texto?: string } = {},
 ): Response {
-  const completa = { intencion: null, tipoEvento: null, local: null, periodo: null, desde: null, hasta: null, ...salida };
+  const completa = { intencion: null, tipoEvento: null, local: null, periodo: null, desde: null, hasta: null, restriccionesNoSoportadas: [], ...salida };
   return new Response(
     JSON.stringify({
       candidates: [{ finishReason, content: { role: "model", parts: [{ text: texto ?? JSON.stringify(completa) }] } }],
@@ -286,6 +286,9 @@ describe("la IA solo interpreta: lo que no cierra es NO_ENTIENDO", () => {
     ["no es JSON", () => respuestaGemini({}, { texto: "Vendió $1.500.000" })],
     ["cortada", () => respuestaGemini({ intencion: "ventas", local: "Casiano", periodo: "hoy" }, { finishReason: "MAX_TOKENS" })],
     ["no_entiendo", () => respuestaGemini({ intencion: "no_entiendo" })],
+    ["una restricción fuera del catálogo (6B)", () => respuestaGemini({ intencion: "ventas", local: "Casiano", periodo: "hoy", restriccionesNoSoportadas: ["sucursal"] })],
+    ["restricciones que no son una lista (6B)", () => respuestaGemini({ intencion: "ventas", local: "Casiano", periodo: "hoy", restriccionesNoSoportadas: null })],
+    ["sin la clave de restricciones (6B)", () => respuestaGemini({}, { texto: JSON.stringify({ intencion: "ventas", tipoEvento: null, local: "Casiano", periodo: "hoy", desde: null, hasta: null }) })],
   ];
   for (const [nombre, respuesta] of casos) {
     it(nombre, async () => {
@@ -329,6 +332,7 @@ describe("ventas: el ERP calcula, el código suma", () => {
         mediosDePago: DATOS_ERP.mediosDePago.map((m) => ({ ...m })),
         advertencias: DATOS_ERP.advertencias.map((a) => ({ ...a })),
       },
+      noSeparaPor: [],
     });
     const pedido = erp.cuerposA("consultar").find((c) => c.capacidad === "ventas_resumen")!;
     assert.deepEqual(pedido.alcance, { grupoId: 1, localId: 3 });
@@ -421,6 +425,93 @@ describe("ventas: el ERP calcula, el código suma", () => {
     erp.respuestasVentas.push(FIXTURES_ERP.errores.PERIODO_INVALIDO!);
     const periodo = await preguntar(cookie, { pregunta: "¿Cuánto vendió mañana?", localId: 3 });
     assert.equal(periodo.cuerpo.estado, "NO_ENTIENDO", "el futuro lo decide el ERP");
+  });
+});
+
+describe("6B. lo que no se puede separar se dice: la respuesta lleva noSeparaPor", () => {
+  const SABADO = "2026-10-03";
+
+  it("ventas de un local con turno: el total del día del ERP, con noSeparaPor [turno]", async () => {
+    const cookie = await vincular(ADMIN);
+    respuestaIa = () => respuestaGemini({ intencion: "ventas", local: "Casiano", periodo: "rango", desde: SABADO, hasta: SABADO, restriccionesNoSoportadas: ["turno"] });
+    erp.respuestasVentas.push(ventasDe(CASIANO, "2098250.00", [["EFECTIVO", "Efectivo", "2098250.00"]], { tipo: "rango", desde: SABADO, hasta: SABADO }));
+    erp.recibidas.length = 0;
+    const r = await preguntar(cookie, { pregunta: "¿Cuánto vendió el sábado pasado el turno tarde?", localId: CASIANO.id });
+    if (r.cuerpo.estado !== "VENTAS" || r.cuerpo.alcance !== "LOCAL") throw new Error(r.texto);
+    assert.deepEqual(r.cuerpo.noSeparaPor, ["turno"]);
+    assert.equal(r.cuerpo.ventas.totalVendido, "2098250.00");
+    // Se pidió el día completo: el ERP no recibe nada del turno.
+    const pedido = erp.cuerposA("consultar").find((c) => c.capacidad === "ventas_resumen")!;
+    assert.deepEqual(pedido.parametros, { periodo: { tipo: "rango", desde: SABADO, hasta: SABADO } });
+  });
+
+  it("ventas de todos con hora y vendedor: noSeparaPor en el orden del catálogo", async () => {
+    const cookie = await vincular(ADMIN);
+    respuestaIa = () => respuestaGemini({ intencion: "ventas", local: "todos", periodo: "hoy", restriccionesNoSoportadas: ["vendedor", "hora", "vendedor"] });
+    erp.respuestasVentas.push(
+      ventasDe({ id: 5, nombre: "Belgrano" }, "10.00", [["EFECTIVO", "Efectivo", "10.00"]]),
+      ventasDe(CASIANO, "20.00", [["EFECTIVO", "Efectivo", "20.00"]]),
+      ventasDe({ id: 9, nombre: "Depósito Central" }, "0.00", []),
+      ventasDe({ id: 20, nombre: "Centro", grupoId: 2 }, "30.00", [["EFECTIVO", "Efectivo", "30.00"]]),
+    );
+    const r = await preguntar(cookie, { pregunta: "¿Cuánto vendió cada vendedor por hora?" });
+    if (r.cuerpo.estado !== "VENTAS" || r.cuerpo.alcance !== "TODOS") throw new Error(r.texto);
+    assert.deepEqual(r.cuerpo.noSeparaPor, ["hora", "vendedor"]);
+    assert.equal(r.cuerpo.total?.totalVendido, "60.00");
+  });
+
+  it("ventas por medio de pago: sin aviso, el desglose ya lo muestra; con otra más, solo la otra", async () => {
+    const cookie = await vincular(ADMIN);
+    respuestaIa = () => respuestaGemini({ intencion: "ventas", local: "Casiano", periodo: "hoy", restriccionesNoSoportadas: ["medio_de_pago"] });
+    const solo = await preguntar(cookie, { pregunta: "¿Cuánto entró en efectivo?", localId: CASIANO.id });
+    if (solo.cuerpo.estado !== "VENTAS") throw new Error(solo.texto);
+    assert.deepEqual(solo.cuerpo.noSeparaPor, []);
+    respuestaIa = () => respuestaGemini({ intencion: "ventas", local: "Casiano", periodo: "hoy", restriccionesNoSoportadas: ["medio_de_pago", "cliente"] });
+    const mas = await preguntar(cookie, { pregunta: "¿Cuánto pagó en efectivo cada cliente?", localId: CASIANO.id });
+    if (mas.cuerpo.estado !== "VENTAS") throw new Error(mas.texto);
+    assert.deepEqual(mas.cuerpo.noSeparaPor, ["cliente"]);
+  });
+
+  it("eventos con producto (o medio de pago): aviso; sin restricciones, noSeparaPor vacío", async () => {
+    const cookie = await vincular(ADMIN);
+    await fondo();
+    for (const [pedidas, esperado] of [
+      [["producto"], ["producto"]],
+      [["medio_de_pago"], ["medio_de_pago"]],
+      [[], []],
+    ] as const) {
+      respuestaIa = () => respuestaGemini({ intencion: "eventos", tipoEvento: "recibidas", local: "Casiano", periodo: "ayer", restriccionesNoSoportadas: pedidas });
+      const r = await preguntar(cookie, { pregunta: "¿Qué llegó ayer de gaseosas?", localId: CASIANO.id });
+      if (r.cuerpo.estado !== "EVENTOS") throw new Error(r.texto);
+      assert.deepEqual(r.cuerpo.noSeparaPor, esperado);
+    }
+  });
+
+  it("CANDADO: ninguna respuesta de ventas o eventos sale sin noSeparaPor cuando la intención trae una restricción que no separa", async () => {
+    const cookie = await vincular(ADMIN);
+    for (const restriccion of RESTRICCIONES_NO_SOPORTADAS) {
+      for (const intencion of ["ventas", "eventos"] as const) {
+        respuestaIa = () =>
+          respuestaGemini({
+            intencion,
+            tipoEvento: intencion === "eventos" ? "recibidas" : null,
+            local: "Casiano",
+            periodo: "hoy",
+            restriccionesNoSoportadas: [restriccion],
+          });
+        const r = await preguntar(cookie, { pregunta: `¿Y por ${restriccion}?`, localId: CASIANO.id });
+        if (r.cuerpo.estado !== "VENTAS" && r.cuerpo.estado !== "EVENTOS") throw new Error(`${intencion}/${restriccion}: ${r.texto}`);
+        const separaElDesglose = intencion === "ventas" && restriccion === "medio_de_pago";
+        assert.deepEqual(r.cuerpo.noSeparaPor, separaElDesglose ? [] : [restriccion], `${intencion}/${restriccion}`);
+      }
+    }
+  });
+
+  it("a la IA le llega el catálogo cerrado de restricciones, obligatorio", () => {
+    const e = esquemaDeIntencion(["Casiano"]);
+    assert.deepEqual(e.properties.restriccionesNoSoportadas, { type: "ARRAY", items: { type: "STRING", enum: [...RESTRICCIONES_NO_SOPORTADAS] } });
+    assert.ok((e.required as readonly string[]).includes("restriccionesNoSoportadas"));
+    assert.deepEqual([...RESTRICCIONES_NO_SOPORTADAS], ["turno", "hora", "vendedor", "producto", "categoria", "medio_de_pago", "cliente"]);
   });
 });
 

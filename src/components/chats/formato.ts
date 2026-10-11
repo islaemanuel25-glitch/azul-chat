@@ -8,6 +8,7 @@
 // Intl alcanza.
 
 import type { EventoPublico, EventoTransferenciaRecibidaPublico } from "../../shared/chats/api.ts";
+import type { RestriccionNoSoportada } from "../../shared/chats/preguntas.ts";
 
 const IDIOMA = "es-AR";
 
@@ -168,6 +169,35 @@ export function cantidadDeEventos(tipo: "recibidas" | "recibidas_con_diferencias
     case "cancelaciones":
       return n === 0 ? "Ninguna transferencia cancelada" : n === 1 ? "1 transferencia cancelada" : `${nn} transferencias canceladas`;
   }
+}
+
+/** Tanda 6B: cómo se nombra, en el aviso, cada cosa que todavía no se separa. */
+const NOMBRE_DE_RESTRICCION: Readonly<Record<RestriccionNoSoportada, string>> = Object.freeze({
+  turno: "turno",
+  hora: "hora",
+  vendedor: "vendedor",
+  producto: "producto",
+  categoria: "categoría",
+  medio_de_pago: "medio de pago",
+  cliente: "cliente",
+});
+
+/**
+ * Tanda 6B: el aviso fijo de una respuesta que NO separa lo que se pidió.
+ * "Día completo: todavía no puedo separar por turno." Con varias, "turno ni
+ * vendedor", "turno, hora ni vendedor". Un rango de varios días dice "Período
+ * completo". null si no hay nada que avisar. El texto es esta plantilla: nunca
+ * lo escribe la IA.
+ */
+export function avisoNoSepara(
+  periodo: { readonly tipo: "hoy" | "ayer" | "rango"; readonly desde: string; readonly hasta: string },
+  noSeparaPor: readonly RestriccionNoSoportada[],
+): string | null {
+  if (noSeparaPor.length === 0) return null;
+  const nombres = noSeparaPor.map((r) => NOMBRE_DE_RESTRICCION[r]);
+  const lista = nombres.length === 1 ? nombres[0]! : `${nombres.slice(0, -1).join(", ")} ni ${nombres.at(-1)!}`;
+  const completo = periodo.tipo === "rango" && periodo.desde !== periodo.hasta ? "Período completo" : "Día completo";
+  return `${completo}: todavía no puedo separar por ${lista}.`;
 }
 
 /** "1 venta", "347 ventas", "1.234 ventas". */
