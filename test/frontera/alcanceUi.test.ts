@@ -40,9 +40,13 @@ function codigoDeLaInterfaz(): Record<string, string> {
  * Lo que todavía no existe y no se puede ofrecer (ni insinuar, como el viejo texto de "Estados").
  *
  * Tanda 3A: "Ventas de hoy" SALE de esta lista porque existe, y solo eso: el
- * título de la tarjeta, armado en UN lugar (TEXTO_PERMITIDO, abajo). Las
- * acciones de la tarjeta del diseño ("Ver detalle", "Comparar"), los otros
- * chips de la barra y el campo de preguntas siguen sin existir.
+ * título de la tarjeta, armado en UN lugar (TEXTOS_PERMITIDOS, abajo). Las
+ * acciones de la tarjeta del diseño ("Ver detalle", "Comparar") y los otros
+ * chips de la barra siguen sin existir.
+ *
+ * Tanda 6A: existen las preguntas. "Preguntá" (la caja) y "Ventas de ayer" (el
+ * título de una respuesta) se admiten, cada uno en UN archivo
+ * (TEXTOS_PERMITIDOS); en cualquier otro siguen en rojo.
  */
 const TEXTOS_FUERA_DE_ALCANCE = [
   "Ver diferencias",
@@ -66,8 +70,17 @@ const TEXTOS_FUERA_DE_ALCANCE = [
 const CHIPS_NO_IMPLEMENTADOS = ["Caja", "Transferencias", "Pedidos", "Stock"];
 const comoTextoVisible = (t: string) => new RegExp(`["'\`>]\\s*${t}\\s*["'\`<]`);
 
-/** "Ventas de hoy" existe en un solo archivo de la interfaz: el que arma el título de la tarjeta. */
-const TEXTO_PERMITIDO = { texto: "Ventas de hoy", archivo: "src/components/chats/formato.ts" };
+/** Textos que existen, cada uno en un solo archivo de la interfaz. */
+const TEXTOS_PERMITIDOS: readonly { readonly texto: string; readonly archivo: string }[] = [
+  // Tanda 3A: el título de la tarjeta de ventas.
+  { texto: "Ventas de hoy", archivo: "src/components/chats/formato.ts" },
+  // Tanda 6A: el título de una respuesta de ventas de ayer, y la caja de preguntas.
+  { texto: "Ventas de ayer", archivo: "src/components/chats/formato.ts" },
+  { texto: "Preguntá", archivo: "src/components/chats/Preguntas.tsx" },
+];
+const TEXTO_PERMITIDO = TEXTOS_PERMITIDOS[0]!;
+/** Tanda 6A: el único campo de texto de los chats es la caja de preguntas. Uno solo. */
+const CAMPO_DE_PREGUNTAS = "src/components/chats/Preguntas.tsx";
 
 /** Los únicos archivos de la interfaz que hacen HTTP (a rutas propias; lo controla secretoSoloServidor.test.ts). */
 const CLIENTES_HTTP = ["src/components/chats/clienteChats.ts", "src/components/sesion/PanelSesion.tsx", "src/components/push/notificaciones.ts"];
@@ -113,11 +126,20 @@ const TEMPORIZADOR_DE_LA_ESPERA = {
 function problemas(archivos: Record<string, string>): string[] {
   const p: string[] = [];
   for (const [archivo, codigo] of Object.entries(archivos)) {
-    for (const t of TEXTOS_FUERA_DE_ALCANCE) if (codigo.includes(t)) p.push(`${archivo}: "${t}"`);
+    for (const t of TEXTOS_FUERA_DE_ALCANCE) {
+      const permiso = TEXTOS_PERMITIDOS.find((x) => x.texto === t);
+      if (codigo.includes(t) && archivo !== permiso?.archivo) p.push(`${archivo}: "${t}"`);
+    }
     for (const t of CHIPS_NO_IMPLEMENTADOS) if (comoTextoVisible(t).test(codigo)) p.push(`${archivo}: chip "${t}"`);
-    if (codigo.includes(TEXTO_PERMITIDO.texto) && archivo !== TEXTO_PERMITIDO.archivo) p.push(`${archivo}: "${TEXTO_PERMITIDO.texto}" fuera de su lugar`);
-    // El campo de preguntas del diseño: en los chats no hay dónde escribir.
-    if (archivo.startsWith("src/components/chats/") && /<(input|textarea)\b/.test(codigo)) p.push(`${archivo}: campo de texto en los chats`);
+    for (const permiso of TEXTOS_PERMITIDOS) {
+      if (codigo.includes(permiso.texto) && archivo !== permiso.archivo) p.push(`${archivo}: "${permiso.texto}" fuera de su lugar`);
+    }
+    // En los chats se escribe en UN solo lugar: la caja de preguntas (Tanda 6A), con un único <input> y sin <textarea>.
+    if (archivo.startsWith("src/components/chats/")) {
+      const campos = codigo.match(/<(input|textarea)\b/g) ?? [];
+      const laCaja = archivo === CAMPO_DE_PREGUNTAS && campos.length === 1 && campos[0] === "<input";
+      if (campos.length > 0 && !laCaja) p.push(`${archivo}: campo de texto en los chats`);
+    }
     const temporizadores = codigo.match(/\b(setInterval|setTimeout|requestIdleCallback)\b|\brefetchInterval\b|WebSocket|EventSource/g) ?? [];
     const laEspera =
       archivo === TEMPORIZADOR_DE_LA_ESPERA.archivo &&
@@ -189,6 +211,17 @@ describe("alcance de la interfaz de chats", () => {
     const formato = arbol[TEXTO_PERMITIDO.archivo]!;
     assert.ok(formato.includes(TEXTO_PERMITIDO.texto), "el título de la tarjeta está donde el permiso dice");
     assert.notDeepEqual(problemas({ ...arbol, [TEXTO_PERMITIDO.archivo]: `${formato}\nexport const x = "Comparar";\n` }), [], "formato con Comparar");
+    // Tanda 6A: en la caja de preguntas, un segundo campo o un <textarea> siguen en rojo; y lo demás de la lista también.
+    const caja = arbol[CAMPO_DE_PREGUNTAS]!;
+    assert.ok(caja.includes("<input") && caja.includes("Preguntá"), "la caja está donde el permiso dice");
+    for (const [nombre, codigo] of [
+      ["otro campo", `${caja}\nexport const J = () => <input placeholder="y" />;\n`],
+      ["un textarea", `${caja}\nexport const T = () => <textarea />;\n`],
+      ["un chip de más", `${caja}\nexport const K = () => <button className="ac-chip">Stock</button>;\n`],
+      ["texto prohibido", `${caja}\nconst s = "Saldo asignado";\n`],
+    ] as const) {
+      assert.notDeepEqual(problemas({ ...arbol, [CAMPO_DE_PREGUNTAS]: codigo }), [], nombre);
+    }
     // Un texto que solo CONTIENE el nombre de un chip no es el chip: "Transferencia #182 recibida" sigue bien.
     assert.deepEqual(problemas({ ...arbol, "src/components/chats/Conversacion.tsx": `${conversacion}\nconst ok = "Transferencias recibidas hoy";\n` }), []);
     // En prosa no cuenta: el código se mira sin comentarios.

@@ -12,6 +12,8 @@ import { leerConfigAzulChat, type ConfigAzulChat, type MotivoConfigAzulChat } fr
 import { obtenerDb, type Db } from "../db.ts";
 import { crearClienteErp, type ClienteErp } from "../erp/cliente.ts";
 import { crearLimitador, type Limitador } from "../http/limitador.ts";
+import { leerConfigIa, type ConfigIa } from "../ia/config.ts";
+import type { DependenciasIa } from "../ia/gemini.ts";
 import { registrarEnConsola, type Registrador } from "../log.ts";
 
 export type DependenciasSesion = {
@@ -22,10 +24,22 @@ export type DependenciasSesion = {
   readonly ahora: () => number;
   readonly registrar: Registrador;
   readonly generarRequestId: () => string;
+  /**
+   * Tanda 6A: la IA que interpreta preguntas. Sin ella (o sin el campo, como
+   * en los tests que no la usan) no hay preguntas: la caja no se muestra.
+   */
+  readonly ia?: { ok: true; config: ConfigIa } | { ok: false };
+  /** Tanda 6A: el transporte hacia la IA. En los tests, uno de mentira; nunca la API real. */
+  readonly transporteIa?: DependenciasIa["transporte"];
 };
 
 /** Uno por proceso: es el cupo de la vinculación (ver http/limitador.ts). */
 const limitadorDelProceso = crearLimitador();
+
+function iaDeProduccion(): { ok: true; config: ConfigIa } | { ok: false } {
+  const ia = leerConfigIa();
+  return ia.ok ? ia : { ok: false };
+}
 
 export function dependenciasDeProduccion(): DependenciasSesion {
   return {
@@ -36,5 +50,6 @@ export function dependenciasDeProduccion(): DependenciasSesion {
     ahora: Date.now,
     registrar: registrarEnConsola,
     generarRequestId: randomUUID,
+    ia: iaDeProduccion(),
   };
 }

@@ -29,6 +29,8 @@ const CANARIOS = {
   // Tanda 5A: la privada VAPID y el secreto de la tarea de sincronización.
   AZUL_CHAT_VAPID_PRIVADA: randomBytes(32).toString("base64url"),
   AZUL_CHAT_TAREA_SECRET: canario(),
+  // Tanda 6A: la clave de la IA.
+  AZUL_CHAT_GEMINI_API_KEY: `AIza${randomBytes(24).toString("hex")}`,
 };
 
 const build = spawnSync("npx", ["next", "build"], {

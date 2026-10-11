@@ -81,6 +81,9 @@ const VARIABLES_APP = [
   "AZUL_CHAT_VAPID_PRIVADA",
   "AZUL_CHAT_VAPID_CONTACTO",
   "AZUL_CHAT_TAREA_SECRET",
+  // Tanda 6A: preguntas en lenguaje natural.
+  "AZUL_CHAT_GEMINI_API_KEY",
+  "AZUL_CHAT_IA_TOPE_USD",
 ];
 
 /** Las violaciones del compose. Vacío = cumple. */
@@ -257,7 +260,7 @@ describe("el CLI de Prisma de la imagen", () => {
 });
 
 describe("los ejemplos de entorno de producción", () => {
-  const SECRETOS = /^(DATABASE_URL|AZUL_CHAT_INTEGRACION_SECRET|AZUL_CHAT_TOKEN_ENCRYPTION_KEY|AZUL_CHAT_INSTALACION_ID|POSTGRES_PASSWORD|AZUL_CHAT_VAPID_PUBLICA|AZUL_CHAT_VAPID_PRIVADA|AZUL_CHAT_TAREA_SECRET)=/;
+  const SECRETOS = /^(DATABASE_URL|AZUL_CHAT_INTEGRACION_SECRET|AZUL_CHAT_TOKEN_ENCRYPTION_KEY|AZUL_CHAT_INSTALACION_ID|POSTGRES_PASSWORD|AZUL_CHAT_VAPID_PUBLICA|AZUL_CHAT_VAPID_PRIVADA|AZUL_CHAT_TAREA_SECRET|AZUL_CHAT_GEMINI_API_KEY)=/;
 
   it("traen las variables, sin ningún valor secreto", () => {
     const app = leer("ops/produccion/app.env.example");

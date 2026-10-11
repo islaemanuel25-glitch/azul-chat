@@ -13,19 +13,29 @@
 // test/ui/clienteChats.test.ts comprueba que coinciden con RUTAS_CHATS.
 
 import type { FallaChats, PedidoLeido, RespuestaChats, RespuestaGeneral, RespuestaLeido, RespuestaLocal, RespuestaVentas } from "../../shared/chats/api.ts";
+import type { PedidoPregunta, RespuestaPregunta } from "../../shared/chats/preguntas.ts";
 
 const RUTA_CHATS = "/api/chats";
 const RUTA_LOCAL = "/api/chats/local";
 const RUTA_GENERAL = "/api/chats/general";
 const RUTA_LEIDO = "/api/chats/leido";
 const RUTA_VENTAS = "/api/chats/ventas";
+/** Tanda 6A: una pregunta en lenguaje natural. */
+const RUTA_PREGUNTAR = "/api/chats/preguntar";
 /** Tanda 3B: el commit que sirve el servidor, para recargar una pestaña que quedó con el JS de otro despliegue. */
 const RUTA_VERSION = "/api/version";
 
 /** Cuánto se espera a /api/version antes de darlo por fallido. Sin temporizadores propios: lo corta el navegador. */
 export const ESPERA_VERSION_MS = 5000;
 
-export const RUTAS_DEL_CLIENTE = Object.freeze({ chats: RUTA_CHATS, local: RUTA_LOCAL, general: RUTA_GENERAL, leido: RUTA_LEIDO, ventas: RUTA_VENTAS });
+export const RUTAS_DEL_CLIENTE = Object.freeze({
+  chats: RUTA_CHATS,
+  local: RUTA_LOCAL,
+  general: RUTA_GENERAL,
+  leido: RUTA_LEIDO,
+  ventas: RUTA_VENTAS,
+  preguntar: RUTA_PREGUNTAR,
+});
 
 const ESTADOS_DE_FALLA: readonly FallaChats["estado"][] = [
   "SIN_SESION",
@@ -95,6 +105,33 @@ export function marcarLeido(pedido: PedidoLeido) {
     () => fetch(RUTA_LEIDO, { ...OPCIONES, method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(pedido) }),
     undefined,
   );
+}
+
+/** Tanda 6A: las respuestas de una pregunta que no son una falla de la API: se muestran como respuesta. */
+export type RespuestaDePregunta = Exclude<RespuestaPregunta, FallaChats>;
+const ESTADOS_DE_PREGUNTA: readonly RespuestaDePregunta["estado"][] = ["VENTAS", "EVENTOS", "NO_ENTIENDO", "SALDO_AGOTADO", "IA_NO_DISPONIBLE"];
+
+/**
+ * POST /api/chats/preguntar (Tanda 6A). Lo que contesta la API —ventas,
+ * eventos, "no entendí", saldo agotado o la IA caída— es la respuesta; las
+ * fallas de siempre (sesión, ERP, cupo) son fallas. Sin reintentos.
+ */
+export async function preguntar(pedido: PedidoPregunta, signal?: AbortSignal): Promise<Resultado<RespuestaDePregunta>> {
+  try {
+    const res = await fetch(RUTA_PREGUNTAR, {
+      ...OPCIONES,
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(pedido),
+      signal: signal ?? null,
+    });
+    const cuerpo = (await res.clone().json().catch(() => null)) as { estado?: unknown } | null;
+    if (ESTADOS_DE_PREGUNTA.some((e) => e === cuerpo?.estado)) return { ok: true, datos: cuerpo as RespuestaDePregunta };
+    const r = await leer<RespuestaChats>(res);
+    return r.ok ? { ok: false, falla: { estado: "SERVICIO_NO_DISPONIBLE" } } : r;
+  } catch {
+    return { ok: false, falla: signal?.aborted ? { estado: "CANCELADA" } : { estado: "RED" } };
+  }
 }
 
 const SHA_COMPLETO = /^[0-9a-f]{40}$/;

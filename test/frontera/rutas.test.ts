@@ -57,6 +57,13 @@ const RUTAS = {
     metodos: ["GET"],
     importa: ["../../../../server/chats/manejadores.ts", "../../../../server/sesion/dependencias.ts"],
   },
+  // Tanda 6A: una pregunta en lenguaje natural. Una acción concreta —la IA solo
+  // elige una intención de un catálogo cerrado; ventas y eventos los arma el
+  // código—, no un pase genérico al ERP ni a la IA. Con sesión y Origin.
+  "src/app/api/chats/preguntar/route.ts": {
+    metodos: ["POST"],
+    importa: ["../../../../server/preguntas/manejador.ts", "../../../../server/sesion/dependencias.ts"],
+  },
   // Tanda 5A: notificaciones push. La clave pública VAPID (no es secreta) y
   // suscribir/dar de baja ESTE dispositivo, con sesión y Origin. Ninguna llama
   // al ERP ni recibe una URL que reenviar: el endpoint de push se valida contra
@@ -120,6 +127,12 @@ describe("las rutas son acciones concretas", () => {
       metodo: { "src/app/api/sesion/vincular/route.ts": `${vincular}\nexport function GET() {}\n` },
       erp: { "src/app/api/sesion/vincular/route.ts": `${vincular}\nconst x = () => fetch("/api/integraciones/azul-chat/consultar");\n` },
       cuerpo: { "src/app/api/sesion/vincular/route.ts": `${vincular}\nconst y = (request: Request) => request.json();\n` },
+      // Tanda 6A: la ruta de preguntas solo delega y solo por POST.
+      preguntarGet: { "src/app/api/chats/preguntar/route.ts": `${arbol["src/app/api/chats/preguntar/route.ts"]}\nexport function GET() {}\n` },
+      preguntarIa: {
+        "src/app/api/chats/preguntar/route.ts": `${arbol["src/app/api/chats/preguntar/route.ts"]}\nconst z = () => fetch("https://generativelanguage.googleapis.com/v1beta/models");\n`,
+      },
+      preguntarOtra: { "src/app/api/chats/preguntar-libre/route.ts": "export async function POST() {}\n" },
     };
     for (const [nombre, cambio] of Object.entries(casos)) {
       assert.notDeepEqual(violacionesDeRutas({ ...arbol, ...cambio }), [], nombre);

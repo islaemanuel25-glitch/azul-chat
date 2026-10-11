@@ -96,7 +96,7 @@ export async function crearBaseDescartable(): Promise<BaseDescartable> {
     url: vacia.url,
     db,
     async vaciar() {
-      await db.$executeRawUnsafe(`TRUNCATE "AvisoLocal", "PushSuscripcion", "LecturaLocal", "Evento", "CursorIngesta", "Sesion", "Vinculo", "Instalacion"`);
+      await db.$executeRawUnsafe(`TRUNCATE "ConsumoIa", "AvisoLocal", "PushSuscripcion", "LecturaLocal", "Evento", "CursorIngesta", "Sesion", "Vinculo", "Instalacion"`);
     },
     async borrar() {
       await db.$disconnect();

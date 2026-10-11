@@ -38,6 +38,12 @@ describe("el secreto solo existe del lado del servidor", () => {
     assert.equal(linea, "AZUL_CHAT_TOKEN_ENCRYPTION_KEY=");
   });
 
+  it("6A. la clave de la IA se lee en un único archivo de src/server, y .env.example no la trae", () => {
+    assert.deepEqual(dondeAparece(/AZUL_CHAT_GEMINI_API_KEY/), ["src/server/ia/config.ts"]);
+    const lineas = readFileSync(path.join(RAIZ, ".env.example"), "utf8").split("\n");
+    assert.equal(lineas.find((l) => l.startsWith("AZUL_CHAT_GEMINI_API_KEY=")), "AZUL_CHAT_GEMINI_API_KEY=");
+  });
+
   it("5A. la privada VAPID y el secreto de la tarea se leen cada uno en un único archivo de src/server, y .env.example no los trae", () => {
     assert.deepEqual(dondeAparece(/AZUL_CHAT_VAPID_PRIVADA/), ["src/server/push/config.ts"]);
     assert.deepEqual(dondeAparece(/AZUL_CHAT_TAREA_SECRET/), ["src/server/interno/tarea.ts"]);
@@ -128,7 +134,12 @@ describe("el cliente ERP no es genérico", () => {
   //     comprobar que el endpoint es de la lista cerrada de servicios
   //     (`endpointPermitido`). Cualquier otro archivo del servidor con `fetch`
   //     sigue en rojo.
-  it("HTTP saliente: al ERP solo desde el cliente firmado, a push solo desde su envío; el navegador solo a /api/sesion, /api/chats, /api/version y /api/push", () => {
+  //
+  // Tanda 6A: la IA que interpreta preguntas (src/server/ia/gemini.ts) hace
+  // UNA llamada, a UN destino fijo: el `generateContent` del modelo, en
+  // generativelanguage.googleapis.com, escrito como constante del archivo. El
+  // navegador llama a `/api/chats/preguntar`, que ya es `/api/chats…`.
+  it("HTTP saliente: al ERP solo desde el cliente firmado, a push solo desde su envío, a la IA solo desde su destino fijo; el navegador solo a /api/sesion, /api/chats, /api/version y /api/push", () => {
     assert.deepEqual(violacionesHttp(codigoDeSrc()), []);
   });
 
@@ -161,6 +172,17 @@ describe("el cliente ERP no es genérico", () => {
     const sinLista = enviar.replace("if (!endpointPermitido(destino.endpoint))", "if (false)");
     assert.notEqual(sinLista, enviar, "el reemplazo del envío push no se aplicó");
     assert.deepEqual(violacionesHttp({ ...base, [ENVIO_PUSH]: sinLista }), [ENVIO_PUSH]);
+    // La IA a otro destino, o una segunda llamada, es rojo.
+    const llamadaIa = base[LLAMADA_IA]!;
+    for (const [nombre, otra] of [
+      ["otro host", llamadaIa.replace(DESTINO_IA, "https://ia.ejemplo.invalid/v1/generate")],
+      ["otro modelo", llamadaIa.replace(DESTINO_IA, DESTINO_IA.replace("gemini-3.6-flash", "gemini-3.1-pro-preview"))],
+      ["destino armado", llamadaIa.replace("hacerFetch(ENDPOINT_IA,", "hacerFetch(`${ENDPOINT_IA}?x=1`,")],
+      ["segunda llamada", `${llamadaIa}\nexport const otra = () => hacerFetch(ENDPOINT_IA, {});\n`],
+    ] as const) {
+      assert.notEqual(otra, llamadaIa, `el reemplazo ${nombre} no se aplicó`);
+      assert.deepEqual(violacionesHttp({ ...base, [LLAMADA_IA]: otra }), [LLAMADA_IA], nombre);
+    }
     // Un fetch nombrado en un comentario no cuenta.
     assert.deepEqual(violacionesHttp({ ...base, "src/components/x/C.tsx": "// fetch('https://x')\nexport const c = 1;\n" }), []);
   });
@@ -198,6 +220,9 @@ function codigoDeSrc(): Record<string, string> {
 const CLIENTE_ERP = "src/server/erp/cliente.ts";
 /** Tanda 5A: el envío a los servicios de push, el otro HTTP saliente del servidor. */
 const ENVIO_PUSH = "src/server/push/enviar.ts";
+/** Tanda 6A: la llamada a la IA, a un destino fijo. */
+const LLAMADA_IA = "src/server/ia/gemini.ts";
+const DESTINO_IA = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent";
 const RUTA_PROPIA = /^\/api\/((sesion|chats)(\/[a-z]+)*|version|push\/(clave|suscribir))$/;
 /** `${CONSTANTE}?${identificador}`: una ruta propia con una consulta (Tanda 2C). */
 const RUTA_CON_CONSULTA = /^`\$\{([A-Za-z_$][\w$]*)\}\?\$\{[A-Za-z_$][\w$]*\}`$/;
@@ -214,6 +239,15 @@ function violacionesHttp(archivos: Record<string, string>): string[] {
       const inyectadas = c.match(/\bhacerFetch\s*\(/g) ?? [];
       const permitido = /if \(!endpointPermitido\(destino\.endpoint\)\) return/.test(c);
       if (directas.length !== 0 || inyectadas.length !== 1 || !/hacerFetch\(armado\.endpoint,/.test(c) || !permitido) malos.push(archivo);
+      continue;
+    }
+    // La IA: un solo fetch, a la constante del destino, que vale exactamente el endpoint del modelo.
+    if (archivo === LLAMADA_IA) {
+      const c = sinComentarios(crudo);
+      const directas = c.match(/(?<![\w-])fetch\s*\(/g) ?? [];
+      const inyectadas = c.match(/\bhacerFetch\s*\(/g) ?? [];
+      const destino = /\bexport const ENDPOINT_IA = "([^"]*)";/.exec(c)?.[1];
+      if (directas.length !== 0 || inyectadas.length !== 1 || !/hacerFetch\(ENDPOINT_IA,/.test(c) || destino !== DESTINO_IA) malos.push(archivo);
       continue;
     }
     const codigo = sinComentarios(crudo);

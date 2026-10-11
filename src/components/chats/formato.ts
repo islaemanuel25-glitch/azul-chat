@@ -129,6 +129,47 @@ export function tituloDeVentas(nombreLocal: string): string {
   return `Ventas de hoy · ${nombreLocal}`;
 }
 
+/** "1/10" desde "2026-10-01": un día de calendario, sin pasar por zonas horarias. */
+function diaCorto(fecha: string): string {
+  const [, mes, dia] = fecha.split("-");
+  return `${Number(dia)}/${Number(mes)}`;
+}
+
+/** Tanda 6A: "hoy", "ayer" o "del 1/10 al 7/10" (un solo día: "el 1/10"). */
+export function etiquetaDePeriodo(p: { readonly tipo: "hoy" | "ayer" | "rango"; readonly desde: string; readonly hasta: string }): string {
+  if (p.tipo === "hoy") return "hoy";
+  if (p.tipo === "ayer") return "ayer";
+  return p.desde === p.hasta ? `el ${diaCorto(p.desde)}` : `del ${diaCorto(p.desde)} al ${diaCorto(p.hasta)}`;
+}
+
+/**
+ * Tanda 6A: el título de una tarjeta de ventas de una pregunta. Hoy, el mismo
+ * de siempre; ayer, "Ventas de ayer · Casiano"; un rango, "Ventas del 1/10 al
+ * 7/10 · Casiano". Todos los locales: "Todos los locales".
+ */
+export function tituloDeVentasDe(p: { readonly tipo: "hoy" | "ayer" | "rango"; readonly desde: string; readonly hasta: string }, nombre: string): string {
+  if (p.tipo === "hoy") return tituloDeVentas(nombre);
+  if (p.tipo === "ayer") return `Ventas de ayer · ${nombre}`;
+  return `Ventas ${etiquetaDePeriodo(p)} · ${nombre}`;
+}
+
+/** Tanda 6A: cuántos eventos de ese tipo, en palabras. */
+export function cantidadDeEventos(tipo: "recibidas" | "recibidas_con_diferencias" | "enviadas" | "pedidos" | "cancelaciones", n: number): string {
+  const nn = n.toLocaleString(IDIOMA);
+  switch (tipo) {
+    case "recibidas":
+      return n === 0 ? "Ninguna transferencia recibida" : n === 1 ? "1 transferencia recibida" : `${nn} transferencias recibidas`;
+    case "recibidas_con_diferencias":
+      return n === 0 ? "Ninguna transferencia recibida con diferencias" : n === 1 ? "1 transferencia recibida con diferencias" : `${nn} transferencias recibidas con diferencias`;
+    case "enviadas":
+      return n === 0 ? "Ninguna transferencia enviada" : n === 1 ? "1 transferencia enviada" : `${nn} transferencias enviadas`;
+    case "pedidos":
+      return n === 0 ? "Ningún pedido solicitado" : n === 1 ? "1 pedido solicitado" : `${nn} pedidos solicitados`;
+    case "cancelaciones":
+      return n === 0 ? "Ninguna transferencia cancelada" : n === 1 ? "1 transferencia cancelada" : `${nn} transferencias canceladas`;
+  }
+}
+
 /** "1 venta", "347 ventas", "1.234 ventas". */
 export function cantidadDeVentas(n: number): string {
   return n === 1 ? "1 venta" : `${n.toLocaleString(IDIOMA)} ventas`;

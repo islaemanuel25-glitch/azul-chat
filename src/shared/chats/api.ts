@@ -137,6 +137,12 @@ export type RespuestaLocal =
        */
       readonly local: { readonly localId: number; readonly nombre: string; readonly esDeposito: boolean; readonly ventas: boolean };
       readonly sincronizacion: EstadoSincronizacion;
+      /**
+       * Tanda 6A: hay preguntas en lenguaje natural (la IA está configurada).
+       * Sin ellas, la caja de preguntas no se muestra. No autoriza nada:
+       * POST /api/chats/preguntar lo vuelve a decidir.
+       */
+      readonly preguntas: boolean;
       readonly noLeidos: number;
       /** Hasta qué evento leyó la persona (id como texto). */
       readonly leidoHasta: string;
@@ -154,6 +160,8 @@ export type RespuestaGeneral =
       readonly noLeidos: number;
       readonly eventos: readonly EventoGeneral[];
       readonly siguiente: string | null;
+      /** Tanda 6A: hay preguntas en lenguaje natural (ver RespuestaLocal). */
+      readonly preguntas: boolean;
       /** Los locales autorizados cuyo estado es DEMORADA (mismo criterio que la lista). */
       readonly localesDemorados: readonly number[];
     }
@@ -197,4 +205,5 @@ export const RUTAS_CHATS = Object.freeze({
   general: "/api/chats/general",
   leido: "/api/chats/leido",
   ventas: "/api/chats/ventas",
+  preguntar: "/api/chats/preguntar",
 });

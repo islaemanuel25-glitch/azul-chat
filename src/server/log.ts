@@ -75,7 +75,21 @@ export type RegistroTarea = {
   readonly consultasErp: number;
 };
 
-export type Registro = RegistroConsultaErp | RegistroVinculacion | RegistroInvalidacion | RegistroFallaLocal | RegistroTarea;
+/**
+ * Tanda 6A: una pregunta que llegó a la IA. Ni la pregunta, ni la respuesta,
+ * ni quién pregunta: el resultado (código cerrado), los tokens y el costo.
+ */
+export type RegistroIa = {
+  readonly evento: "ia.pregunta";
+  /** VENTAS, EVENTOS, NO_ENTIENDO o el código de la falla (HTTP_429, TIEMPO_AGOTADO…). */
+  readonly resultado: string;
+  readonly duracionMs: number;
+  readonly tokensEntrada: number | null;
+  readonly tokensSalida: number | null;
+  readonly costoMicroUsd: number | null;
+};
+
+export type Registro = RegistroConsultaErp | RegistroVinculacion | RegistroInvalidacion | RegistroFallaLocal | RegistroTarea | RegistroIa;
 
 export type Registrador = (registro: Registro) => void;
 

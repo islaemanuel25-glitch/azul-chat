@@ -3,6 +3,8 @@
 // Sin estado y sin red: reciben datos y los dibujan con las clases `ac-*` de
 // src/app/globals.css, que leen los tokens del tema. Ningún color va escrito acá.
 
+import type { ReactNode } from "react";
+
 import type { EventoGeneral, EventoPublico, RespuestaVentas } from "../../shared/chats/api.ts";
 import {
   cantidadDeVentas,
@@ -126,22 +128,54 @@ export function TarjetaEvento({ evento, local, zona }: { evento: EventoPublico |
 // línea por medio de pago; sus acciones ("Ver detalle", "Comparar") NO: no
 // existen todavía (test/frontera/alcanceUi.test.ts).
 
-/** La barra fija de abajo del chat de un Local: UN chip, "Ventas". Mientras consulta, deshabilitado. */
-export function BarraVentas({ cargando, alPedir, enEspera = false }: { cargando: boolean; alPedir: () => void; enEspera?: boolean }) {
+/**
+ * La barra fija de abajo del chat: UN chip, "Ventas" (si el local la anuncia),
+ * y debajo, desde la Tanda 6A, la caja de preguntas (`children`, si hay IA).
+ * Mientras consulta, el chip queda deshabilitado.
+ */
+export function BarraVentas({
+  cargando = false,
+  alPedir,
+  enEspera = false,
+  conVentas = true,
+  etiqueta = "Acciones del local",
+  children,
+}: {
+  cargando?: boolean;
+  alPedir?: () => void;
+  enEspera?: boolean;
+  conVentas?: boolean;
+  etiqueta?: string;
+  children?: ReactNode;
+}) {
   return (
-    <nav className="ac-barra-acciones" aria-label="Acciones del local">
-      <button type="button" className="ac-chip ac-chip--accion" onClick={alPedir} disabled={cargando || enEspera} aria-busy={cargando || undefined}>
-        {cargando ? "Consultando ventas…" : "Ventas"}
-      </button>
+    <nav className={children ? "ac-barra-acciones ac-barra-acciones--con-pregunta" : "ac-barra-acciones"} aria-label={etiqueta}>
+      {conVentas && (
+        <button type="button" className="ac-chip ac-chip--accion" onClick={alPedir} disabled={cargando || enEspera} aria-busy={cargando || undefined}>
+          {cargando ? "Consultando ventas…" : "Ventas"}
+        </button>
+      )}
+      {children}
     </nav>
   );
 }
 
-/** Las ventas de hoy como las dio el ERP. Sin acciones adentro. */
-export function TarjetaVentas({ ventas }: { ventas: Extract<RespuestaVentas, { estado: "OK" }> }) {
+/** Lo que la tarjeta de ventas muestra: lo del ERP, de un local o (Tanda 6A) la suma que hizo el código. */
+type VentasParaTarjeta = Pick<Extract<RespuestaVentas, { estado: "OK" }>, "totalVendido" | "cantidadVentas" | "mediosDePago"> & {
+  readonly local: { readonly nombre: string };
+  readonly advertencias?: Extract<RespuestaVentas, { estado: "OK" }>["advertencias"];
+};
+
+/**
+ * Las ventas como las dio el ERP. Sin acciones adentro. El título es el de
+ * hoy salvo que se diga otro (Tanda 6A: ayer, un rango, todos los locales);
+ * `children` va al final (6A: una línea por local).
+ */
+export function TarjetaVentas({ ventas, titulo, children }: { ventas: VentasParaTarjeta; titulo?: string; children?: ReactNode }) {
+  const t = titulo ?? tituloDeVentas(ventas.local.nombre);
   return (
-    <article className="ac-ventas" aria-label={tituloDeVentas(ventas.local.nombre)}>
-      <p className="ac-ventas__titulo">{tituloDeVentas(ventas.local.nombre)}</p>
+    <article className="ac-ventas" aria-label={t}>
+      <p className="ac-ventas__titulo">{t}</p>
       <p className="ac-ventas__total">{formatearMonto(ventas.totalVendido)}</p>
       <p className="ac-ventas__linea">{cantidadDeVentas(ventas.cantidadVentas)}</p>
       {ventas.mediosDePago.map((m) => (
@@ -149,11 +183,12 @@ export function TarjetaVentas({ ventas }: { ventas: Extract<RespuestaVentas, { e
           {lineaDeMedioDePago(m)}
         </p>
       ))}
-      {ventas.advertencias.map((a) => (
+      {(ventas.advertencias ?? []).map((a) => (
         <p key={a.codigo} className="ac-ventas__advertencia">
           {a.mensaje}
         </p>
       ))}
+      {children}
     </article>
   );
 }

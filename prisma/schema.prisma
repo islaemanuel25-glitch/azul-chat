@@ -231,3 +231,20 @@ model AvisoLocal {
 
   @@id([vinculoId, erpLocalId])
 }
+
+/// Tanda 6A: LO QUE SE GASTÓ EN LA IA QUE INTERPRETA PREGUNTAS, por mes
+/// calendario de Argentina ("AAAA-MM"). Una fila por mes. Antes de llamar al
+/// modelo se RESERVA el costo máximo de una pregunta con un UPDATE condicionado
+/// a no pasar el tope (ia/consumo.ts); después se ajusta al uso real. Así dos
+/// preguntas a la vez no pasan el tope entre las dos.
+model ConsumoIa {
+  mes           String   @id
+  tokensEntrada BigInt   @default(0)
+  /// Salida, con los tokens de razonamiento: Google los cobra como salida.
+  tokensSalida  BigInt   @default(0)
+  /// Millonésimas de dólar: lo reservado más lo ajustado. Entero, sin redondeos de coma flotante.
+  costoMicroUsd BigInt   @default(0)
+  /// Preguntas que llegaron al modelo (las que pasaron la reserva).
+  preguntas     Int      @default(0)
+  actualizadoEn DateTime @default(now()) @updatedAt
+}
