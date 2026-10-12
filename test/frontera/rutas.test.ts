@@ -125,6 +125,10 @@ const RUTAS = {
   // no la llama lo fija secretoSoloServidor.test.ts; que sin secreto, por nginx
   // o desde el navegador no anda, test/db/interno.test.ts.
   "src/app/api/interno/sincronizar/route.ts": { metodos: ["GET", "POST"], importa: ["../../../../server/interno/sincronizar.ts"] },
+  // Tanda 12: el vigía de la sincronización. Tampoco es del navegador: la
+  // misma puerta que sincronizar (secreto, 127.0.0.1, sin nginx; si no, 404,
+  // también por GET). No llama al ERP. Lo prueba test/db/vigia.test.ts.
+  "src/app/api/interno/vigia/route.ts": { metodos: ["GET", "POST"], importa: ["../../../../server/interno/vigia.ts"] },
 };
 
 const METODOS_HTTP = /\bexport\s+(?:async\s+)?function\s+(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\b|\bexport\s+const\s+(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\b/g;
@@ -225,6 +229,11 @@ describe("las rutas son acciones concretas", () => {
       otrasPost: { "src/app/api/sesion/otras/route.ts": `${arbol["src/app/api/sesion/otras/route.ts"]}\nexport function POST() {}\n` },
       otrasErp: { "src/app/api/sesion/otras/route.ts": `${arbol["src/app/api/sesion/otras/route.ts"]}\nconst e2 = () => fetch("/api/integraciones/azul-chat/consultar");\n` },
       otraPorSegmento: { "src/app/api/sesion/otras/[sesionId]/route.ts": "export async function DELETE() {}\n" },
+      // Tanda 12: el vigía solo delega en su manejador, sin leer el cuerpo ni llamar al ERP; y no hay otra interna al lado.
+      vigiaPut: { "src/app/api/interno/vigia/route.ts": `${arbol["src/app/api/interno/vigia/route.ts"]}\nexport function PUT() {}\n` },
+      vigiaErp: { "src/app/api/interno/vigia/route.ts": `${arbol["src/app/api/interno/vigia/route.ts"]}\nconst v = () => fetch("/api/integraciones/azul-chat/consultar");\n` },
+      vigiaCuerpo: { "src/app/api/interno/vigia/route.ts": `${arbol["src/app/api/interno/vigia/route.ts"]}\nconst c2 = (request: Request) => request.text();\n` },
+      otraInterna: { "src/app/api/interno/avisar/route.ts": "export async function POST() {}\n" },
     };
     for (const [nombre, cambio] of Object.entries(casos)) {
       assert.notDeepEqual(violacionesDeRutas({ ...arbol, ...cambio }), [], nombre);

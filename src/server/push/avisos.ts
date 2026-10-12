@@ -150,11 +150,26 @@ export async function avisarNovedades(
     const titulos = await novedadesDeLocal(db, vinculoId, local);
     if (titulos.length > 0) avisos.push(avisoDeLocal(local, titulos));
   }
+  if (avisos.length === 0 || !envio) return { avisos: avisos.length, enviados: 0, fallidos: 0, borradas: 0 };
+  return { avisos: avisos.length, ...(await enviarAVinculo(db, vinculoId, avisos, envio, ahora)) };
+}
+
+/**
+ * Manda esos avisos a cada dispositivo de la persona con una sesión vigente,
+ * anota el envío o el error en la suscripción y BORRA las que el servicio de
+ * push dio por vencidas (404/410). Lo usan los avisos de novedades y, desde la
+ * Tanda 12, los avisos del sistema (interno/vigia.ts). Sin reintentos.
+ */
+export async function enviarAVinculo(
+  db: Db,
+  vinculoId: string,
+  avisos: readonly Aviso[],
+  envio: DependenciasEnvio,
+  ahora: Date,
+): Promise<{ enviados: number; fallidos: number; borradas: number; dispositivos: number }> {
   let enviados = 0;
   let fallidos = 0;
   let borradas = 0;
-  if (avisos.length === 0 || !envio) return { avisos: avisos.length, enviados, fallidos, borradas };
-
   // Solo los dispositivos con una sesión que sigue valiendo: cerrar sesión corta sus avisos.
   const suscripciones = await db.pushSuscripcion.findMany({
     where: { vinculoId, sesion: { revocadaEn: null, expiraEn: { gt: ahora } } },
@@ -178,7 +193,7 @@ export async function avisarNovedades(
       }
     }
   }
-  return { avisos: avisos.length, enviados, fallidos, borradas };
+  return { enviados, fallidos, borradas, dispositivos: suscripciones.length };
 }
 
 /** Las suscripciones cuya sesión ya no vale (cerrada o vencida) no van a recibir nada nunca: se borran. */

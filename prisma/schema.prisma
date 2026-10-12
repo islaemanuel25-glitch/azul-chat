@@ -283,3 +283,33 @@ model Pregunta {
   @@index([vinculoId, erpLocalId, creadaEn(sort: Desc), id(sort: Desc)])
   @@index([creadaEn])
 }
+
+/// Tanda 12: LA SALUD DE LA SINCRONIZACIÓN DE FONDO, Y EL INCIDENTE SI SE CAE.
+/// UNA sola fila (`unica`, siempre true): NO es una fila por corrida. Cada
+/// corrida de POST /api/interno/sincronizar anota su resultado acá —el último
+/// éxito, la última falla con un motivo corto (un código cerrado, sin
+/// secretos ni datos de negocio) y cuántas fallas van seguidas—, y el vigía
+/// (POST /api/interno/vigia, cada 5 minutos) decide con esto si hay un
+/// incidente y a quién avisar, una sola vez al abrirlo y una al cerrarlo
+/// (src/server/interno/vigia.ts). Que el estado del incidente esté en la base
+/// es lo que evita repetir el aviso aunque la app se reinicie.
+model SaludSincronizacion {
+  unica                  Boolean   @id @default(true)
+  ultimoExitoEn          DateTime?
+  ultimaFallaEn          DateTime?
+  /// Código cerrado: ERP_NO_DISPONIBLE, ERP_CUPO_EXCEDIDO o BASE (CHECK).
+  ultimaFallaMotivo      String?
+  fallasSeguidas         Int       @default(0)
+  /// La primera vez que el vigía miró y no había ninguna corrida registrada:
+  /// desde ahí cuentan los 10 minutos de una base recién migrada.
+  vigiaDesdeEn           DateTime?
+  /// El incidente abierto: desde cuándo no se actualiza y por qué. Null: no hay.
+  incidenteDesde         DateTime?
+  /// ERP_NO_DISPONIBLE, ERP_CUPO_EXCEDIDO, BASE o SIN_CORRIDAS (CHECK).
+  incidenteMotivo        String?
+  /// Las personas (erpUsuarioId) a las que ya se les avisó que se abrió.
+  avisadosApertura       Int[]     @default([])
+  /// Las personas a las que todavía hay que avisarles que volvió (estaban en silencio al cerrarse).
+  pendientesRecuperacion Int[]     @default([])
+  actualizadoEn          DateTime  @default(now()) @updatedAt
+}

@@ -1,0 +1,27 @@
+# Vigía de la sincronización de Azul Chat (Tanda 12): si la sincronización de
+# fondo deja de andar, un push a las personas de AZUL_CHAT_AVISOS_SISTEMA, y
+# otro cuando vuelve. Unidad de USUARIO de systemd (~/.config/systemd/user/),
+# con linger: corre aunque nadie tenga sesión. Instalación y comandos:
+# docs/DEPLOY.md, sección "Vigía de la sincronización".
+#
+# El script hace UN POST a 127.0.0.1:3100/api/interno/vigia con el secreto de
+# la tarea (el mismo de la sincronización), que lee de
+# ~/.config/azul-chat/tarea.secreto (600). El secreto no va en esta unidad ni
+# en el repo.
+#
+# La salida va al journal: journalctl --user -u azul-chat-vigia
+# (código HTTP y el estado del incidente; nunca el secreto).
+
+[Unit]
+Description=Vigía de la sincronización de Azul Chat
+Documentation=file:///srv/produccion/azul-chat/docs/DEPLOY.md
+
+[Service]
+Type=oneshot
+ExecStart=/srv/produccion/azul-chat/ops/vigia/vigia-azul-chat.sh
+WorkingDirectory=/srv/produccion/azul-chat
+StandardOutput=journal
+StandardError=journal
+# Una corrida no puede pisar a la siguiente: el timer no arranca otra mientras esta sigue.
+TimeoutStartSec=90
+Nice=10
