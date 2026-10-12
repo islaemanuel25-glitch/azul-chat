@@ -32,8 +32,13 @@ DIR="${AZUL_CHAT_BACKUP_DIR:-/srv/produccion/backups-azul-chat}"
 CONTENEDOR="${AZUL_CHAT_DB_CONTENEDOR:-azul-chat-db}"
 RETENER="${AZUL_CHAT_BACKUP_RETENER:-30}"
 
-# Las tres tablas de la migración, más la de control de Prisma.
-TABLAS_MINIMAS=4
+# CUÁNTAS TABLAS TIENE QUE TRAER UN DUMP SANO: un `CREATE TABLE` por cada
+# `model` de prisma/schema.prisma, más `_prisma_migrations`. Hoy son 12 + 1 = 13
+# (Tanda 16; antes era 4, y un dump al que le faltaban casi todas las tablas
+# pasaba como bueno y rotaba a uno que sí servía). AL AGREGAR UNA TABLA, SUBIR
+# ESTE NÚMERO en el mismo PR: test/frontera/produccion.test.ts se pone rojo si
+# no coincide con el schema. Es un mínimo: con una tabla de más el dump pasa.
+TABLAS_MINIMAS=13
 
 log() { printf '%s backup-azul-chat: %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >&2; }
 

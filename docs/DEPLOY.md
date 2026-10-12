@@ -445,18 +445,35 @@ test "$(curl -fsS http://127.0.0.1:3100/api/version | sed -n 's/.*"commit":"\([0
 printf '%s %s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$OBJETIVO" "$(docker image inspect "$IMAGEN" --format '{{index .RepoDigests 0}}')" >> despliegues.log
 ```
 
-Si `/api/salud` contesta 503, el cuerpo dice qué falló (`configuracion`, `base`
-o `esquema`) sin decir por qué. Las causas habituales son:
+Si `/api/salud` contesta 503, el cuerpo dice qué falló (`configuracion`,
+`base`, `esquema` o `migraciones_pendientes`) sin decir por qué. Las causas
+habituales son:
 - `configuracion`: una variable de `app.env` falta o está mal;
 - `base`: `DATABASE_URL` no coincide con `db.env`;
 - `esquema`: faltan las tablas de la PRIMERA migración (base vacía, faltó el
-  paso 3 en el primer despliegue).
+  paso 3 en el primer despliegue);
+- `migraciones_pendientes` (Tanda 16): a la base le falta la ÚLTIMA migración
+  que trae la imagen, o hay una empezada y sin terminar (el paso 3 se salteó o
+  falló). El detalle —cuál esperaba la imagen, cuál es la última aplicada y
+  cuántas quedaron a medias— no va en la respuesta: va al log del contenedor,
+  `docker logs azul-chat-app 2>&1 | grep salud.migraciones_pendientes`.
 
-**`/api/salud` en 200 no prueba que estén todas las migraciones**: el chequeo de
-`esquema` mira solo `Instalacion`, `Vinculo` y `Sesion`. Si el paso 3 se salteó
-o falló sin que se viera, el contenedor queda `healthy` y las rutas fallan al
-usar una tabla o columna nueva. Lo que lo comprueba es comparar la última
-migración aplicada con la última del checkout (que está en `OBJETIVO`):
+**Desde la Tanda 16 `/api/salud` mira las migraciones.** La imagen sabe cuál es
+su última migración (la última carpeta de `prisma/migrations`, que viaja en la
+imagen; se lee una vez al arrancar, no en cada pedido) y la salud exige que
+esté aplicada y terminada en `_prisma_migrations`, sin ninguna a medias. El
+healthcheck de Docker usa esta misma ruta: un contenedor que arranca con
+migraciones pendientes queda **`unhealthy`** (el comando del healthcheck sale
+con 1 ante un 503 y, tras 3 fallas seguidas, Docker lo marca así; el comando
+está probado en `test/frontera/produccion.test.ts`). El orden del despliegue
+no cambia: migrar primero (paso 3) y recrear después (paso 4); con ese orden el
+`until ... healthy` del paso 4 termina como siempre. Si se recrea sin migrar, el
+`until` no termina: es la señal.
+
+Que la base tenga una migración MÁS NUEVA que la imagen no es falla: es lo que
+pasa en un rollback a la imagen anterior sin restaurar la base.
+
+La comprobación a mano sigue sirviendo para verlo con los ojos:
 
 ```sh
 docker exec azul-chat-db sh -c 'psql -At -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT max(migration_name) FROM _prisma_migrations WHERE finished_at IS NOT NULL"'
@@ -628,9 +645,11 @@ afectado en ningún caso.
 - saca `pg_dump` del contenedor `azul-chat-db`, comprimido, a
   `/srv/produccion/backups-azul-chat/azul-chat-AAAAMMDD_HHMMSS.sql.gz`;
 - **verifica antes de rotar**: el `gzip` íntegro, la marca de fin de `pg_dump` y
-  al menos cuatro `CREATE TABLE` (`TABLAS_MINIMAS`, de cuando había tres tablas;
-  hoy el esquema tiene doce más `_prisma_migrations`, así que un dump con menos
-  de trece está incompleto aunque el script lo acepte);
+  al menos trece `CREATE TABLE` (`TABLAS_MINIMAS`, Tanda 16: los doce `model`
+  del schema más `_prisma_migrations`; antes eran cuatro y un dump incompleto
+  pasaba). **Al agregar una tabla hay que subir esa constante en el mismo PR**:
+  `test/frontera/produccion.test.ts` se pone rojo si no coincide con el schema,
+  y `test/db/backup.test.ts` corre el script contra un `pg_dump` real;
 - conserva los últimos 30 (`AZUL_CHAT_BACKUP_RETENER`);
 - si algo falla, borra el archivo parcial, sale con error y no rota;
 - no pisa un backup existente;
@@ -783,13 +802,13 @@ curl -fsS http://127.0.0.1:3100/api/salud      # {"ok":true,...}
 systemctl --user start azul-chat-sincronizar.timer azul-chat-vigia.timer azul-chat-backup.timer
 ```
 
-**Por qué el paso 4 no es opcional, y por qué el 5 mira la base y no
-`/api/salud`.** Un backup sacado ANTES de las últimas migraciones trae el
-esquema de ese día, y la imagen que corre espera el de hoy. `/api/salud` NO lo
-detecta: su chequeo de `esquema` mira solo las tres tablas de la primera
-migración (`Instalacion`, `Vinculo`, `Sesion`; `src/server/salud.ts`). Con un
-backup anterior a la Tanda 15, por ejemplo, el contenedor queda `healthy` y
-cada pedido de la app falla al buscar `AccesoPersona`. `migrate deploy` aplica
+**Por qué el paso 4 no es opcional.** Un backup sacado ANTES de las últimas
+migraciones trae el esquema de ese día, y la imagen que corre espera el de hoy.
+Hasta la Tanda 15 `/api/salud` no lo detectaba (miraba solo las tres tablas de
+la primera migración) y el contenedor quedaba `healthy` con cada pedido
+fallando. Desde la Tanda 16 la salud contesta 503 `migraciones_pendientes` y
+el contenedor no llega a `healthy`; el paso 5 sigue mirando la base directo
+porque dice CUÁL falta sin ir al log. `migrate deploy` aplica
 únicamente las migraciones que el backup no tiene, en orden, y no toca las que
 ya están (ejercido el 2026-10-12 contra PostgreSQL 16 local: un backup con 8
 migraciones restaurado en una base aparte, y `migrate deploy` aplicó solo

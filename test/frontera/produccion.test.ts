@@ -531,3 +531,66 @@ describe("las unidades de systemd del vigía", () => {
     }
   });
 });
+
+// Tanda 16: el healthcheck de la app es el comando EXACTO del compose resuelto,
+// corrido contra un servidor que contesta como /api/salud. Con 503 (por ejemplo
+// migraciones_pendientes) sale con 1, y Docker deja el contenedor "unhealthy"
+// después de `retries` fallas seguidas. El demonio de Docker no está en la CI de
+// frontera: lo que se prueba acá es que el comando falla con un 503.
+describe("el healthcheck de la app", () => {
+  const app = composeResuelto().services["azul-chat-app"]!;
+  const prueba = app.healthcheck?.test ?? [];
+
+  /** Corre ese healthcheck con /api/salud contestando `status` en 127.0.0.1:3000; devuelve el código de salida. */
+  async function correrHealthcheck(test: readonly string[], status: number): Promise<number> {
+    const { createServer } = await import("node:http");
+    const { spawn } = await import("node:child_process");
+    const servidor = createServer((req, res) => {
+      res.writeHead(req.url === "/api/salud" ? status : 404, { "content-type": "application/json" });
+      res.end(JSON.stringify(status === 200 ? { ok: true, servicio: "azul-chat" } : { ok: false, servicio: "azul-chat", fallas: ["migraciones_pendientes"] }));
+    });
+    await new Promise<void>((ok, mal) => servidor.once("error", mal).listen(3000, "127.0.0.1", () => ok()));
+    try {
+      assert.equal(test[0], "CMD");
+      const [comando, ...args] = test.slice(1);
+      return await new Promise<number>((ok) => spawn(comando!, args, { stdio: "ignore" }).on("exit", (c) => ok(c ?? -1)));
+    } finally {
+      await new Promise((ok) => servidor.close(ok));
+    }
+  }
+
+  it("16. con /api/salud en 503 el comando falla; en 200, pasa", async () => {
+    assert.equal(await correrHealthcheck(prueba, 503), 1);
+    assert.equal(await correrHealthcheck(prueba, 200), 0);
+  });
+
+  it("CONTRAPRUEBA: un healthcheck que no mira el status pasa con 503, y este candado lo ve", async () => {
+    const roto = prueba.map((p) => p.replace("r.ok?0:1", "0"));
+    assert.notDeepEqual(roto, prueba, "el reemplazo no se aplicó");
+    assert.equal(await correrHealthcheck(roto, 503), 0);
+  });
+});
+
+// Tanda 16: el mínimo de tablas del backup es UNA constante, y tiene que ser
+// la cuenta del schema (un `model` por tabla, más `_prisma_migrations`). Al
+// agregar una tabla sin subirla, esto se pone rojo. Que el número coincide con
+// un dump real lo prueba test/db/backup.test.ts.
+describe("el mínimo de tablas del backup", () => {
+  const tablasDelSchema = (schema: string) => [...schema.matchAll(/^model \w+ \{/gm)].length + 1;
+  const minimasDelScript = (script: string) => [...script.matchAll(/^TABLAS_MINIMAS=(\d+)$/gm)].map((m) => Number(m[1]));
+  const schema = leer("prisma/schema.prisma");
+  const script = leer(SCRIPT_BACKUP);
+
+  it("16. es una sola constante e igual a las tablas del schema más _prisma_migrations", () => {
+    assert.deepEqual(minimasDelScript(script), [tablasDelSchema(schema)]);
+    assert.equal(tablasDelSchema(schema), 13);
+    assert.match(script, /if \[ "\$TABLAS" -lt "\$TABLAS_MINIMAS" \]; then/);
+  });
+
+  it("CONTRAPRUEBA: una tabla nueva sin subir el número, o el número de antes, se ve", () => {
+    const conTablaNueva = `${schema}\nmodel Nueva {\n  id Int @id\n}\n`;
+    assert.notDeepEqual(minimasDelScript(script), [tablasDelSchema(conTablaNueva)]);
+    const deAntes = script.replace(/^TABLAS_MINIMAS=\d+$/m, "TABLAS_MINIMAS=4");
+    assert.notDeepEqual(minimasDelScript(deAntes), [tablasDelSchema(schema)]);
+  });
+});
