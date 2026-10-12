@@ -23,8 +23,11 @@
 // Desde la Tanda 5B es la ÚNICA que ingiere: abrir la app ya no trae nada del
 // ERP, solo pide `mi_alcance` para autorizar y lee la base.
 //
-// EL CUPO DEL ERP (30 consultas por persona por minuto, ventana fija), que la
-// app abierta comparte con esta corrida:
+// EL CUPO DEL ERP, que la app abierta comparte con esta corrida. El ERP admite
+// 120 consultas por persona y 240 por aplicación en una ventana fija de 60 s
+// (erpmanual, lib/integraciones/azul-chat/limitador.js). Azul Chat igual
+// presupuesta como si fueran 30 por persona (CUPO_ERP_POR_PERSONA), a propósito:
+// es el cálculo conservador de cuando el cupo era ese, y no se cambió.
 //
 //   · PRESUPUESTO: por persona, la corrida gasta como mucho 18 consultas
 //     (`mi_alcance` + páginas) y le deja 12 a la app (chats/sincronizacion.ts,
