@@ -96,6 +96,11 @@ const TEXTOS_PERMITIDOS: readonly { readonly texto: string; readonly archivo: st
   // Tanda 6A: el título de una respuesta de ventas de ayer, y la caja de preguntas.
   { texto: "Ventas de ayer", archivo: "src/components/chats/formato.ts" },
   { texto: "Preguntá", archivo: "src/components/chats/Preguntas.tsx" },
+  // Tanda 11: de la pantalla 06 existen el horario de silencio y la sección de
+  // IA (con lo gastado del mes, no "Saldo asignado"), en el archivo de la
+  // configuración. "Privacidad del push" y "Sonidos y vibración" siguen sin existir.
+  { texto: "Horario de silencio", archivo: "src/components/sesion/Configuracion.tsx" },
+  { texto: "Inteligencia artificial", archivo: "src/components/sesion/Configuracion.tsx" },
 ];
 const TEXTO_PERMITIDO = TEXTOS_PERMITIDOS[0]!;
 /** Tanda 6A: el único campo de texto de los chats es la caja de preguntas. Uno solo. */
@@ -105,7 +110,13 @@ const CAMPO_DE_BUSCAR = "src/components/chats/Buscar.tsx";
 const CAMPOS_DE_TEXTO: readonly string[] = [CAMPO_DE_PREGUNTAS, CAMPO_DE_BUSCAR];
 
 /** Los únicos archivos de la interfaz que hacen HTTP (a rutas propias; lo controla secretoSoloServidor.test.ts). */
-const CLIENTES_HTTP = ["src/components/chats/clienteChats.ts", "src/components/sesion/PanelSesion.tsx", "src/components/push/notificaciones.ts"];
+const CLIENTES_HTTP = [
+  "src/components/chats/clienteChats.ts",
+  "src/components/sesion/PanelSesion.tsx",
+  "src/components/push/notificaciones.ts",
+  // Tanda 11: las rutas de configuración (silencio, IA, dispositivos), solo propias.
+  "src/components/sesion/clienteConfiguracion.ts",
+];
 
 /**
  * Tanda 5A: el service worker y la Push API se tocan en UN solo archivo, el
@@ -270,6 +281,24 @@ describe("alcance de la interfaz de chats", () => {
       "chip Pendientes en la tarjeta",
     );
     assert.notDeepEqual(problemas({ ...arbol, "src/components/chats/Pendientes.tsx": `${pendientes}\nexport const V = () => <button>Ver detalle</button>;\n` }), [], "Ver detalle en la tarjeta de pendientes");
+    // Tanda 11: la configuración tiene el horario de silencio y la IA; ahí mismo, lo que el diseño trae y no
+    // existe ("Privacidad del push", "Sonidos y vibración", "Saldo asignado") sigue en rojo, y su cliente HTTP
+    // no puede llamar fuera de las rutas propias.
+    const configuracion = arbol["src/components/sesion/Configuracion.tsx"]!;
+    assert.ok(configuracion.includes("Horario de silencio") && configuracion.includes("Inteligencia artificial"), "la configuración está donde el permiso dice");
+    for (const [nombre, codigo] of [
+      ["privacidad del push", `${configuracion}\nconst p2 = "Privacidad del push";\n`],
+      ["sonidos y vibración", `${configuracion}\nconst s2 = "Sonidos y vibración";\n`],
+      ["saldo asignado", `${configuracion}\nconst s3 = "Saldo asignado";\n`],
+      ["fetch en la vista", `${configuracion}\nvoid fetch("/api/sesion/configuracion");\n`],
+    ] as const) {
+      assert.notDeepEqual(problemas({ ...arbol, "src/components/sesion/Configuracion.tsx": codigo }), [], nombre);
+    }
+    assert.notDeepEqual(
+      problemas({ ...arbol, "src/components/push/FilaNotificaciones.tsx": `${arbol["src/components/push/FilaNotificaciones.tsx"]!}\nconst h2 = "Horario de silencio";\n` }),
+      [],
+      "el horario fuera de la configuración",
+    );
     // Tanda 10: Buscar tiene SU campo y sus pills "Transferencias" y "Pedidos"; ahí mismo, un segundo campo, un
     // textarea, las pills del diseño que no existen ("Caja") o "Abrir en ERP" siguen en rojo, y esas pills fuera de Buscar también.
     const buscar = arbol[CAMPO_DE_BUSCAR]!;

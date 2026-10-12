@@ -422,6 +422,16 @@ describe("6E. la versión de la página se ve al pie del panel ☰", () => {
     assert.match(azul, /<PanelSesion [^>]*commit=\{commit\}/);
     assert.match(azul, /crearComprobadorDeVersion\(\{ propia: commit,/, "la recarga compara contra ese mismo commit");
     const panel = leer("src/components/sesion/PanelSesion.tsx");
-    assert.match(panel, /Cerrar sesión\s*<\/button>\s*<\/div>\s*\{mensaje && <p className="ac-mensaje">\{mensaje\}<\/p>\}\s*<VersionDeLaPagina commit=\{commit\} \/>/);
+    // Tanda 11: "Cerrar sesión" pasó a la sección Sesiones de la configuración (Configuracion.tsx), que va
+    // entera antes de la versión: la versión sigue al pie, después de todos los botones.
+    const alPie = /<SeccionesDeConfiguracion [^\n]*\/>\s*\{mensaje && <p className="ac-mensaje">\{mensaje\}<\/p>\}\s*<VersionDeLaPagina commit=\{commit\} \/>\s*<\/section>/;
+    assert.match(panel, alPie);
+    // CONTRAPRUEBA: la versión arriba de la configuración ya no está al pie.
+    const arriba = panel.replace(
+      /(<SeccionesDeConfiguracion [^\n]*\/>)(\s*\{mensaje && <p className="ac-mensaje">\{mensaje\}<\/p>\}\s*)(<VersionDeLaPagina commit=\{commit\} \/>)/,
+      "$3$2$1",
+    );
+    assert.notEqual(arriba, panel);
+    assert.doesNotMatch(arriba, alPie);
   });
 });

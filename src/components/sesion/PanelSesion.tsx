@@ -18,13 +18,18 @@
 // a los chats con la sesión abierta, y `motivo` trae el aviso de un vínculo que
 // el ERP invalidó mientras se usaban los chats (la cookie ya se borró, así que
 // GET /api/sesion no lo puede decir).
+//
+// Tanda 11: con sesión, debajo de los locales va la configuración
+// (Configuracion.tsx: notificaciones reales, horario de silencio, IA y
+// sesiones), y "Cerrar sesión" pide una confirmación propia de la app antes
+// de cerrar. La versión sigue al pie.
 
 import { useEffect, useState, type FormEvent } from "react";
 
 import type { EstadoSesion, RespuestaCerrar, RespuestaVincular } from "../../shared/sesion/api.ts";
 import { SHA_COMPLETO } from "../../shared/version/cabecera.ts";
-import { FilaNotificaciones } from "../push/FilaNotificaciones.tsx";
 import { anotarCommitDe } from "../chats/version.ts";
+import { Confirmacion, PREGUNTA_CERRAR_SESION, SeccionesDeConfiguracion } from "./Configuracion.tsx";
 
 const RUTA_SESION = "/api/sesion";
 const RUTA_VINCULAR = "/api/sesion/vincular";
@@ -64,6 +69,8 @@ export function PanelSesion({
   const [codigo, setCodigo] = useState("");
   const [trabajando, setTrabajando] = useState(false);
   const [mensaje, setMensaje] = useState("");
+  /** Tanda 11: cerrar sesión pide confirmación propia de la app. */
+  const [confirmandoCierre, setConfirmandoCierre] = useState(false);
 
   useEffect(() => {
     let vigente = true;
@@ -157,17 +164,15 @@ export function PanelSesion({
             ))}
           </ul>
         )}
-        <FilaNotificaciones />
-        <div className="ac-acciones">
-          {alVerChats && (
+        {alVerChats && (
+          <div className="ac-acciones ac-ajustes__accion">
             <button type="button" className="ac-boton" onClick={alVerChats} disabled={trabajando}>
               Ver chats
             </button>
-          )}
-          <button type="button" className="ac-boton ac-boton--secundario" onClick={cerrar} disabled={trabajando}>
-            Cerrar sesión
-          </button>
-        </div>
+          </div>
+        )}
+        {/* Tanda 11: Notificaciones · Inteligencia artificial · Sesiones; "Cerrar sesión" pide confirmación. */}
+        <SeccionesDeConfiguracion alCerrarSesion={() => void cerrar()} cerrando={trabajando} />
         {mensaje && <p className="ac-mensaje">{mensaje}</p>}
         <VersionDeLaPagina commit={commit} />
       </section>
@@ -185,14 +190,27 @@ export function PanelSesion({
       <section className="ac-tarjeta" aria-live="polite">
         <h2 className="ac-tarjeta__titulo">No se pudo cargar tu información</h2>
         <p className="ac-tarjeta__texto">{texto}</p>
-        <div className="ac-acciones">
-          <button type="button" className="ac-boton" onClick={() => void recargar()} disabled={trabajando}>
-            Reintentar
-          </button>
-          <button type="button" className="ac-boton ac-boton--secundario" onClick={cerrar} disabled={trabajando}>
-            Cerrar sesión
-          </button>
-        </div>
+        {confirmandoCierre ? (
+          <Confirmacion
+            pregunta={PREGUNTA_CERRAR_SESION}
+            textoConfirmar="Cerrar sesión"
+            trabajando={trabajando}
+            alConfirmar={() => {
+              setConfirmandoCierre(false);
+              void cerrar();
+            }}
+            alCancelar={() => setConfirmandoCierre(false)}
+          />
+        ) : (
+          <div className="ac-acciones">
+            <button type="button" className="ac-boton" onClick={() => void recargar()} disabled={trabajando}>
+              Reintentar
+            </button>
+            <button type="button" className="ac-boton ac-boton--secundario" onClick={() => setConfirmandoCierre(true)} disabled={trabajando}>
+              Cerrar sesión
+            </button>
+          </div>
+        )}
         {mensaje && <p className="ac-mensaje">{mensaje}</p>}
       </section>
     );

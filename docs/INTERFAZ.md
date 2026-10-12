@@ -243,10 +243,42 @@ grande se centra en una columna de 480 px; no hay un diseño de escritorio.
   una sección "Notificaciones" con UNA fila (Figma pantalla 06, nodo 1:277,
   adaptada): "Avisos en este teléfono", el estado ("Activadas" /
   "Desactivadas") y el botón para cambiarlo. Si el navegador las bloqueó, lo
-  dice en una línea y no ofrece un botón que no puede andar. Nada de
-  "Privacidad del push", "Horario de silencio", "Sonidos", IA ni saldo. Con los
+  dice en una línea y no ofrece un botón que no puede andar (desde la Tanda
+  11, con el estado real y el horario de silencio: ver Configuración). Con los
   tokens de siempre, sin colores escritos (`FilaNotificaciones.tsx`; la lógica,
   en `components/push/notificaciones.ts`).
+
+- **Configuración (Tanda 11).** Figma pantalla 06 (1:271–1:315), dentro del
+  mismo panel ☰ y debajo de "Ver chats", en tres secciones
+  (`components/sesion/Configuracion.tsx`); "Versión" sigue al pie.
+  - *Notificaciones.* El estado es el REAL: con una suscripción en el
+    navegador, el panel le pregunta al servidor (`GET /api/push/estado`) si la
+    tiene para esta sesión. "Activadas" solo si la tiene. Si el navegador está
+    suscripto y el servidor no —se cerró sesión, venció, o el servicio de push
+    dijo 410—, "No están llegando", una línea que explica por qué y
+    "Reactivar", que vuelve a mandar la MISMA suscripción sin pedir permiso. Ya
+    no se vuelve a mandar sola al abrir el panel: el 11/10 eso hizo que el
+    panel dijera "Activadas" sin que llegara nada.
+  - *Horario de silencio,* debajo, en la misma sección: un interruptor
+    (apagado por defecto) y, prendido, "Desde" y "Hasta" en horas enteras de
+    Argentina; puede cruzar la medianoche (00 h a 07 h, 22 h a 07 h). La hora
+    del otro extremo no se puede elegir. Se guarda al cambiarlo; si falla,
+    vuelve a lo de antes y lo dice. Lo que llega en ese horario queda sin leer
+    y no se avisa después.
+  - *Inteligencia artificial,* solo si el servidor tiene la IA configurada:
+    "Gastado este mes: US$ X de US$ {tope}", "Preguntas este mes: N" y, si una
+    pregunta más ya no entra, "Saldo agotado hasta el 1/{mes siguiente}".
+  - *Sesiones.* "Dispositivos": cuántas sesiones abiertas y, de cada una,
+    "Este dispositivo" u "Otro dispositivo" y desde cuándo (Azul Chat no guarda
+    la última actividad ni el navegador, así que no se muestran). "Cerrar las
+    otras sesiones", solo si hay otras, y "Cerrar sesión": las dos piden una
+    confirmación PROPIA de la app, en el lugar del botón, con "Cancelar"; la de
+    cerrar sesión dice "¿Cerrar sesión en este teléfono? Vas a tener que volver
+    a poner el código del ERP y las notificaciones de este teléfono se
+    desactivan.". Nunca `confirm()` del navegador. La misma confirmación tiene
+    el "Cerrar sesión" del panel cuando el ERP no responde.
+  - No están "Privacidad del push" (los avisos no traen montos ni datos
+    sensibles) ni "Sonidos y vibración" (los maneja el sistema del teléfono).
 
 ## Cómo se navega
 
@@ -508,7 +540,15 @@ estaba. No hay scroll infinito ni refresco automático.
   y solo pregunta al volver a primer plano y al abrir un chat.
 
 - `test/ui/notificaciones.test.ts` (Tanda 5A): la fila en cada estado y el
-  cliente de notificaciones con un navegador de mentira.
+  cliente de notificaciones con un navegador de mentira. Tanda 11: el estado
+  real (servidor sí, no, sin respuesta; navegador sin suscripción) y
+  "Reactivar" sin pedir permiso.
+- `test/ui/configuracion.test.ts` (Tanda 11): el horario de silencio, el saldo
+  de IA (normal, agotado, sin IA), los dispositivos y las dos confirmaciones,
+  con "Cancelar" tocado de verdad (no cierra), y su cliente HTTP.
+  `test/frontera/alcanceUi.test.ts`: "Horario de silencio" e "Inteligencia
+  artificial" solo en `Configuracion.tsx`; "Privacidad del push", "Sonidos y
+  vibración" y "Saldo asignado" siguen en rojo.
 - `test/ui/chats.test.ts` (Tanda 5B, casos (d)): el texto del cupo en la lista,
   en un Local y en General, sin historial detrás; "Reintentar" deshabilitado
   con la espera y habilitado sin ella; la espera de 20 s solo tras un cupo;
@@ -571,7 +611,7 @@ estaba. No hay scroll infinito ni refresco automático.
 
 ## Fuera de alcance
 
-No existen todavía, y la interfaz no los muestra ni los insinúa: ir desde un resultado de Buscar al punto del historial, buscar en caja o ventas, la configuración completa, el compositor y los mensajes
+No existen todavía, y la interfaz no los muestra ni los insinúa: ir desde un resultado de Buscar al punto del historial, buscar en caja o ventas, "Privacidad del push" y "Sonidos y vibración" de la configuración, el compositor y los mensajes
 de personas, la IA más allá de interpretar una pregunta, las acciones sobre el ERP ("Ver diferencias", "Abrir en
 ERP"), las notificaciones y cualquier actualización en vivo (WebSocket, SSE o
 refresco periódico). La recarga por versión no es eso: no trae datos, solo

@@ -1,8 +1,9 @@
 // src/server/push/manejadores.ts
 //
-// LAS TRES RUTAS DE PUSH DEL NAVEGADOR (Tanda 5A). Las de src/app solo delegan.
+// LAS RUTAS DE PUSH DEL NAVEGADOR (Tanda 5A). Las de src/app solo delegan.
 //
 //   GET    /api/push/clave       la clave pública VAPID (no es secreta)
+//   GET    /api/push/estado      ¿el servidor tiene la suscripción de este navegador? (Tanda 11)
 //   POST   /api/push/suscribir   guardar la suscripción de este dispositivo
 //   DELETE /api/push/suscribir   borrarla (desactivar las notificaciones acá)
 //
@@ -11,18 +12,18 @@
 // ella del vínculo), nunca de un id que mande el navegador. Guardarla no
 // autoriza nada: qué se avisa lo decide, en cada corrida, `mi_alcance` vivo.
 //
-// Ninguna de las tres llama al ERP.
+// Ninguna llama al ERP.
 
 import "server-only";
 
-import type { RespuestaClavePush, RespuestaSuscripcionPush } from "../../shared/push/api.ts";
+import type { RespuestaClavePush, RespuestaEstadoPush, RespuestaSuscripcionPush } from "../../shared/push/api.ts";
 import { leerObjetoJson } from "../http/cuerpo.ts";
 import { origenPermitido } from "../http/origen.ts";
 import { json } from "../http/respuestas.ts";
 import { sesionDeLaSolicitud } from "../sesion/delegacion.ts";
 import { dependenciasDeProduccion, type DependenciasSesion } from "../sesion/dependencias.ts";
 import { leerConfigPush, type ConfigPush } from "./config.ts";
-import { leerBaja, leerSuscripcion } from "./suscripcion.ts";
+import { endpointPermitido, leerBaja, leerSuscripcion } from "./suscripcion.ts";
 
 /** Una suscripción mide unos 500 bytes. */
 const MAX_BYTES_SUSCRIPCION = 4 * 1024;
@@ -48,6 +49,38 @@ export function manejarClave(_request: Request, deps: DependenciasPush): Respons
   const r: RespuestaClavePush = deps.push.ok ? { estado: "OK", clave: deps.push.config.clavePublica } : { estado: "NO_DISPONIBLE" };
   return json(r, { status: r.estado === "OK" ? 200 : 503 });
 }
+
+// ── GET /api/push/estado?endpoint= ──────────────────────────────────────────
+//
+// Tanda 11: ¿el servidor tiene registrada la suscripción de ESTE navegador
+// (por su endpoint) para la sesión de esta solicitud? Es lo que decide si el
+// panel dice "Activadas": la del navegador sola no alcanza, porque cerrar la
+// sesión (o que venza, o que el servicio de push diga 410) borra la del
+// servidor y el navegador no se entera. Una de otra persona, o colgada de otra
+// sesión, no cuenta. No escribe nada y no exige Origin: el navegador no lo
+// manda en un GET del mismo sitio.
+
+export async function manejarEstadoPush(request: Request, deps: DependenciasPush): Promise<Response> {
+  if (!deps.config.ok) return responderEstado({ estado: "NO_DISPONIBLE" });
+  if (!deps.push.ok) return responderEstado({ estado: "NO_DISPONIBLE" });
+  const sp = new URL(request.url).searchParams;
+  const claves = [...sp.keys()];
+  const endpoint = sp.get("endpoint");
+  if (claves.length !== 1 || claves[0] !== "endpoint" || !endpointPermitido(endpoint)) return responderEstado({ estado: "SOLICITUD_INVALIDA" });
+  const leida = await sesionDeLaSolicitud(request.headers, deps);
+  if (leida.tipo === "SIN_SESION") return responderEstado({ estado: "SIN_SESION" });
+  if (leida.tipo === "SERVICIO_NO_DISPONIBLE") return responderEstado({ estado: "NO_DISPONIBLE" });
+  const { db, sesion } = leida.contexto;
+  try {
+    const n = await db.pushSuscripcion.count({ where: { endpoint, vinculoId: sesion.vinculo.id, sesionId: sesion.sesionId } });
+    return responderEstado({ estado: "OK", registrada: n === 1 });
+  } catch {
+    deps.registrar({ evento: "sesion.falla_local", etapa: "base" });
+    return responderEstado({ estado: "NO_DISPONIBLE" });
+  }
+}
+
+const responderEstado = (r: RespuestaEstadoPush) => json(r, { status: r.estado === "OK" ? 200 : STATUS[r.estado] });
 
 // ── POST y DELETE /api/push/suscribir ───────────────────────────────────────
 

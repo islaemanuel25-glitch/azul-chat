@@ -206,6 +206,18 @@ pregunta y el cupo del ERP que gasta (1 + N) están en `docs/CHATS.md`.
   tiene que decir `no-store` y `DYNAMIC`. Si Cloudflare dijera `HIT`, hay una
   regla de caché que guarda HTML: se quita (no la pone este repo).
 
+### Tanda 11: migración del horario de silencio
+
+- La migración es `20261013120000_horario_de_silencio`: agrega a `Vinculo`
+  tres columnas con valor por defecto (`silencioActivo` false,
+  `silencioDesde` 0, `silencioHasta` 7) y un CHECK de horas de 0 a 23
+  distintas. Es aditiva: no toca ninguna fila y todos quedan con el silencio
+  APAGADO. Entra con el paso 3 del DEPLOY, como todas; volver a la imagen
+  anterior es seguro (el código viejo no mira esas columnas).
+- Las rutas nuevas (`/api/push/estado`, `/api/sesion/configuracion`,
+  `/api/sesion/silencio`, `/api/sesion/otras`) no necesitan nada en nginx: van
+  por el mismo `location` de la app.
+
 ### Tanda 6D: la cabecera con el commit
 
 Y desde la Tanda 6E, en el teléfono: abrir ☰ ("Tu sesión") y mirar la línea

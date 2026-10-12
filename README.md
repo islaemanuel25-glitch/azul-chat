@@ -76,7 +76,9 @@ no toca a los demás.
 ## Estructura
 
 - `src/app/` — Next.js App Router. Las rutas `api/` solo delegan:
-  `salud`, `version`, `sesion` (GET, DELETE), `sesion/vincular` (POST) y los
+  `salud`, `version`, `sesion` (GET, DELETE), `sesion/vincular` (POST), desde
+  la Tanda 11 `sesion/configuracion` (GET), `sesion/silencio` (PUT),
+  `sesion/otras` (DELETE) y `push/estado` (GET), y los
   chats: `chats`, `chats/local`, `chats/general`, `chats/ventas`, desde la Tanda 7B `chats/caja` y desde la
   8B `chats/stock` (GET), desde la 9B `chats/pendientes` y `chats/pendientes/general` (GET),
   desde la 10 `chats/buscar` (GET),
@@ -104,7 +106,11 @@ no toca a los demás.
     (`clienteChats.ts`) para las rutas de chats y `/api/version`.
     Descrita en `docs/INTERFAZ.md`.
   - `sesion/PanelSesion.tsx` — vincular, ver la sesión y cerrarla, y desde la
-    Tanda 5A la fila "Notificaciones" (`push/`).
+    Tanda 5A la fila "Notificaciones" (`push/`). Desde la Tanda 11,
+    `sesion/Configuracion.tsx`: el estado real de los avisos y "Reactivar",
+    el horario de silencio, el saldo de IA del mes, los dispositivos, cerrar
+    las otras sesiones y la confirmación propia de "Cerrar sesión"
+    (`docs/INTERFAZ.md`).
   - `shell/ShellMovil.tsx` — el marco: encabezado fijo, volver y acciones.
 - `src/shared/` — tipos y validaciones que puede usar la interfaz. Sin secretos ni red.
 - `src/server/` — solo servidor. Cada archivo importa `server-only`.
@@ -115,7 +121,9 @@ no toca a los demás.
   - `seguridad/cifradoToken.ts` — AES-256-GCM del token.
   - `http/` — Origin, cupo, lectura del cuerpo y respuestas.
   - `sesion/` — cookie, repositorio, vincular, estado, cerrar y el paso de la
-    sesión al token (`delegacion.ts`).
+    sesión al token (`delegacion.ts`). Desde la Tanda 11, `configuracion.ts`:
+    leer la configuración, guardar el horario de silencio y cerrar las otras
+    sesiones con sus suscripciones push; ninguna llama al ERP.
   - `chats/` — autorización viva por capacidad, la sincronización (frecuencia
     mínima, presupuesto del cupo del ERP, orden por lo pendiente) y el estado
     "Actualización demorada" desde los cursores, historial paginado y las diez
@@ -125,7 +133,10 @@ no toca a los demás.
     ingiere desde la 5B: la ruta que llama el timer del VPS, con su secreto y
     su puerta (`docs/DEPLOY.md`).
   - `push/` — notificaciones push (Tanda 5A): claves VAPID, suscripciones,
-    qué se avisa una sola vez y el envío (`docs/EVENTOS.md`).
+    qué se avisa una sola vez y el envío (`docs/EVENTOS.md`). Desde la Tanda
+    11, el estado real de una suscripción (`GET /api/push/estado`) y el
+    horario de silencio de cada persona (`silencio.ts`): callado no se manda
+    nada y lo de ese rato no se manda después.
   - `eventos/` — ingesta (una maquinaria, una definición por capacidad en
     `capacidades.ts`), eventos guardados de los cuatro tipos y lectura
     (`docs/EVENTOS.md`).
@@ -162,7 +173,9 @@ no toca a los demás.
   `Vinculo`, `Sesion`, `Evento`, `CursorIngesta`, `LecturaLocal`,
   `PushSuscripcion` y `AvisoLocal` (Tanda 5A), `ConsumoIa` (Tanda 6A, el
   gasto en IA por mes) y `Pregunta` (Tanda 6C, las preguntas con su
-  respuesta, por persona y chat, 90 días; `docs/CHATS.md`). Nada de
+  respuesta, por persona y chat, 90 días; `docs/CHATS.md`). Tanda 11: el
+  horario de silencio va en tres columnas de `Vinculo` (migración
+  `20261013120000_horario_de_silencio`, `docs/DEPLOY.md`). Nada de
   conversaciones, mensajes ni auditoría: la conversación de un local y General
   se derivan de los eventos.
 - `test/` — `node:test`. `test/db/` usa una base descartable y un ERP de

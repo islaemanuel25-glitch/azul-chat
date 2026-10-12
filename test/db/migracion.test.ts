@@ -139,6 +139,11 @@ describe("la migración", () => {
       "Vinculo.instalacionId",
       "Vinculo.invalidadoEn",
       "Vinculo.motivoInvalidacion",
+      // Tanda 11: el horario de silencio de la persona. Una preferencia de
+      // Azul Chat, no autoridad: solo decide si se manda un push o no.
+      "Vinculo.silencioActivo",
+      "Vinculo.silencioDesde",
+      "Vinculo.silencioHasta",
       "Vinculo.tokenCifrado",
       "Vinculo.vinculadoEn",
     ]);
@@ -307,6 +312,23 @@ describe("40. invariantes que sostiene la base", () => {
     await rechaza(pregunta({ requisitos: "{}" }), CHECK);
     await rechaza(pregunta({ vinculo: "00000000-0000-0000-0000-00000000dead" }), CLAVE_AJENA);
     await sql(`DELETE FROM "Pregunta"`);
+  });
+
+  it("11. el horario de silencio: apagado de 0 a 7 por defecto; horas de 0 a 23, distintas", async () => {
+    const [v] = await base.db.$queryRawUnsafe<{ a: boolean; d: number; h: number }[]>(
+      `SELECT "silencioActivo" AS a, "silencioDesde" AS d, "silencioHasta" AS h FROM "Vinculo" LIMIT 1`,
+    );
+    assert.deepEqual(v, { a: false, d: 0, h: 7 }, "un vínculo existente queda con el silencio apagado");
+    await sql(`UPDATE "Vinculo" SET "silencioActivo" = true, "silencioDesde" = 22, "silencioHasta" = 7`);
+    for (const [d, h] of [
+      [7, 7],
+      [24, 7],
+      [-1, 7],
+      [0, 24],
+    ] as const) {
+      await rechaza(`UPDATE "Vinculo" SET "silencioDesde" = ${d}, "silencioHasta" = ${h}`, CHECK);
+    }
+    await sql(`UPDATE "Vinculo" SET "silencioActivo" = false, "silencioDesde" = 0, "silencioHasta" = 7`);
   });
 
   it("no se borra un vínculo con sesiones ni una instalación con vínculos", async () => {

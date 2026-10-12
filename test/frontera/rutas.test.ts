@@ -102,6 +102,23 @@ const RUTAS = {
   // una lista cerrada de servicios (src/server/push/suscripcion.ts).
   "src/app/api/push/clave/route.ts": { metodos: ["GET"], importa: ["../../../../server/push/manejadores.ts"] },
   "src/app/api/push/suscribir/route.ts": { metodos: ["DELETE", "POST"], importa: ["../../../../server/push/manejadores.ts"] },
+  // Tanda 11: el estado REAL del push de este navegador (¿el servidor lo
+  // tiene?), solo lectura; y la configuración de la persona: leerla, guardar
+  // el horario de silencio y cerrar las OTRAS sesiones. Ninguna llama al ERP;
+  // las que escriben exigen sesión y Origin (src/server/sesion/configuracion.ts).
+  "src/app/api/push/estado/route.ts": { metodos: ["GET"], importa: ["../../../../server/push/manejadores.ts"] },
+  "src/app/api/sesion/configuracion/route.ts": {
+    metodos: ["GET"],
+    importa: ["../../../../server/sesion/configuracion.ts", "../../../../server/sesion/dependencias.ts"],
+  },
+  "src/app/api/sesion/silencio/route.ts": {
+    metodos: ["PUT"],
+    importa: ["../../../../server/sesion/configuracion.ts", "../../../../server/sesion/dependencias.ts"],
+  },
+  "src/app/api/sesion/otras/route.ts": {
+    metodos: ["DELETE"],
+    importa: ["../../../../server/sesion/configuracion.ts", "../../../../server/sesion/dependencias.ts"],
+  },
   // Tanda 5A: la sincronización en segundo plano. NO es del navegador: solo el
   // timer del VPS, por 127.0.0.1 y con su secreto; si no, 404 (GET también,
   // para que Next no conteste un 405 que delate que existe). Que el navegador
@@ -197,6 +214,17 @@ describe("las rutas son acciones concretas", () => {
       },
       buscarPorSegmento: { "src/app/api/chats/buscar/[texto]/route.ts": "export async function GET() {}\n" },
       buscarOtra: { "src/app/api/chats/buscar/erp/route.ts": "export async function GET() {}\n" },
+      // Tanda 11: cada ruta de configuración, solo su método y solo delegando; ninguna por segmento.
+      estadoPushPost: { "src/app/api/push/estado/route.ts": `${arbol["src/app/api/push/estado/route.ts"]}\nexport function POST() {}\n` },
+      estadoPushConsulta: {
+        "src/app/api/push/estado/route.ts": `${arbol["src/app/api/push/estado/route.ts"]}\nconst q = (r: Request) => new URL(r.url).searchParams.get("endpoint");\n`,
+      },
+      configuracionPut: { "src/app/api/sesion/configuracion/route.ts": `${arbol["src/app/api/sesion/configuracion/route.ts"]}\nexport function PUT() {}\n` },
+      silencioGet: { "src/app/api/sesion/silencio/route.ts": `${arbol["src/app/api/sesion/silencio/route.ts"]}\nexport function GET() {}\n` },
+      silencioCuerpo: { "src/app/api/sesion/silencio/route.ts": `${arbol["src/app/api/sesion/silencio/route.ts"]}\nconst c = (request: Request) => request.json();\n` },
+      otrasPost: { "src/app/api/sesion/otras/route.ts": `${arbol["src/app/api/sesion/otras/route.ts"]}\nexport function POST() {}\n` },
+      otrasErp: { "src/app/api/sesion/otras/route.ts": `${arbol["src/app/api/sesion/otras/route.ts"]}\nconst e2 = () => fetch("/api/integraciones/azul-chat/consultar");\n` },
+      otraPorSegmento: { "src/app/api/sesion/otras/[sesionId]/route.ts": "export async function DELETE() {}\n" },
     };
     for (const [nombre, cambio] of Object.entries(casos)) {
       assert.notDeepEqual(violacionesDeRutas({ ...arbol, ...cambio }), [], nombre);
