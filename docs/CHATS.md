@@ -86,7 +86,8 @@ Lo que cuesta ahora cada pedido del navegador, medido contra el ERP de
 mentira (`test/db/chats.test.ts`, caso (a)): la lista, un local, una página
 anterior, General, marcar leído y "Actualizar", 1 consulta cada uno
 (`mi_alcance`); Ventas, 2 (`mi_alcance` y `ventas_resumen`); Caja (Tanda 7B),
-2 (`mi_alcance` y `cajas_resumen`). La corrida de
+2 (`mi_alcance` y `cajas_resumen`); Stock (Tanda 8B), 2 (`mi_alcance` y
+`stock_consulta`). La corrida de
 fondo gasta como mucho 18 por persona y le deja 12 a la app: el cupo y el
 presupuesto, con números, están en `docs/DEPLOY.md`.
 
@@ -142,7 +143,7 @@ evento es el más reciente entre ellos, con su local.
 ### GET /api/chats/local?localId=N[&cursor=C]
 
 El historial de un local, 30 eventos por página, del más reciente al más
-antiguo. Devuelve `{ estado: "OK", local: { localId, nombre, esDeposito, ventas, caja },
+antiguo. Devuelve `{ estado: "OK", local: { localId, nombre, esDeposito, ventas, caja, stock },
 sincronizacion, noLeidos, leidoHasta, eventos, guardadas, siguiente, preguntas }`. `siguiente` es el
 cursor de la página siguiente, o `null`.
 
@@ -152,7 +153,8 @@ una autorización: `GET /api/chats/ventas` lo vuelve a decidir. Abrir el chat no
 consulta ventas.
 
 `local.caja` (Tanda 7B) es lo mismo para `cajas_resumen` y el botón "Caja":
-un anuncio, que `GET /api/chats/caja` vuelve a decidir.
+un anuncio, que `GET /api/chats/caja` vuelve a decidir. `local.stock` (Tanda
+8B), lo mismo para `stock_consulta` y el botón "Stock".
 
 `preguntas` (Tanda 6A, también en General) es `true` si el servidor tiene la
 IA configurada: es el anuncio de la caja de preguntas, no una autorización.
@@ -259,6 +261,33 @@ Nada se guarda. Candados: `test/db/caja.test.ts`,
 `test/unidad/cajasChats.test.ts` y `test/erp/cajasResumen.test.ts` (forma,
 contra el fixture del ERP `test/fixtures/erp-14ae247.json`).
 
+### GET /api/chats/stock?localId=N
+
+Tanda 8B. Los productos bajo mínimo de un local, como los da `stock_consulta`
+del ERP (41f702b) en modo `bajo_minimo`. Mismo camino que ventas y caja
+(`consultarLocalHoy`): `localId` es el único parámetro —ni el modo ni un texto
+vienen del navegador—; sesión y `mi_alcance` vivo; el local tiene que anunciar
+`stock_consulta` (`conStock`) o es `NO_AUTORIZADO` (403) sin consultar stock;
+el `grupoId` sale de `mi_alcance`. Sin reintentos, errores por código como en
+ventas (`LIMITE_EXCEDIDO` es `ERP_CUPO_EXCEDIDO`, 429); una respuesta de otro
+local, grupo o modo no se muestra. Cupo: 1 `mi_alcance` + 1 `stock_consulta`.
+
+Devuelve `{ estado: "OK", local: { id, nombre }, sinMinimo: false, total,
+hayMas, productos }`, o `{ estado: "OK", local, sinMinimo: true }`. Ese
+segundo es el STOCK_MINIMO_NO_DISPONIBLE del ERP —el local no tiene ningún
+producto con el mínimo ajustado—, reconocido por su CÓDIGO: no es una falla y
+la interfaz lo dice así. `productos` son hasta 50, por mayor faltante
+relativo (lo ordena el ERP); `total`, cuántos hay; `hayMas`, si hay más de los
+que vinieron. Cada producto: `productoId`, `nombre`, `codigo` o null,
+`cantidad` (la existencia con tres decimales, texto), `unidad` ("Unidad",
+"Kg", "Pack x12"), `equivalencia` (el texto de la pantalla de stock del ERP:
+"30 uds", "2 bultos + 6 uds"), `stockMinimo` y `bajoMinimo` (los dos null si
+no hay mínimo ajustado). Copiado campo por campo; nada de costos ni precios.
+
+Nada se guarda. Candados: `test/db/stock.test.ts`,
+`test/unidad/stockChats.test.ts` y `test/erp/stockConsulta.test.ts` (forma,
+contra el fixture del ERP `test/fixtures/erp-41f702b.json`).
+
 ### POST /api/chats/preguntar
 
 Tanda 6A. Una pregunta en lenguaje natural, desde un Local o desde General.
@@ -272,7 +301,8 @@ nombre del local desde el que se pregunta y los NOMBRES de los locales
 autorizados hoy. Nada más: ni ventas, ni eventos, ni ids. Devuelve UNA
 intención por salida estructurada, contra un esquema cerrado:
 `ventas` (un local o "todos"; hoy, ayer o rango), `caja` (Tanda 7B: un local
-o "todos"; un solo día: hoy, ayer o una fecha), `eventos` (recibidas,
+o "todos"; un solo día: hoy, ayer o una fecha), `stock` (Tanda 8B: un local o
+"todos"; un producto o lo que está bajo mínimo; el stock de ahora), `eventos` (recibidas,
 recibidas con diferencias, enviadas, pedidos o cancelaciones; un local o
 "todos"; hoy, ayer o rango) o `no_entiendo`. Elige el local por su nombre, de
 una lista cerrada que el esquema le da (`enum`); el id lo pone el código. Todo
@@ -314,6 +344,22 @@ interfaz). Azul Chat no le manda `turnoOperativo` al ERP, así que
   dice cuál y no hay total. Con un rango de días, o un local sin
   `cajas_resumen`, es ventas como antes con el aviso de que no separa por turno.
 
+**Stock (Tanda 8B).** El esquema trae `modoStock` (`producto` o
+`bajo_minimo`) y `producto`: el producto TAL COMO LO ESCRIBIÓ la persona
+("leche", un código de barras), de 2 a 60 caracteres, o null. A la IA no le
+llega ningún producto, cantidad ni mínimo: solo la pregunta, como siempre. El
+texto viaja al ERP, que lo busca con su buscador; el código no busca, ni
+compara, ni corrige.
+
+- Un local: una `stock_consulta`. Producto: lo que encontró el ERP (hasta 10,
+  `hayMas`). Bajo mínimo: los faltantes con su total, o `sinMinimo`.
+- Todos: una `stock_consulta` por cada local con la capacidad, de a una; la
+  respuesta trae lo de cada local (sin sumar nada entre locales) y `fallidos`.
+  Un rechazo por cupo corta las que faltan.
+- `stock` es el stock de ahora: con período ayer o rango, con turno o con tipo
+  de evento es `NO_ENTIENDO`; también un texto fuera de 2 a 60, o
+  `modoStock`/`producto` en otra intención.
+
 En orden:
 
 1. Forma, Origin y cuerpo. Sin la clave de la IA (o mal configurada):
@@ -326,9 +372,9 @@ En orden:
 4. La IA (`src/server/ia/gemini.ts`), una sola llamada, sin reintentos. Si no
    contesta: `IA_NO_DISPONIBLE` (503).
 5. El código valida la intención (`src/server/preguntas/intencion.ts`): exactamente
-   las ocho claves del esquema; el local, uno de los de hoy CON la capacidad que la
-   intención necesita (`ventas_resumen`, `cajas_resumen` o la del tipo de evento);
-   `caja` de un solo día; fechas reales,
+   las diez claves del esquema; el local, uno de los de hoy CON la capacidad que la
+   intención necesita (`ventas_resumen`, `cajas_resumen`, `stock_consulta` o la
+   del tipo de evento); `caja` de un solo día; `stock` de hoy; fechas reales,
    `desde` ≤ `hasta` y un rango de 31 días como mucho. Lo que no cierra es
    `NO_ENTIENDO`, con ejemplos fijos de lo que sí se puede preguntar.
 6. La respuesta:
@@ -346,11 +392,14 @@ En orden:
      Argentina (`fechaOperacion`). La cantidad, los 10 más recientes y cuántos
      más hay (`restantes`, "y N más").
    - **Caja** y **ventas por turno**: arriba, "Turnos".
+   - **Stock**: arriba, "Stock".
 
 Estados: `VENTAS` (`alcance` `LOCAL` o `TODOS`) y `EVENTOS`, los dos con
 `noSeparaPor`; `CAJA` y `VENTAS_TURNO` (Tanda 7B, `LOCAL` o `TODOS`, con
 `turnoPedido`, `turnoNoEncontrado`, las cajas de cada local y, en `TODOS`,
 `fallidos`; `VENTAS_TURNO` además `noSeparaPor` y, en `TODOS`, `total` o null);
+`STOCK` (Tanda 8B: `modo` `producto` o `bajo_minimo`, `alcance` `LOCAL` con
+`resultado` o `TODOS` con `locales` y `fallidos`; en producto, `texto`);
 `NO_ENTIENDO`,
 `SALDO_AGOTADO` (200), `IA_NO_DISPONIBLE` (503), y las fallas de siempre:
 `ERP_NO_DISPONIBLE` (503), `ERP_CUPO_EXCEDIDO` (429), `SIN_SESION`,
@@ -358,8 +407,9 @@ Estados: `VENTAS` (`alcance` `LOCAL` o `TODOS`) y `EVENTOS`, los dos con
 `SERVICIO_NO_DISPONIBLE`.
 
 **Cupo del ERP por pregunta: 1 + N.** Una `mi_alcance` siempre; más una
-`ventas_resumen` (o `cajas_resumen` en caja y ventas por turno) si es de un
-local, o N si es de todos (N = locales con esa capacidad hoy). Eventos y `NO_ENTIENDO` gastan solo la `mi_alcance`. Con 5 locales, una
+`ventas_resumen` (o `cajas_resumen` en caja y ventas por turno, o
+`stock_consulta` en stock) si es de un local, o N si es de todos (N = locales
+con esa capacidad hoy). Eventos y `NO_ENTIENDO` gastan solo la `mi_alcance`. Con 5 locales, una
 pregunta de "todos" gasta 6 del cupo de 120 por persona por minuto.
 
 **El tope de gasto** (`src/server/ia/consumo.ts`, tabla `ConsumoIa`, una fila
@@ -464,8 +514,9 @@ Los parámetros de la URL también son estrictos: uno de más o repetido es
 Pedido del dueño: "una vez que salgo y vuelvo a entrar no queda guardado".
 Cada pregunta contestada se guarda en la tabla `Pregunta`
 (`src/server/preguntas/guardadas.ts`) con exactamente la respuesta que vio la
-pantalla, en JSON versionado (`resultadoVersion` 2 desde la Tanda 7B, que agrega `CAJA`
-y `VENTAS_TURNO`; las de versión 1 se siguen leyendo, solo con sus estados). POST preguntar contesta,
+pantalla, en JSON versionado (`resultadoVersion` 3 desde la Tanda 8B, que agrega
+`STOCK`; la 2, de la Tanda 7B, había agregado `CAJA` y `VENTAS_TURNO`. Las de
+las versiones 1 y 2 se siguen leyendo, cada una solo con sus estados). POST preguntar contesta,
 además, `guardadaId`, para que la pantalla no la muestre dos veces cuando el
 historial ya la trae.
 
@@ -480,7 +531,8 @@ historial ya la trae.
   fue la respuesta.
 - **Fallo cerrado al mostrar.** Cada pregunta guarda sus `requisitos`: de qué
   locales trae datos y con qué capacidad (`ventas_resumen`, `cajas_resumen`
-  para caja y ventas por turno, o la del tipo de evento). Para mostrarla, todos tienen que seguir anunciados hoy por
+  para caja y ventas por turno, `stock_consulta` para stock, o la del tipo de
+  evento). Para mostrarla, todos tienen que seguir anunciados hoy por
   `mi_alcance`; si uno no, se oculta (no se borra: si mañana vuelve, se ve).
   Un requisito ilegible también la oculta. Las que no traen datos de locales
   (no entendí, saldo, IA caída) se ven en su chat mientras la persona lo pueda
@@ -505,7 +557,7 @@ Solo un estado, sin mensaje, stack, URL interna, respuesta del ERP ni token:
 - `ERP_NO_DISPONIBLE` (503): no se pudo comprobar la autorización. Sin
   historial. En ventas, además, el ERP no dio unas ventas que se puedan mostrar.
 - `ERP_CUPO_EXCEDIDO` (429, Tanda 5B): el ERP contestó LIMITE_EXCEDIDO, en
-  `mi_alcance` o, en ventas y caja, en `ventas_resumen` / `cajas_resumen`. Sin historial, igual que el
+  `mi_alcance` o, en ventas, caja y stock, en su capacidad. Sin historial, igual que el
   anterior; la interfaz lo dice con su propio texto.
 - `SERVICIO_NO_DISPONIBLE` (503): configuración o base.
 - En preguntas (Tanda 6A), además: `NO_ENTIENDO` y `SALDO_AGOTADO` (200) y

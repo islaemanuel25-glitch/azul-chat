@@ -8,7 +8,7 @@
 // que se muestra lo arma el código con datos del ERP (ventas) o de la base
 // propia (eventos): ni un texto ni un número de la respuesta sale del modelo.
 
-import type { CajasDelDia, EventoGeneral, FallaChats, TotalesDeTurnoPublico } from "./api.ts";
+import type { BajoMinimoDelLocal, CajasDelDia, EventoGeneral, FallaChats, ProductosDelLocal, TotalesDeTurnoPublico } from "./api.ts";
 
 /** Lo que manda el navegador. `localId`: desde qué Local se pregunta (sin él, desde General). */
 export type PedidoPregunta = { readonly pregunta: string; readonly localId?: number };
@@ -140,6 +140,41 @@ export type RespuestaPregunta =
       readonly locales: readonly CajasDelDia[];
       readonly fallidos: readonly { readonly id: number; readonly nombre: string }[];
     }
+  /**
+   * Tanda 8B: el stock de UN local, como lo dio el ERP: lo que encontró su
+   * buscador para el texto de la pregunta (hasta 10 y `hayMas`).
+   */
+  | {
+      readonly estado: "STOCK";
+      readonly modo: "producto";
+      readonly alcance: "LOCAL";
+      readonly texto: string;
+      readonly resultado: ProductosDelLocal;
+    }
+  /** Tanda 8B: el mismo texto en cada local con `stock_consulta`. `fallidos`: los que no se pudieron consultar. */
+  | {
+      readonly estado: "STOCK";
+      readonly modo: "producto";
+      readonly alcance: "TODOS";
+      readonly texto: string;
+      readonly locales: readonly ProductosDelLocal[];
+      readonly fallidos: readonly { readonly id: number; readonly nombre: string }[];
+    }
+  /** Tanda 8B: los productos bajo mínimo de UN local (o que no tiene mínimo cargado). */
+  | {
+      readonly estado: "STOCK";
+      readonly modo: "bajo_minimo";
+      readonly alcance: "LOCAL";
+      readonly resultado: BajoMinimoDelLocal;
+    }
+  /** Tanda 8B: bajo mínimo en cada local con `stock_consulta`, cada uno con su total. Sin sumas. */
+  | {
+      readonly estado: "STOCK";
+      readonly modo: "bajo_minimo";
+      readonly alcance: "TODOS";
+      readonly locales: readonly BajoMinimoDelLocal[];
+      readonly fallidos: readonly { readonly id: number; readonly nombre: string }[];
+    }
   /** No se entendió, o lo entendido no se puede contestar. Con ejemplos de lo que sí. */
   | { readonly estado: "NO_ENTIENDO"; readonly ejemplos: readonly string[] }
   /** Se alcanzó el tope de gasto del mes: no se llamó a la IA. */
@@ -165,6 +200,8 @@ export const ESTADOS_GUARDADOS = [
   // Tanda 7B, versión 2 del resultado (preguntas/guardadas.ts).
   "CAJA",
   "VENTAS_TURNO",
+  // Tanda 8B, versión 3 del resultado.
+  "STOCK",
 ] as const;
 export type RespuestaGuardada = Extract<RespuestaPregunta, { readonly estado: (typeof ESTADOS_GUARDADOS)[number] }>;
 
@@ -187,4 +224,6 @@ export const EJEMPLOS_DE_PREGUNTAS: readonly string[] = Object.freeze([
   "¿Qué pedidos se hicieron ayer?",
   "¿Cómo cerró la caja hoy?",
   "¿Cuánto vendió el turno tarde?",
+  "¿Cuánta leche hay?",
+  "¿Qué productos están por debajo del mínimo?",
 ]);

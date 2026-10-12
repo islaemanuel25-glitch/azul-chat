@@ -21,6 +21,12 @@ export const CODIGOS_ERROR_ERP = Object.freeze([
    * así que no debería llegar; si llega, es un código conocido y no se inventa.
    */
   "TURNO_OPERATIVO_INVALIDO",
+  /**
+   * Tanda 8B (erpmanual 41f702b): `stock_consulta` en modo `bajo_minimo` sobre
+   * un local donde ningún producto tiene el mínimo ajustado (409). No es una
+   * falla: el local no usa stock mínimo, y la interfaz lo dice así.
+   */
+  "STOCK_MINIMO_NO_DISPONIBLE",
   "SOLICITUD_NO_AUTENTICADA",
   "CAPACIDAD_NO_DISPONIBLE",
   "VINCULO_NO_VALIDO",
@@ -799,4 +805,94 @@ export function esDatosCajasResumen(v: unknown): v is DatosCajasResumen {
     Array.isArray(v.advertencias) &&
     v.advertencias.every((a) => esAdvertencia(a) && ((a as Record<string, unknown>).cajaId === undefined || esEnteroPositivo((a as Record<string, unknown>).cajaId)))
   );
+}
+
+// ── stock_consulta (Tanda 8B) ────────────────────────────────────────────────
+//
+// Contrato de erpmanual 41f702b (PR #170), `lib/integraciones/azul-chat/
+// stockConsulta.js` y `stockConsultaServer.js`. Fixture: `test/fixtures/
+// erp-41f702b.json`, copia sin tocar de `docs/integraciones/azul-chat/
+// erp-stock-consulta.json` de ese commit. Lo que importa para presentarlo:
+//
+//   · `producto`: hasta 10 coincidencias del buscador del ERP, en su orden, y
+//     `hayMas` si encontró más; `bajo_minimo`: hasta 50 faltantes, por mayor
+//     faltante relativo, con `total` y `hayMas` (= total > los que vinieron);
+//   · `cantidad` es la existencia con tres decimales; `equivalencia` es el
+//     texto que muestra la pantalla de stock del ERP ("30 uds", "2 bultos + 6
+//     uds") y `unidad`, su columna Unidad;
+//   · `stockMinimo` y `bajoMinimo` van juntos: los dos null si el producto no
+//     tiene el mínimo ajustado.
+// Un local sin ningún mínimo ajustado no es un `datos`: es el rechazo
+// STOCK_MINIMO_NO_DISPONIBLE. El ERP decide todo; Azul Chat valida la forma.
+
+export const CAPACIDAD_STOCK_CONSULTA = "stock_consulta";
+
+export const MODOS_STOCK = Object.freeze(["producto", "bajo_minimo"] as const);
+export type ModoStock = (typeof MODOS_STOCK)[number];
+
+/** Lo que el ERP acepta como texto de búsqueda (stockConsulta.js, LARGO_*_TEXTO). */
+export const LARGO_MINIMO_TEXTO_STOCK = 2;
+export const LARGO_MAXIMO_TEXTO_STOCK = 60;
+export const MAX_COINCIDENCIAS_STOCK = 10;
+export const MAX_BAJO_MINIMO_STOCK = 50;
+
+export type ProductoDeStock = {
+  readonly productoId: number;
+  readonly nombre: string;
+  readonly codigo: string | null;
+  readonly cantidad: string;
+  readonly unidad: string;
+  readonly equivalencia: string;
+  readonly stockMinimo: string | null;
+  readonly bajoMinimo: boolean | null;
+};
+
+/** `datos` de `stock_consulta`, versión 1. `total` solo en `bajo_minimo`. */
+export type DatosStockConsulta = {
+  readonly capacidad: typeof CAPACIDAD_STOCK_CONSULTA;
+  readonly version: 1;
+  readonly local: { readonly id: number; readonly nombre: string; readonly esDeposito: boolean };
+  readonly grupoId: number;
+  readonly modo: ModoStock;
+  readonly texto: string | null;
+  readonly productos: readonly ProductoDeStock[];
+  readonly total?: number;
+  readonly hayMas: boolean;
+};
+
+const CANTIDAD_STOCK = /^-?\d+\.\d{3}$/;
+
+function esProductoDeStock(v: unknown): v is ProductoDeStock {
+  if (!esObjeto(v)) return false;
+  if (!soloClaves(v, ["productoId", "nombre", "codigo", "cantidad", "unidad", "equivalencia", "stockMinimo", "bajoMinimo"])) return false;
+  if (!esEnteroPositivo(v.productoId) || !esTexto(v.nombre) || !esTextoONulo(v.codigo)) return false;
+  if (!esTexto(v.cantidad) || !CANTIDAD_STOCK.test(v.cantidad)) return false;
+  if (!esTexto(v.unidad) || v.unidad.length === 0 || !esTexto(v.equivalencia)) return false;
+  // El mínimo y si está por debajo van juntos: los dos o ninguno.
+  if (v.stockMinimo === null) return v.bajoMinimo === null;
+  return esDecimal(v.stockMinimo) && typeof v.bajoMinimo === "boolean";
+}
+
+/**
+ * La forma de `datos` de `stock_consulta`. Lo que depende del pedido —el
+ * local, el grupo, el modo y el texto pedidos— lo mira quien pidió.
+ */
+export function esDatosStockConsulta(v: unknown): v is DatosStockConsulta {
+  if (!esObjeto(v)) return false;
+  if (v.capacidad !== CAPACIDAD_STOCK_CONSULTA || v.version !== 1) return false;
+  const { local } = v;
+  if (!esObjeto(local) || !soloClaves(local, ["id", "nombre", "esDeposito"])) return false;
+  if (!esEnteroPositivo(local.id) || !esTexto(local.nombre) || typeof local.esDeposito !== "boolean") return false;
+  if (!esEnteroPositivo(v.grupoId) || typeof v.hayMas !== "boolean") return false;
+  if (!Array.isArray(v.productos) || !v.productos.every(esProductoDeStock)) return false;
+  if (v.modo === "producto") {
+    if (!soloClaves(v, ["capacidad", "version", "local", "grupoId", "modo", "texto", "productos", "hayMas"])) return false;
+    return esTexto(v.texto) && v.texto.length >= LARGO_MINIMO_TEXTO_STOCK && v.productos.length <= MAX_COINCIDENCIAS_STOCK;
+  }
+  if (v.modo !== "bajo_minimo") return false;
+  if (!soloClaves(v, ["capacidad", "version", "local", "grupoId", "modo", "texto", "productos", "total", "hayMas"])) return false;
+  if (v.texto !== null || !esEnteroNoNegativo(v.total) || v.productos.length > MAX_BAJO_MINIMO_STOCK) return false;
+  // Los que vinieron son los primeros del total, y todos están por debajo.
+  if (v.total < v.productos.length || v.hayMas !== v.total > v.productos.length) return false;
+  return v.productos.every((p) => (p as ProductoDeStock).bajoMinimo === true);
 }

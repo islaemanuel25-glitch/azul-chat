@@ -76,6 +76,7 @@ import {
 import { guardarPregunta } from "./guardadas.ts";
 import { sumarVentas, ventasDeUnLocal } from "./ventas.ts";
 import { cajasDePregunta, ventasPorTurnoDePregunta } from "./cajas.ts";
+import { stockDePregunta } from "./stock.ts";
 
 /** El cuerpo: 300 caracteres de hasta 4 bytes, más las claves. */
 const MAX_BYTES_PREGUNTA = 2 * 1024;
@@ -126,6 +127,7 @@ export async function manejarPreguntar(request: Request, deps: DependenciasSesio
           eventos: a.autorizados.map((l) => ({ localId: l.localId, nombre: l.nombre, capacidades: l.capacidades })),
           ventas: a.conVentas.map((l) => ({ localId: l.localId, grupoId: l.grupoId, nombre: l.nombre })),
           caja: a.conCaja.map((l) => ({ localId: l.localId, grupoId: l.grupoId, nombre: l.nombre })),
+          stock: a.conStock.map((l) => ({ localId: l.localId, grupoId: l.grupoId, nombre: l.nombre })),
         },
       },
     }));
@@ -151,10 +153,12 @@ export async function manejarPreguntar(request: Request, deps: DependenciasSesio
     const guardadaId = await guardar(respuesta, intencion);
     return json(guardadaId === null ? respuesta : { ...respuesta, guardadaId }, { status });
   };
-  const nombres = [...new Set([...locales.eventos.map((l) => l.nombre), ...locales.ventas.map((l) => l.nombre), ...locales.caja.map((l) => l.nombre)])];
+  const nombres = [
+    ...new Set([...locales.eventos.map((l) => l.nombre), ...locales.ventas.map((l) => l.nombre), ...locales.caja.map((l) => l.nombre), ...locales.stock.map((l) => l.nombre)]),
+  ];
   let localActual: string | null = null;
   if (pedido.localId !== null) {
-    const actual = [...locales.eventos, ...locales.ventas, ...locales.caja].find((l) => l.localId === pedido.localId);
+    const actual = [...locales.eventos, ...locales.ventas, ...locales.caja, ...locales.stock].find((l) => l.localId === pedido.localId);
     if (!actual) return falla({ estado: "NO_AUTORIZADO" }, request, deps);
     localActual = actual.nombre;
   }
@@ -203,11 +207,15 @@ export async function manejarPreguntar(request: Request, deps: DependenciasSesio
         return await contestarGuardando(NO_ENTENDIDA, intencion);
       case "EVENTOS":
         return await contestarGuardando(await eventosDePregunta(db, instalacionId, intencion), intencion);
+      case "STOCK":
       case "CAJA":
       case "VENTAS": {
         // Tanda 7B: caja, y ventas de un turno, salen de `cajas_resumen` (preguntas/cajas.ts).
+        // Tanda 8B: stock, de `stock_consulta` (preguntas/stock.ts).
         const v =
-          intencion.tipo === "CAJA"
+          intencion.tipo === "STOCK"
+            ? await stockDePregunta(request.headers, deps, intencion)
+            : intencion.tipo === "CAJA"
             ? await cajasDePregunta(request.headers, deps, intencion)
             : intencion.porTurno
               ? await ventasPorTurnoDePregunta(request.headers, deps, intencion)

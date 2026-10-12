@@ -247,9 +247,19 @@ export function tituloDeCajas(p: { readonly tipo: "hoy" | "ayer" | "rango"; read
   return `Cajas del ${diaCorto(p.desde)} · ${nombre}`;
 }
 
-/** Tanda 7B: "Turno Tarde · hoy · Casiano": las ventas de un turno. */
+/**
+ * Tanda 7B: "Turno Tarde · hoy · Casiano": las ventas de un turno. Tanda 8B:
+ * si el nombre del turno ya empieza con "turno" (sin mayúsculas ni acentos),
+ * no se le antepone otro: "Turno mañana", no "Turno Turno mañana".
+ */
 export function tituloDeVentasDeTurno(turno: string, p: { readonly tipo: "hoy" | "ayer" | "rango"; readonly desde: string; readonly hasta: string }, nombre: string): string {
-  return `Turno ${turno} · ${etiquetaDePeriodo(p)} · ${nombre}`;
+  return `${nombreDeTurno(turno)} · ${etiquetaDePeriodo(p)} · ${nombre}`;
+}
+
+/** "Tarde" → "Turno Tarde"; "Turno mañana", "TURNO noche" o "Túrno x" quedan como están. */
+export function nombreDeTurno(turno: string): string {
+  const plano = turno.trim().normalize("NFD").replace(/[̀-ͯ]/g, "").toLocaleLowerCase(IDIOMA);
+  return /^turno(\s|$)/.test(plano) ? turno.trim() : `Turno ${turno}`;
 }
 
 /** El aviso fijo de un turno que no está entre los del día. El texto entre comillas es el de la pregunta. */
@@ -305,3 +315,85 @@ export function iniciales(nombre: string): string {
   const letras = palabras.length >= 2 ? `${palabras[0]![0]}${palabras[1]![0]}` : (palabras[0] ?? "").slice(0, 2);
   return letras.toLocaleUpperCase(IDIOMA);
 }
+
+// ── Stock (Tanda 8B) ────────────────────────────────────────────────────────
+//
+// Los textos de las tarjetas de stock. La cantidad se muestra como la muestra
+// la pantalla de stock del ERP —su `equivalencia`, tal cual: "30 uds", "2
+// bultos + 6 uds"—; si no viniera, la existencia con su unidad. Nada se
+// calcula: el ERP decide qué está por debajo del mínimo.
+
+/** El tope de la tarjeta antes de "Ver todos". */
+export const PRIMEROS_BAJO_MINIMO = 10;
+
+export const TEXTO_SIN_MINIMO = "Este local no tiene stock mínimo cargado.";
+export const TEXTO_NADA_BAJO_MINIMO = "Nada por debajo del mínimo.";
+export const TEXTO_HAY_MAS_COINCIDENCIAS = "Hay más coincidencias: escribí el nombre más completo.";
+export const TEXTO_BAJO_MINIMO = "Bajo mínimo";
+
+/** "Bajo mínimo · Casiano". */
+export function tituloDeBajoMinimo(nombre: string): string {
+  return `Bajo mínimo · ${nombre}`;
+}
+
+/** "1 producto por debajo del mínimo", "12 productos por debajo del mínimo". */
+export function totalBajoMinimo(n: number): string {
+  return n === 1 ? "1 producto por debajo del mínimo" : `${n.toLocaleString(IDIOMA)} productos por debajo del mínimo`;
+}
+
+/** "Ver todos (23)". */
+export function verTodos(n: number): string {
+  return `Ver todos (${n.toLocaleString(IDIOMA)})`;
+}
+
+/** Cuando el ERP mandó menos de los que hay (tope de 50): "Se muestran 50 de 63." */
+export function seMuestranDe(mostrados: number, total: number): string {
+  return `Se muestran ${mostrados.toLocaleString(IDIOMA)} de ${total.toLocaleString(IDIOMA)}.`;
+}
+
+/** "Stock de «leche» · Casiano". */
+export function tituloDeProductos(texto: string, nombre: string): string {
+  return `Stock de «${texto}» · ${nombre}`;
+}
+
+/** "No encontré «fernet» en Casiano." El texto es el de la pregunta. */
+export function noEncontre(texto: string, nombre: string): string {
+  return `No encontré «${texto}» en ${nombre}.`;
+}
+
+const CANTIDAD_ERP = /^(-?)(\d+)\.(\d+)$/;
+
+/**
+ * Un decimal del ERP ("2.350", "10.00") en es-AR sin ceros de más ("2,35",
+ * "10"), sobre el TEXTO: no pasa por number. Lo que no tiene esa forma, tal cual.
+ */
+export function formatearCantidad(decimal: string): string {
+  const m = CANTIDAD_ERP.exec(decimal);
+  if (!m) return decimal;
+  const [, signo, entero, fraccion] = m as unknown as [string, string, string, string];
+  const conMiles = entero.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  const decimales = fraccion.replace(/0+$/, "");
+  return `${signo}${conMiles}${decimales ? `,${decimales}` : ""}`;
+}
+
+/** Lo que hay, como lo dice la pantalla del ERP; si no viniera, la existencia y su unidad. */
+export function cantidadDeProducto(p: { readonly cantidad: string; readonly unidad: string; readonly equivalencia: string }): string {
+  return p.equivalencia.trim() ? p.equivalencia : `${formatearCantidad(p.cantidad)} ${p.unidad}`;
+}
+
+/** "mín. 10", o null si el producto no tiene el mínimo ajustado. */
+export function minimoDeProducto(p: { readonly stockMinimo: string | null }): string | null {
+  return p.stockMinimo === null ? null : `mín. ${formatearCantidad(p.stockMinimo)}`;
+}
+
+/** Una fila de "bajo mínimo": "Leche Descremada · 3 uds · mín. 10". */
+export function lineaDeBajoMinimo(p: { readonly nombre: string; readonly cantidad: string; readonly unidad: string; readonly equivalencia: string; readonly stockMinimo: string | null }): string {
+  return [p.nombre, cantidadDeProducto(p), minimoDeProducto(p)].filter((x): x is string => !!x).join(" · ");
+}
+
+/** "Stock de «leche» · Todos los locales". */
+export function tituloDeProductosTodos(texto: string): string {
+  return tituloDeProductos(texto, "Todos los locales");
+}
+
+export const TITULO_BAJO_MINIMO_TODOS = "Bajo mínimo · Todos los locales";

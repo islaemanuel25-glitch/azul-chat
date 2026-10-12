@@ -576,8 +576,8 @@ describe("GET local y General: forma pública y proyección", () => {
     // Tanda 6A: sin IA configurada (estos deps no la traen), no hay preguntas.
     assert.equal(r.cuerpo.preguntas, false);
     // Tanda 3A: `ventas` es el anuncio de `ventas_resumen` del mi_alcance de ahora (adminGlobal lo trae en Casiano).
-    // Tanda 7B: `caja`, el de `cajas_resumen`; el mi_alcance del ERP 25172fe no la trae (es anterior), así que false.
-    assert.deepEqual(r.cuerpo.local, { localId: 3, nombre: "Casiano", esDeposito: false, ventas: true, caja: false });
+    // Tanda 7B: `caja`, el de `cajas_resumen`; el mi_alcance del ERP 25172fe no la trae (es anterior), así que false. Tanda 8B: `stock`, lo mismo con `stock_consulta`.
+    assert.deepEqual(r.cuerpo.local, { localId: 3, nombre: "Casiano", esDeposito: false, ventas: true, caja: false, stock: false });
     const ids = r.cuerpo.eventos.map((e) => e.id);
     // Los cuatro, del más reciente al más antiguo; 181 y 182 en el mismo milisegundo, por id descendente.
     assert.deepEqual(r.cuerpo.eventos.map((e) => recibida(e).transferenciaId), [183, 182, 181, 180]);
@@ -959,6 +959,7 @@ describe("la lectura que decide la interfaz, contra el servidor (Tanda 2C)", () 
       noLeidos: r.noLeidos,
       ventas: r.local.ventas,
       caja: r.local.caja,
+      stock: r.local.stock,
       preguntas: r.preguntas,
     },
   });
@@ -1231,6 +1232,7 @@ describe("Tanda 4B: la lectura con varios tipos y backfills intercalados", () =>
       noLeidos: r.noLeidos,
       ventas: r.local.ventas,
       caja: r.local.caja,
+      stock: r.local.stock,
       preguntas: r.preguntas,
     },
   });

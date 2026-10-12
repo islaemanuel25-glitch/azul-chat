@@ -64,6 +64,13 @@ const RUTAS = {
     metodos: ["GET"],
     importa: ["../../../../server/chats/manejadores.ts", "../../../../server/sesion/dependencias.ts"],
   },
+  // Tanda 8B: los productos bajo mínimo de un local. Igual que caja: una acción
+  // concreta —modo fijo "bajo_minimo", el local por query—, no un pase genérico
+  // a `stock_consulta`. El texto de un producto solo viaja por las preguntas.
+  "src/app/api/chats/stock/route.ts": {
+    metodos: ["GET"],
+    importa: ["../../../../server/chats/manejadores.ts", "../../../../server/sesion/dependencias.ts"],
+  },
   // Tanda 6A: una pregunta en lenguaje natural. Una acción concreta —la IA solo
   // elige una intención de un catálogo cerrado; ventas y eventos los arma el
   // código—, no un pase genérico al ERP ni a la IA. Con sesión y Origin.
@@ -146,6 +153,12 @@ describe("las rutas son acciones concretas", () => {
         "src/app/api/chats/caja/route.ts": `${arbol["src/app/api/chats/caja/route.ts"]}\nconst c = (r: Request) => new URL(r.url).searchParams.get("capacidad");\n`,
       },
       cajaPorSegmento: { "src/app/api/chats/caja/[periodo]/route.ts": "export async function GET() {}\n" },
+      // Tanda 8B: la ruta de stock solo delega, solo GET, y no recibe ni el modo ni un texto.
+      stockPost: { "src/app/api/chats/stock/route.ts": `${arbol["src/app/api/chats/stock/route.ts"]}\nexport function POST() {}\n` },
+      stockTexto: {
+        "src/app/api/chats/stock/route.ts": `${arbol["src/app/api/chats/stock/route.ts"]}\nconst t = (r: Request) => new URL(r.url).searchParams.get("texto");\n`,
+      },
+      stockPorSegmento: { "src/app/api/chats/stock/[texto]/route.ts": "export async function GET() {}\n" },
     };
     for (const [nombre, cambio] of Object.entries(casos)) {
       assert.notDeepEqual(violacionesDeRutas({ ...arbol, ...cambio }), [], nombre);

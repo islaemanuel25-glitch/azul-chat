@@ -8,7 +8,7 @@
 // Los ids de evento son BigInt en la base y viajan como TEXTO: acá se comparan
 // con BigInt y no se convierten nunca a Number.
 
-import type { EstadoSincronizacion, EventoGeneral, EventoPublico, LocalDeChats, RespuestaCaja, RespuestaChats, RespuestaVentas } from "../../shared/chats/api.ts";
+import type { EstadoSincronizacion, EventoGeneral, EventoPublico, LocalDeChats, RespuestaCaja, RespuestaChats, RespuestaStock, RespuestaVentas } from "../../shared/chats/api.ts";
 import type { FallaCliente, RespuestaDePregunta, Resultado } from "./clienteChats.ts";
 import type { PreguntaGuardada } from "../../shared/chats/preguntas.ts";
 
@@ -147,6 +147,8 @@ export type InfoLocal = {
   readonly ventas: boolean;
   /** Tanda 7B: lo mismo con `cajas_resumen` y el chip "Caja". */
   readonly caja: boolean;
+  /** Tanda 8B: lo mismo con `stock_consulta` y el chip "Stock". */
+  readonly stock: boolean;
   /** Hay preguntas en lenguaje natural (Tanda 6A): la caja se muestra. */
   readonly preguntas: boolean;
 };
@@ -287,7 +289,7 @@ export function reducirVentas(estado: EstadoVentas, accion: AccionVentas): Estad
   return trasFallaDeConsulta(r.falla);
 }
 
-/** Una falla de una consulta de un toque (ventas, caja). Cancelada: la pantalla se fue o se volvió a pedir; no se muestra. */
+/** Una falla de una consulta de un toque (ventas, caja, stock). Cancelada: la pantalla se fue o se volvió a pedir; no se muestra. */
 function trasFallaDeConsulta(f: FallaCliente): { readonly fase: "QUIETO" } | { readonly fase: "FALLA"; readonly cupo: boolean } {
   if (f.estado === "CANCELADA") return { fase: "QUIETO" };
   return { fase: "FALLA", cupo: f.estado === "ERP_CUPO_EXCEDIDO" };
@@ -311,6 +313,28 @@ export function reducirCaja(estado: EstadoCaja, accion: AccionCaja): EstadoCaja 
   if (estado.fase !== "CARGANDO") return estado;
   const r = accion.resultado;
   if (r.ok) return { fase: "LISTA", cajas: r.datos };
+  return trasFallaDeConsulta(r.falla);
+}
+
+// ── Stock bajo mínimo (Tanda 8B) ────────────────────────────────────────────
+//
+// Igual que Ventas y Caja: una consulta por toque del chip "Stock", nada se
+// guarda, nada se refresca solo, reintentar es otro toque. "Sin mínimo" no es
+// una falla: viene como LISTA con `sinMinimo`.
+
+export type EstadoStock =
+  | { readonly fase: "QUIETO" }
+  | { readonly fase: "CARGANDO" }
+  | { readonly fase: "LISTA"; readonly stock: Extract<RespuestaStock, { estado: "OK" }> }
+  | { readonly fase: "FALLA"; readonly cupo: boolean };
+
+export type AccionStock = { readonly tipo: "PEDIR" } | { readonly tipo: "RESPUESTA"; readonly resultado: Resultado<Extract<RespuestaStock, { estado: "OK" }>> };
+
+export function reducirStock(estado: EstadoStock, accion: AccionStock): EstadoStock {
+  if (accion.tipo === "PEDIR") return { fase: "CARGANDO" };
+  if (estado.fase !== "CARGANDO") return estado;
+  const r = accion.resultado;
+  if (r.ok) return { fase: "LISTA", stock: r.datos };
   return trasFallaDeConsulta(r.falla);
 }
 

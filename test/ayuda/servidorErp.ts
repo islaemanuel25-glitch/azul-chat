@@ -199,12 +199,40 @@ export const FIXTURES_ERP_14AE247 = JSON.parse(readFileSync(path.join(import.met
   miAlcance: Record<"tesoreria" | "encargado", IntercambioErp>;
 };
 
+/** Lo que el ERP grabó para `stock_consulta` en modo producto: un caso por texto. */
+export type CasosStockProducto = Record<
+  "variasCoincidencias" | "unaPorCodigo" | "ninguna" | "hayMas" | "enUnidadesYKg" | "enUnidadesEnElLocal" | "enBultosEnElDeposito",
+  IntercambioErp
+>;
+
+/**
+ * `stock_consulta` y `mi_alcance` con esa capacidad, del ERP en producción
+ * (erpmanual 41f702b, PR #170, Tanda 8A). Es una COPIA SIN TOCAR de
+ * `docs/integraciones/azul-chat/erp-stock-consulta.json` de ese commit (sha256
+ * 593aca1e…6c1a5, el mismo byte a byte): lo generó
+ * `scripts/pruebas-db/azulChatStockConsulta.mjs` del ERP EJECUTANDO su puerta
+ * contra una base descartable, en c3ebeb5 (ver su `_origen`; el merge 41f702b
+ * no cambió el código de la capacidad). Un local con leches (dos con mínimo y
+ * faltantes), un queso en kg, una cerveza pack x12 y doce alfajores; un
+ * depósito con la cerveza en bultos y sin ningún mínimo ajustado. No se edita a
+ * mano: se vuelve a copiar.
+ */
+export const FIXTURES_ERP_41F702B = JSON.parse(readFileSync(path.join(import.meta.dirname, "../fixtures/erp-41f702b.json"), "utf8")) as {
+  ahora: string;
+  producto: CasosStockProducto;
+  bajoMinimo: Record<"conFaltantes" | "stockMinimoNoDisponible", IntercambioErp>;
+  rechazos: Record<"textoCorto" | "modoInvalido" | "sinPermiso", IntercambioErp>;
+  miAlcance: Record<"encargado" | "cajero", IntercambioErp>;
+};
+
 /**
  * Los códigos públicos del ERP en producción, con su status y su cuerpo
- * reales: los de 8920516, más TURNO_OPERATIVO_INVALIDO, que agregó 14ae247
- * (`respuestaPublica.js`), con la respuesta que grabó su fixture.
+ * reales: los de 8920516, más TURNO_OPERATIVO_INVALIDO, que agregó 14ae247, y
+ * STOCK_MINIMO_NO_DISPONIBLE, que agregó 41f702b (`respuestaPublica.js`), con
+ * la respuesta que grabó su fixture.
  */
 export const ERRORES_ERP: Record<string, { status: number; cuerpo: Record<string, unknown> }> = {
   ...FIXTURES_ERP.errores,
   TURNO_OPERATIVO_INVALIDO: FIXTURES_ERP_14AE247.rechazos.turnoInexistente.respuesta,
+  STOCK_MINIMO_NO_DISPONIBLE: FIXTURES_ERP_41F702B.bajoMinimo.stockMinimoNoDisponible.respuesta,
 };

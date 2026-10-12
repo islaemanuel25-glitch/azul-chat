@@ -1,0 +1,673 @@
+{
+  "_origen": {
+    "generadoPor": "scripts/pruebas-db/azulChatStockConsulta.mjs",
+    "commit": "c3ebeb5",
+    "nota": "Pedidos y respuestas reales de la puerta del ERP (atenderSolicitudAzulChat) contra una base descartable. Un local con leches (dos con mínimo ajustado y faltantes), un queso en kg, una cerveza pack x12 y doce alfajores; un depósito con la misma cerveza en bultos y sin ningún mínimo ajustado. No se edita a mano: se regenera."
+  },
+  "ahora": "2026-10-12T01:43:39.716Z",
+  "producto": {
+    "variasCoincidencias": {
+      "pedido": {
+        "capacidad": "stock_consulta",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 1
+        },
+        "parametros": {
+          "modo": "producto",
+          "texto": "leche"
+        }
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "stock_consulta",
+            "version": 1,
+            "local": {
+              "id": 1,
+              "nombre": "Local Centro",
+              "esDeposito": false
+            },
+            "grupoId": 1,
+            "modo": "producto",
+            "texto": "leche",
+            "productos": [
+              {
+                "productoId": 1,
+                "nombre": "Leche Entera La Serenísima",
+                "codigo": "7790001000012",
+                "cantidad": "24.000",
+                "unidad": "Unidad",
+                "equivalencia": "24 uds",
+                "stockMinimo": "10.00",
+                "bajoMinimo": false
+              },
+              {
+                "productoId": 2,
+                "nombre": "Leche Descremada",
+                "codigo": "7790001000029",
+                "cantidad": "3.000",
+                "unidad": "Unidad",
+                "equivalencia": "3 uds",
+                "stockMinimo": "10.00",
+                "bajoMinimo": true
+              },
+              {
+                "productoId": 3,
+                "nombre": "Dulce de Leche Serenísima",
+                "codigo": "7790001000036",
+                "cantidad": "1.000",
+                "unidad": "Unidad",
+                "equivalencia": "1 uds",
+                "stockMinimo": "4.00",
+                "bajoMinimo": true
+              }
+            ],
+            "hayMas": false
+          }
+        }
+      }
+    },
+    "unaPorCodigo": {
+      "pedido": {
+        "capacidad": "stock_consulta",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 1
+        },
+        "parametros": {
+          "modo": "producto",
+          "texto": "7790001000029"
+        }
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "stock_consulta",
+            "version": 1,
+            "local": {
+              "id": 1,
+              "nombre": "Local Centro",
+              "esDeposito": false
+            },
+            "grupoId": 1,
+            "modo": "producto",
+            "texto": "7790001000029",
+            "productos": [
+              {
+                "productoId": 2,
+                "nombre": "Leche Descremada",
+                "codigo": "7790001000029",
+                "cantidad": "3.000",
+                "unidad": "Unidad",
+                "equivalencia": "3 uds",
+                "stockMinimo": "10.00",
+                "bajoMinimo": true
+              }
+            ],
+            "hayMas": false
+          }
+        }
+      }
+    },
+    "ninguna": {
+      "pedido": {
+        "capacidad": "stock_consulta",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 1
+        },
+        "parametros": {
+          "modo": "producto",
+          "texto": "fernet"
+        }
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "stock_consulta",
+            "version": 1,
+            "local": {
+              "id": 1,
+              "nombre": "Local Centro",
+              "esDeposito": false
+            },
+            "grupoId": 1,
+            "modo": "producto",
+            "texto": "fernet",
+            "productos": [],
+            "hayMas": false
+          }
+        }
+      }
+    },
+    "hayMas": {
+      "pedido": {
+        "capacidad": "stock_consulta",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 1
+        },
+        "parametros": {
+          "modo": "producto",
+          "texto": "alfajor"
+        }
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "stock_consulta",
+            "version": 1,
+            "local": {
+              "id": 1,
+              "nombre": "Local Centro",
+              "esDeposito": false
+            },
+            "grupoId": 1,
+            "modo": "producto",
+            "texto": "alfajor",
+            "productos": [
+              {
+                "productoId": 7,
+                "nombre": "Alfajor Havanna 01",
+                "codigo": null,
+                "cantidad": "1.000",
+                "unidad": "Unidad",
+                "equivalencia": "1 uds",
+                "stockMinimo": null,
+                "bajoMinimo": null
+              },
+              {
+                "productoId": 8,
+                "nombre": "Alfajor Havanna 02",
+                "codigo": null,
+                "cantidad": "2.000",
+                "unidad": "Unidad",
+                "equivalencia": "2 uds",
+                "stockMinimo": null,
+                "bajoMinimo": null
+              },
+              {
+                "productoId": 9,
+                "nombre": "Alfajor Havanna 03",
+                "codigo": null,
+                "cantidad": "3.000",
+                "unidad": "Unidad",
+                "equivalencia": "3 uds",
+                "stockMinimo": null,
+                "bajoMinimo": null
+              },
+              {
+                "productoId": 10,
+                "nombre": "Alfajor Havanna 04",
+                "codigo": null,
+                "cantidad": "4.000",
+                "unidad": "Unidad",
+                "equivalencia": "4 uds",
+                "stockMinimo": null,
+                "bajoMinimo": null
+              },
+              {
+                "productoId": 11,
+                "nombre": "Alfajor Havanna 05",
+                "codigo": null,
+                "cantidad": "5.000",
+                "unidad": "Unidad",
+                "equivalencia": "5 uds",
+                "stockMinimo": "5.00",
+                "bajoMinimo": false
+              },
+              {
+                "productoId": 12,
+                "nombre": "Alfajor Havanna 06",
+                "codigo": null,
+                "cantidad": "6.000",
+                "unidad": "Unidad",
+                "equivalencia": "6 uds",
+                "stockMinimo": null,
+                "bajoMinimo": null
+              },
+              {
+                "productoId": 13,
+                "nombre": "Alfajor Havanna 07",
+                "codigo": null,
+                "cantidad": "7.000",
+                "unidad": "Unidad",
+                "equivalencia": "7 uds",
+                "stockMinimo": null,
+                "bajoMinimo": null
+              },
+              {
+                "productoId": 14,
+                "nombre": "Alfajor Havanna 08",
+                "codigo": null,
+                "cantidad": "8.000",
+                "unidad": "Unidad",
+                "equivalencia": "8 uds",
+                "stockMinimo": null,
+                "bajoMinimo": null
+              },
+              {
+                "productoId": 15,
+                "nombre": "Alfajor Havanna 09",
+                "codigo": null,
+                "cantidad": "9.000",
+                "unidad": "Unidad",
+                "equivalencia": "9 uds",
+                "stockMinimo": null,
+                "bajoMinimo": null
+              },
+              {
+                "productoId": 16,
+                "nombre": "Alfajor Havanna 10",
+                "codigo": null,
+                "cantidad": "10.000",
+                "unidad": "Unidad",
+                "equivalencia": "10 uds",
+                "stockMinimo": null,
+                "bajoMinimo": null
+              }
+            ],
+            "hayMas": true
+          }
+        }
+      }
+    },
+    "enUnidadesYKg": {
+      "pedido": {
+        "capacidad": "stock_consulta",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 1
+        },
+        "parametros": {
+          "modo": "producto",
+          "texto": "queso"
+        }
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "stock_consulta",
+            "version": 1,
+            "local": {
+              "id": 1,
+              "nombre": "Local Centro",
+              "esDeposito": false
+            },
+            "grupoId": 1,
+            "modo": "producto",
+            "texto": "queso",
+            "productos": [
+              {
+                "productoId": 5,
+                "nombre": "Queso Cremoso",
+                "codigo": null,
+                "cantidad": "2.350",
+                "unidad": "Kg",
+                "equivalencia": "2.350 kg",
+                "stockMinimo": null,
+                "bajoMinimo": null
+              }
+            ],
+            "hayMas": false
+          }
+        }
+      }
+    },
+    "enUnidadesEnElLocal": {
+      "pedido": {
+        "capacidad": "stock_consulta",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 1
+        },
+        "parametros": {
+          "modo": "producto",
+          "texto": "cerveza"
+        }
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "stock_consulta",
+            "version": 1,
+            "local": {
+              "id": 1,
+              "nombre": "Local Centro",
+              "esDeposito": false
+            },
+            "grupoId": 1,
+            "modo": "producto",
+            "texto": "cerveza",
+            "productos": [
+              {
+                "productoId": 6,
+                "nombre": "Cerveza Quilmes 1 L",
+                "codigo": "7790070000016",
+                "cantidad": "30.000",
+                "unidad": "Unidad",
+                "equivalencia": "30 uds",
+                "stockMinimo": null,
+                "bajoMinimo": null
+              }
+            ],
+            "hayMas": false
+          }
+        }
+      }
+    },
+    "enBultosEnElDeposito": {
+      "pedido": {
+        "capacidad": "stock_consulta",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 2
+        },
+        "parametros": {
+          "modo": "producto",
+          "texto": "cerveza"
+        }
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "stock_consulta",
+            "version": 1,
+            "local": {
+              "id": 2,
+              "nombre": "Depósito Central",
+              "esDeposito": true
+            },
+            "grupoId": 1,
+            "modo": "producto",
+            "texto": "cerveza",
+            "productos": [
+              {
+                "productoId": 19,
+                "nombre": "Cerveza Quilmes 1 L",
+                "codigo": "7790070000016",
+                "cantidad": "30.000",
+                "unidad": "Pack x12",
+                "equivalencia": "2 bultos + 6 uds",
+                "stockMinimo": null,
+                "bajoMinimo": null
+              }
+            ],
+            "hayMas": false
+          }
+        }
+      }
+    }
+  },
+  "bajoMinimo": {
+    "conFaltantes": {
+      "pedido": {
+        "capacidad": "stock_consulta",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 1
+        },
+        "parametros": {
+          "modo": "bajo_minimo"
+        }
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "stock_consulta",
+            "version": 1,
+            "local": {
+              "id": 1,
+              "nombre": "Local Centro",
+              "esDeposito": false
+            },
+            "grupoId": 1,
+            "modo": "bajo_minimo",
+            "texto": null,
+            "productos": [
+              {
+                "productoId": 3,
+                "nombre": "Dulce de Leche Serenísima",
+                "codigo": "7790001000036",
+                "cantidad": "1.000",
+                "unidad": "Unidad",
+                "equivalencia": "1 uds",
+                "stockMinimo": "4.00",
+                "bajoMinimo": true
+              },
+              {
+                "productoId": 2,
+                "nombre": "Leche Descremada",
+                "codigo": "7790001000029",
+                "cantidad": "3.000",
+                "unidad": "Unidad",
+                "equivalencia": "3 uds",
+                "stockMinimo": "10.00",
+                "bajoMinimo": true
+              }
+            ],
+            "total": 2,
+            "hayMas": false
+          }
+        }
+      }
+    },
+    "stockMinimoNoDisponible": {
+      "pedido": {
+        "capacidad": "stock_consulta",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 2
+        },
+        "parametros": {
+          "modo": "bajo_minimo"
+        }
+      },
+      "respuesta": {
+        "status": 409,
+        "cuerpo": {
+          "ok": false,
+          "codigo": "STOCK_MINIMO_NO_DISPONIBLE",
+          "error": "Ningún producto de este local tiene el stock mínimo ajustado."
+        }
+      }
+    }
+  },
+  "rechazos": {
+    "textoCorto": {
+      "pedido": {
+        "capacidad": "stock_consulta",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 1
+        },
+        "parametros": {
+          "modo": "producto",
+          "texto": "l"
+        }
+      },
+      "respuesta": {
+        "status": 400,
+        "cuerpo": {
+          "ok": false,
+          "codigo": "SOLICITUD_INVALIDA",
+          "error": "La solicitud no tiene la forma esperada."
+        }
+      }
+    },
+    "modoInvalido": {
+      "pedido": {
+        "capacidad": "stock_consulta",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 1
+        },
+        "parametros": {
+          "modo": "todo"
+        }
+      },
+      "respuesta": {
+        "status": 400,
+        "cuerpo": {
+          "ok": false,
+          "codigo": "SOLICITUD_INVALIDA",
+          "error": "La solicitud no tiene la forma esperada."
+        }
+      }
+    },
+    "sinPermiso": {
+      "pedido": {
+        "capacidad": "stock_consulta",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 1
+        },
+        "parametros": {
+          "modo": "bajo_minimo"
+        }
+      },
+      "respuesta": {
+        "status": 403,
+        "cuerpo": {
+          "ok": false,
+          "codigo": "NO_AUTORIZADO",
+          "error": "El usuario no está autorizado para esta consulta."
+        }
+      }
+    }
+  },
+  "miAlcance": {
+    "encargado": {
+      "pedido": {
+        "capacidad": "mi_alcance",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "parametros": {}
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "mi_alcance",
+            "version": 1,
+            "usuario": {
+              "id": 1,
+              "nombre": "encargado-centro"
+            },
+            "alcance": {
+              "modo": "LOCAL"
+            },
+            "locales": [
+              {
+                "id": 1,
+                "nombre": "Local Centro",
+                "grupoId": 1,
+                "esDeposito": false,
+                "activo": true,
+                "capacidades": [
+                  "ventas_resumen",
+                  "transferencias_eventos",
+                  "pedidos_eventos",
+                  "envios_eventos",
+                  "cancelaciones_eventos",
+                  "stock_consulta"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    "cajero": {
+      "pedido": {
+        "capacidad": "mi_alcance",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "parametros": {}
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "mi_alcance",
+            "version": 1,
+            "usuario": {
+              "id": 3,
+              "nombre": "cajero-centro"
+            },
+            "alcance": {
+              "modo": "LOCAL"
+            },
+            "locales": [
+              {
+                "id": 1,
+                "nombre": "Local Centro",
+                "grupoId": 1,
+                "esDeposito": false,
+                "activo": true,
+                "capacidades": []
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

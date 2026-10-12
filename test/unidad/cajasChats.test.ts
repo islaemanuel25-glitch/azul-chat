@@ -144,6 +144,7 @@ describe("la intención de caja y de ventas por turno", () => {
       { localId: 2, grupoId: 1, nombre: "Norte" },
     ],
     caja: [{ localId: 1, grupoId: 1, nombre: "Centro" }],
+    stock: [],
   };
   const salida = (o: Record<string, unknown>) => ({
     intencion: "caja",
@@ -153,6 +154,8 @@ describe("la intención de caja y de ventas por turno", () => {
     desde: null,
     hasta: null,
     turno: null,
+    modoStock: null,
+    producto: null,
     restriccionesNoSoportadas: [],
     ...o,
   });

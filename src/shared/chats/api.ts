@@ -144,6 +144,8 @@ export type RespuestaLocal =
         readonly ventas: boolean;
         /** Tanda 7B: lo mismo para `cajas_resumen` y el chip "Caja". GET /api/chats/caja lo vuelve a decidir. */
         readonly caja: boolean;
+        /** Tanda 8B: lo mismo para `stock_consulta` y el chip "Stock". GET /api/chats/stock lo vuelve a decidir. */
+        readonly stock: boolean;
       };
       readonly sincronizacion: EstadoSincronizacion;
       /**
@@ -300,6 +302,53 @@ export type CajasDelDia = {
  */
 export type RespuestaCaja = ({ readonly estado: "OK" } & CajasDelDia) | FallaChats;
 
+// ── El stock de un local (Tanda 8B) ────────────────────────────────────────
+//
+// Lo que `stock_consulta` del ERP contestó, copiado campo por campo. La
+// cantidad es la existencia con tres decimales; `equivalencia` es el texto que
+// muestra la pantalla de stock del ERP ("30 uds", "2 bultos + 6 uds"). El
+// mínimo y "bajo mínimo" van juntos: los dos null si no hay mínimo ajustado.
+
+export type ProductoDeStockPublico = {
+  readonly productoId: number;
+  readonly nombre: string;
+  readonly codigo: string | null;
+  readonly cantidad: string;
+  readonly unidad: string;
+  readonly equivalencia: string;
+  readonly stockMinimo: string | null;
+  readonly bajoMinimo: boolean | null;
+};
+
+/**
+ * Los productos bajo mínimo de un local. `sinMinimo`: el local no tiene
+ * ningún producto con el mínimo ajustado (STOCK_MINIMO_NO_DISPONIBLE del
+ * ERP), que no es una falla: se dice así.
+ */
+export type BajoMinimoDelLocal =
+  | {
+      readonly local: { readonly id: number; readonly nombre: string };
+      readonly sinMinimo: false;
+      readonly total: number;
+      readonly hayMas: boolean;
+      readonly productos: readonly ProductoDeStockPublico[];
+    }
+  | { readonly local: { readonly id: number; readonly nombre: string }; readonly sinMinimo: true };
+
+/** Lo que encontró el buscador del ERP en un local: hasta 10, y `hayMas`. */
+export type ProductosDelLocal = {
+  readonly local: { readonly id: number; readonly nombre: string };
+  readonly texto: string;
+  readonly productos: readonly ProductoDeStockPublico[];
+  readonly hayMas: boolean;
+};
+
+/**
+ * GET /api/chats/stock?localId=… — los productos bajo mínimo de un local, como
+ * los calcula el ERP en esta solicitud. Nada se guarda.
+ */
+export type RespuestaStock = ({ readonly estado: "OK" } & BajoMinimoDelLocal) | FallaChats;
+
 /** Las rutas, para la interfaz. */
 export const RUTAS_CHATS = Object.freeze({
   chats: "/api/chats",
@@ -308,5 +357,6 @@ export const RUTAS_CHATS = Object.freeze({
   leido: "/api/chats/leido",
   ventas: "/api/chats/ventas",
   caja: "/api/chats/caja",
+  stock: "/api/chats/stock",
   preguntar: "/api/chats/preguntar",
 });

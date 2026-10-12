@@ -129,7 +129,7 @@ const cuerpoChats = (estado: EstadoChats, filtro: "TODOS" | "NO_LEIDOS" = "TODOS
   dibujar(createElement(CuerpoChats, { estado, filtro, alCambiarFiltro: nada, alAbrir: nada, alReintentar: nada, ahora: AHORA, zona: ZONA }));
 
 type EstLocal = EstadoConversacion<EventoPublico, InfoLocal>;
-const INFO_LOCAL: InfoLocal = { tipo: "LOCAL", localId: 3, nombre: "Casiano", sincronizacion: "AL_DIA", leidoHasta: "2", noLeidos: 2, ventas: true, caja: false, preguntas: false };
+const INFO_LOCAL: InfoLocal = { tipo: "LOCAL", localId: 3, nombre: "Casiano", sincronizacion: "AL_DIA", leidoHasta: "2", noLeidos: 2, ventas: true, caja: false, stock: false, preguntas: false };
 const lista = (eventos: readonly EventoPublico[], extra: Partial<Extract<EstLocal, { fase: "LISTA" }>> = {}): EstLocal => ({
   fase: "LISTA",
   eventos,

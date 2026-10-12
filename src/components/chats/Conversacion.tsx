@@ -38,8 +38,9 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useReducer, useRef, 
 import type { EventoGeneral, EventoPublico } from "../../shared/chats/api.ts";
 import type { PreguntaGuardada } from "../../shared/chats/preguntas.ts";
 import { ShellMovil } from "../shell/ShellMovil.tsx";
-import { marcarLeido, pedirCaja, pedirGeneral, pedirLocal, pedirVentas, type FallaCliente, type Resultado } from "./clienteChats.ts";
+import { marcarLeido, pedirCaja, pedirGeneral, pedirLocal, pedirStock, pedirVentas, type FallaCliente, type Resultado } from "./clienteChats.ts";
 import { ResultadoCaja } from "./Cajas.tsx";
+import { ResultadoStock } from "./Stock.tsx";
 import { useEsperaTrasCupo } from "./esperaCupo.ts";
 import { diaDe, etiquetaDeDia } from "./formato.ts";
 import {
@@ -47,12 +48,14 @@ import {
   destinoDeFalla,
   elementosEnOrden,
   reducirCaja,
+  reducirStock,
   reducirConversacion,
   reducirVentas,
   sinLasGuardadas,
   tituloDeLocal,
   type AccionConversacion,
   type EstadoCaja,
+  type EstadoStock,
   type EstadoConversacion,
   type EstadoVentas,
   type InfoGeneral,
@@ -318,6 +321,7 @@ export function PantallaLocal({
             noLeidos: d.noLeidos,
             ventas: d.local.ventas,
             caja: d.local.caja,
+            stock: d.local.stock,
             preguntas: d.preguntas,
           },
         },
@@ -332,6 +336,7 @@ export function PantallaLocal({
   const info = estado.fase === "LISTA" ? estado.info : null;
   const ventas = useVentas(localId, alPerderSesion, espera.anotar);
   const caja = useCaja(localId, alPerderSesion, espera.anotar);
+  const stock = useStock(localId, alPerderSesion, espera.anotar);
   const preguntas = usePreguntas(localId, alPerderSesion, espera.anotar);
 
   return (
@@ -355,6 +360,7 @@ export function PantallaLocal({
         estado={ventas.estado}
         alPedir={ventas.pedir}
         caja={info?.caja === true ? { estado: caja.estado, alPedir: caja.pedir } : null}
+        stock={info?.stock === true ? { estado: stock.estado, alPedir: stock.pedir } : null}
         enEspera={espera.enEspera}
         iaDisponible={info?.preguntas === true}
         preguntas={{ ...preguntas, preguntas: sinLasGuardadas(preguntas.preguntas, estado.fase === "LISTA" ? estado.guardadas : []) }}
@@ -418,6 +424,33 @@ function useCaja(localId: number, alPerderSesion: AlPerderSesion, alFallar: (f: 
   return { estado, pedir };
 }
 
+/**
+ * Productos bajo mínimo de un Local (Tanda 8B): igual que useCaja, con su
+ * propia consulta. Una por toque, se cancela al volver a pedir o al salir.
+ */
+function useStock(localId: number, alPerderSesion: AlPerderSesion, alFallar: (f: FallaCliente) => void) {
+  const [estado, despachar] = useReducer(reducirStock, { fase: "QUIETO" });
+  const enCurso = useRef<AbortController | null>(null);
+
+  useEffect(() => () => enCurso.current?.abort(), []);
+
+  const pedir = useCallback(() => {
+    enCurso.current?.abort();
+    const control = new AbortController();
+    enCurso.current = control;
+    despachar({ tipo: "PEDIR" });
+    void pedirStock(localId, control.signal).then((resultado) => {
+      if (control.signal.aborted) return;
+      enCurso.current = null;
+      if (!resultado.ok && resultado.falla.estado === "SIN_SESION") return alPerderSesion(resultado.falla.motivo);
+      if (!resultado.ok) alFallar(resultado.falla);
+      despachar({ tipo: "RESPUESTA", resultado });
+    });
+  }, [localId, alPerderSesion, alFallar]);
+
+  return { estado, pedir };
+}
+
 /** Las preguntas de una pantalla, como las arma usePreguntas (Tanda 6A). */
 type PreguntasDeLaPantalla = Pick<ReturnType<typeof usePreguntas>, "preguntas" | "enviando" | "alEnviar" | "alReintentar">;
 
@@ -434,6 +467,7 @@ export function AccionesDelLocal({
   estado,
   alPedir,
   caja = null,
+  stock = null,
   enEspera = false,
   iaDisponible = false,
   preguntas: todasLasPreguntas = null,
@@ -443,6 +477,8 @@ export function AccionesDelLocal({
   alPedir: () => void;
   /** Tanda 7B: con el anuncio de `cajas_resumen`, el chip "Caja" y su tarjeta. Sin él, null: ni chip ni tarjeta. */
   caja?: { readonly estado: EstadoCaja; readonly alPedir: () => void } | null;
+  /** Tanda 8B: con el anuncio de `stock_consulta`, el chip "Stock" y su tarjeta. Sin él, null: ni chip ni tarjeta. */
+  stock?: { readonly estado: EstadoStock; readonly alPedir: () => void } | null;
   enEspera?: boolean;
   iaDisponible?: boolean;
   preguntas?: PreguntasDeLaPantalla | null;
@@ -452,17 +488,19 @@ export function AccionesDelLocal({
   const cantidadDePreguntas = preguntas?.preguntas.length ?? 0;
   const ultimaFase = preguntas?.preguntas.at(-1)?.estado.fase;
   const estadoCaja = caja?.estado;
+  const estadoStock = stock?.estado;
   // La tarjeta nueva queda a la vista, como un mensaje que llega al final del chat.
   useLayoutEffect(() => {
     const llego = (f: string | undefined) => f === "LISTA" || f === "FALLA";
-    if (llego(estado.fase) || llego(estadoCaja?.fase) || cantidadDePreguntas > 0) tarjeta.current?.scrollIntoView({ block: "end" });
-  }, [estado, estadoCaja, cantidadDePreguntas, ultimaFase]);
-  if (!anuncia && !caja && !preguntas) return null;
+    if (llego(estado.fase) || llego(estadoCaja?.fase) || llego(estadoStock?.fase) || cantidadDePreguntas > 0) tarjeta.current?.scrollIntoView({ block: "end" });
+  }, [estado, estadoCaja, estadoStock, cantidadDePreguntas, ultimaFase]);
+  if (!anuncia && !caja && !stock && !preguntas) return null;
   return (
     <>
       <div ref={tarjeta} className="ac-ventas-al-final">
         {anuncia && <ResultadoVentas estado={estado} alReintentar={alPedir} enEspera={enEspera} />}
         {caja && <ResultadoCaja estado={caja.estado} alReintentar={caja.alPedir} enEspera={enEspera} />}
+        {stock && <ResultadoStock estado={stock.estado} alReintentar={stock.alPedir} enEspera={enEspera} />}
         {preguntas && <ListaDePreguntas preguntas={preguntas.preguntas} alReintentar={preguntas.alReintentar} enEspera={enEspera} />}
       </div>
       <BarraVentas
@@ -471,6 +509,7 @@ export function AccionesDelLocal({
         enEspera={enEspera}
         conVentas={anuncia}
         caja={caja ? { cargando: caja.estado.fase === "CARGANDO", alPedir: caja.alPedir } : null}
+        stock={stock ? { cargando: stock.estado.fase === "CARGANDO", alPedir: stock.alPedir } : null}
       >
         {preguntas && <CajaPregunta texto={TEXTO_CAJA.local} enviando={preguntas.enviando} alEnviar={preguntas.alEnviar} />}
       </BarraVentas>

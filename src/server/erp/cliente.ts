@@ -12,6 +12,7 @@
 //   · enviosEventos(token, entrada)           → POST /api/integraciones/azul-chat/consultar
 //   · cancelacionesEventos(token, entrada)    → POST /api/integraciones/azul-chat/consultar
 //   · cajasResumen(token, entrada)            → POST /api/integraciones/azul-chat/consultar (Tanda 7B)
+//   · stockConsulta(token, entrada)           → POST /api/integraciones/azul-chat/consultar (Tanda 8B)
 //
 // No recibe URLs, rutas, métodos, cabeceras ni nombres de capacidad de quien lo
 // usa: no hay forma de pedirle que llame otra cosa. Una capacidad nueva es un
@@ -59,6 +60,8 @@ import {
   esDatosVentasResumen,
   esDatosCajasResumen,
   type DatosCajasResumen,
+  esDatosStockConsulta,
+  type DatosStockConsulta,
   type CodigoErrorLocal,
   type DatosMiAlcance,
   type DatosTransferenciasEventos,
@@ -76,6 +79,7 @@ import { construirCuerpoEventos } from "./eventos.ts";
 import { construirCuerpoTransferenciasEventos } from "./transferenciasEventos.ts";
 import { construirCuerpoVentasResumen } from "./ventasResumen.ts";
 import { construirCuerpoCajasResumen } from "./cajasResumen.ts";
+import { construirCuerpoStockConsulta } from "./stockConsulta.ts";
 
 /** Las únicas dos rutas del ERP que este cliente sabe llamar. */
 export const RUTA_CONSULTAR = "/api/integraciones/azul-chat/consultar";
@@ -120,6 +124,8 @@ export type ClienteErp = {
   cancelacionesEventos(token: string, entrada: unknown): Promise<ResultadoConsulta<DatosCancelacionesEventos>>;
   /** Las cajas de un local en UN día, por turno operativo (Tanda 7B). `entrada` = `{ alcance, periodo }`. */
   cajasResumen(token: string, entrada: unknown): Promise<ResultadoConsulta<DatosCajasResumen>>;
+  /** El stock de un local: un producto por texto, o los que están bajo mínimo (Tanda 8B). `entrada` = `{ alcance, parametros }`. */
+  stockConsulta(token: string, entrada: unknown): Promise<ResultadoConsulta<DatosStockConsulta>>;
 };
 
 /** Lee el cuerpo de la respuesta sin pasarse de `max` bytes, en UTF-8 estricto. */
@@ -317,5 +323,11 @@ export function crearClienteErp(deps: DependenciasCliente = {}): ClienteErp {
         const construido = construirCuerpoCajasResumen(token, entrada);
         return construido.ok ? { ok: true, cuerpo: construido.cuerpo } : { ok: false, codigo: construido.codigo };
       }, esDatosCajasResumen),
+
+    stockConsulta: (token: string, entrada: unknown) =>
+      llamar("stock_consulta", RUTA_CONSULTAR, (): CuerpoArmado => {
+        const construido = construirCuerpoStockConsulta(token, entrada);
+        return construido.ok ? { ok: true, cuerpo: construido.cuerpo } : { ok: false, codigo: construido.codigo };
+      }, esDatosStockConsulta),
   });
 }
