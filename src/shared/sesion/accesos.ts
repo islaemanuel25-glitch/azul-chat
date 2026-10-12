@@ -37,6 +37,10 @@ export type FallaAccesos =
   | { readonly estado: "ES_ADMINISTRADOR" }
   /** No hay ninguna persona vinculada con ese id. */
   | { readonly estado: "PERSONA_DESCONOCIDA" }
+  /** Tanda 16: el ERP, consultado en este pedido, no lo autoriza (o no contesta, o se le pidió mucho seguido). */
+  | { readonly estado: "NO_AUTORIZADO" }
+  | { readonly estado: "ERP_NO_DISPONIBLE" }
+  | { readonly estado: "ERP_CUPO_EXCEDIDO" }
   | { readonly estado: "SERVICIO_NO_DISPONIBLE" };
 
 /** GET /api/sesion/accesos. */

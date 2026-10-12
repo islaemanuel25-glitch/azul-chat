@@ -384,6 +384,12 @@ Azul Chat se puede instalar en el teléfono: `/manifest.webmanifest`
 (`public/icono-*.png`, generados por `scripts/generar-iconos.mjs`) y los
 colores de los tokens `--ac-color-marca` y `--ac-color-fondo`.
 
+El `badge` de los avisos (el iconito de la barra de estado de Android) es otro
+archivo, `public/badge-96.png` (Tanda 16): el mismo globo en blanco sobre fondo
+transparente, del mismo script. Android lo pinta con su canal alfa; con el
+ícono opaco se veía un círculo blanco vacío. El `icon` del aviso sigue siendo
+`icono-192.png`. Lo vigila `test/unidad/badge.test.ts`.
+
 El service worker (`public/sw.js`) es mínimo a propósito: maneja `push`
 (muestra el aviso) y `notificationclick` (abre o trae al frente Azul Chat en
 ese local, y solo una URL `/?vista=local&localId=N` validada). **No tiene

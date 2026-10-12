@@ -8,7 +8,8 @@
 // SOLO la sincronización de fondo (interno/sincronizar.ts, un timer cada 2
 // minutos). Los pedidos del navegador ya NO ingieren: leen la base propia y
 // piden `mi_alcance` una vez, para autorizar. Antes cada pantalla gastaba 22 a
-// 27 consultas del cupo del ERP (30 por persona por minuto) y chocaba con la
+// 27 consultas del cupo del ERP (entonces 30 por persona por minuto; hoy 120
+// por persona y 240 por aplicación) y chocaba con la
 // corrida de fondo (21): el 11/10 eso dejó a una persona con "ERP Azul no
 // responde" (docs/CHATS.md, docs/DEPLOY.md).
 //
@@ -46,9 +47,11 @@
 //
 // ── EL PRESUPUESTO DEL FONDO: LA APP NO COMPITE (Tanda 5B) ────────────────
 //
-// El cupo del ERP es de 30 consultas por persona en una ventana fija de 60 s,
-// y la cuentan juntas la app abierta y la corrida de fondo (las dos usan el
-// token de la persona). Una navegación intensa en un minuto —abrir la lista,
+// El ERP admite hoy 120 consultas por persona y 240 por aplicación en una
+// ventana fija de 60 s; este cálculo sigue presupuestando como si fueran 30 por
+// persona (CUPO_ERP_POR_PERSONA), que deja margen de sobra. El cupo lo cuentan
+// juntas la app abierta y la corrida de fondo (las dos usan el token de la
+// persona). Una navegación intensa en un minuto —abrir la lista,
 // 5 locales, General, Ventas (2) y Actualizar ×3— son 12 consultas. Si el
 // fondo gastara sus 21 (1 + 4 × 5 locales) en ese mismo minuto, serían 33: el
 // choque del 11/10 otra vez, ahora con la app en 1 consulta por pantalla.

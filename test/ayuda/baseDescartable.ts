@@ -14,6 +14,8 @@
 
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { PrismaClient } from "@prisma/client";
@@ -104,3 +106,57 @@ export async function crearBaseDescartable(): Promise<BaseDescartable> {
     },
   };
 }
+
+// ── Tanda 16: bases migradas a medias, como las deja un despliegue de verdad ──
+
+/** Las carpetas de migración del repo, en orden. */
+export const MIGRACIONES_DEL_REPO: readonly string[] = readdirSync(path.join(RAIZ, "prisma/migrations"), { withFileTypes: true })
+  .filter((e) => e.isDirectory())
+  .map((e) => e.name)
+  .sort();
+
+/** Una migración que se agrega después de todas y falla a mitad de camino. */
+export const MIGRACION_ROTA = "20991231000000_rota_a_proposito";
+
+/**
+ * Una copia de prisma/ con esas migraciones (y, si se pide, una más que falla
+ * a mitad de camino), aplicada con el MISMO `prisma migrate deploy` del
+ * despliegue sobre una base vacía. Así la base queda como la dejaría de verdad
+ * una imagen anterior, o un despliegue que se cortó: nada se escribe a mano.
+ */
+export async function crearBaseMigradaCon(nombres: readonly string[], conRota = false) {
+  const tmp = mkdtempSync(path.join(tmpdir(), "azulchat-migrada-"));
+  cpSync(path.join(RAIZ, "prisma/schema.prisma"), path.join(tmp, "schema.prisma"));
+  cpSync(path.join(RAIZ, "prisma/migrations/migration_lock.toml"), path.join(tmp, "migrations/migration_lock.toml"));
+  for (const n of nombres) cpSync(path.join(RAIZ, "prisma/migrations", n), path.join(tmp, "migrations", n), { recursive: true });
+  if (conRota) {
+    mkdirSync(path.join(tmp, "migrations", MIGRACION_ROTA));
+    writeFileSync(path.join(tmp, "migrations", MIGRACION_ROTA, "migration.sql"), 'CREATE TABLE "Rota" (id int);\nSELECT 1/0;\n');
+  }
+  const vacia = await crearBaseVacia();
+  try {
+    execFileSync(path.join(RAIZ, "node_modules/.bin/prisma"), ["migrate", "deploy", "--schema", path.join(tmp, "schema.prisma")], {
+      cwd: RAIZ,
+      env: { ...process.env, DATABASE_URL: vacia.url },
+      stdio: "pipe",
+    });
+    if (conRota) throw new Error("la migración rota tenía que fallar");
+  } catch (e) {
+    if (!conRota || (e instanceof Error && e.message === "la migración rota tenía que fallar")) {
+      await vacia.borrar();
+      throw e;
+    }
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+  const db = new PrismaClient({ datasourceUrl: vacia.url });
+  return {
+    db,
+    url: vacia.url,
+    async borrar() {
+      await db.$disconnect();
+      await vacia.borrar();
+    },
+  };
+}
+

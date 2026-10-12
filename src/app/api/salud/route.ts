@@ -1,7 +1,8 @@
 // GET /api/salud — ¿esta instancia puede atender? (src/server/salud.ts)
 //
-// 200 si la configuración es válida, la base contesta y está migrada; 503 si
-// no, diciendo qué comprobación falló y nunca por qué. No llama al ERP y no
+// 200 si la configuración es válida, la base contesta y tiene aplicada la
+// última migración que trae la imagen (Tanda 16); 503 si no, diciendo qué
+// comprobación falló y nunca por qué. No llama al ERP y no
 // escribe nada. Es el healthcheck del contenedor y del despliegue.
 
 import { obtenerDb } from "../../../server/db.ts";

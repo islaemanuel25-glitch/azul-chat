@@ -26,6 +26,12 @@
 /** Lo único que se abre al tocar: un local de Azul Chat, o la lista. */
 const RUTA_LOCAL = /^\/\?vista=local&localId=[1-9][0-9]{0,9}$/;
 const ICONO = "/icono-192.png";
+/**
+ * Tanda 16: el badge es otro archivo. Android lo pinta con su canal alfa, así
+ * que tiene que ser una silueta sobre fondo transparente: con el ícono opaco
+ * se veía un círculo blanco vacío (scripts/generar-iconos.mjs).
+ */
+const BADGE = "/badge-96.png";
 /** La caché de las horas mostradas por etiqueta. No guarda respuestas del servidor. */
 const CACHE_AVISOS = "azul-chat-avisos-v1";
 
@@ -96,7 +102,7 @@ self.addEventListener("push", (event) => {
         ultima = null; // ante la duda, mostrar
       }
       if (decidirAviso(creadoEn, ultima) === "DESCARTAR") return;
-      await self.registration.showNotification(titulo, { body: cuerpo, tag: etiqueta, renotify: true, icon: ICONO, badge: ICONO, data: { url } });
+      await self.registration.showNotification(titulo, { body: cuerpo, tag: etiqueta, renotify: true, icon: ICONO, badge: BADGE, data: { url } });
       if (!esHora(creadoEn)) return;
       try {
         await anotarMostrada(etiqueta, creadoEn);

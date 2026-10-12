@@ -124,7 +124,23 @@ export type RegistroVigia = {
  */
 export type RegistroAccesos = { readonly evento: "accesos.sin_administradores"; readonly motivo: "VACIA" | "INVALIDA" };
 
+/**
+ * Tanda 16: /api/salud encontró la base atrasada respecto de la imagen (falta
+ * la última migración que trae, o hay una a medias). El detalle va acá y NO en
+ * la respuesta pública. Son nombres de carpetas de `prisma/migrations`, no datos.
+ */
+export type RegistroMigraciones = {
+  readonly evento: "salud.migraciones_pendientes";
+  /** La última migración que trae la imagen; `null` si no se pudo leer. */
+  readonly esperada: string | null;
+  /** La última aplicada y terminada en `_prisma_migrations`; `null` si ninguna. */
+  readonly ultimaAplicada: string | null;
+  /** Cuántas quedaron empezadas y sin terminar ni revertir. */
+  readonly aMedias: number;
+};
+
 export type Registro =
+  | RegistroMigraciones
   | RegistroConsultaErp
   | RegistroVinculacion
   | RegistroInvalidacion
