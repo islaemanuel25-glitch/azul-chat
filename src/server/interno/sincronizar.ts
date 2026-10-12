@@ -42,6 +42,14 @@
 // segunda encuentra todo fresco (no le pide nada al ERP salvo `mi_alcance`) y
 // ningún evento ya avisado se vuelve a avisar.
 //
+//   · TOPE DE LA CORRIDA (Tanda 14): con varias personas, la corrida entera
+//     gasta como mucho PRESUPUESTO_FONDO_POR_CORRIDA (120 de las 240 por
+//     aplicación del ERP). Antes de cada persona, si su presupuesto entero ya
+//     no entra, la corrida termina y las que faltan cuentan en
+//     `personasPospuestas`: la siguiente empieza por ellas (el turno de cada
+//     una, Vinculo.ultimoTurnoFondoEn). Lo mismo si se cortó por cupo: quien
+//     quedó afuera va primero la próxima vez, nadie queda siempre último.
+//
 // La respuesta y el log dicen solo CUÁNTOS: ni nombres, ni locales, ni ids.
 //
 // Tanda 12: cada corrida que pasó la puerta anota su resultado (éxito, o falla
@@ -53,9 +61,9 @@ import "server-only";
 import type { DependenciasSesion } from "../sesion/dependencias.ts";
 import { dependenciasDeProduccion } from "../sesion/dependencias.ts";
 import { delegarConContexto } from "../sesion/delegacion.ts";
-import { sesionesParaSegundoPlano } from "../sesion/repositorio.ts";
+import { anotarTurnoDeFondo, sesionesParaSegundoPlano } from "../sesion/repositorio.ts";
 import { autorizacionViva, tiposVisibles } from "../chats/autorizacion.ts";
-import { esFalloDeCupo, PRESUPUESTO_FONDO_POR_PERSONA, sincronizarAutorizados } from "../chats/sincronizacion.ts";
+import { esFalloDeCupo, PRESUPUESTO_FONDO_POR_CORRIDA, PRESUPUESTO_FONDO_POR_PERSONA, sincronizarAutorizados } from "../chats/sincronizacion.ts";
 import { json } from "../http/respuestas.ts";
 import { leerConfigPush, type ConfigPush } from "../push/config.ts";
 import { avisarNovedades, borrarSuscripcionesSinSesion } from "../push/avisos.ts";
@@ -103,8 +111,10 @@ export type ResumenTarea = {
   readonly cortadaPorCupo: boolean;
   /** Personas cuya corrida llegó al presupuesto y dejó locales para la siguiente. */
   readonly personasConPendientes: number;
-  /** Consultas al ERP de toda la corrida, `mi_alcance` incluida. Por persona, nunca más que el presupuesto. */
+  /** Consultas al ERP de toda la corrida, `mi_alcance` incluida. Por persona, nunca más que el presupuesto; en total, nunca más que el de la corrida. */
   readonly consultasErp: number;
+  /** Tanda 14: personas que no entraron en esta corrida (tope total o corte por cupo). Van primero en la siguiente. */
+  readonly personasPospuestas: number;
 };
 
 /** El 404 de una ruta interna sin su puerta: igual al de una que no existe. Tanda 12: lo usa también el vigía. */
@@ -144,6 +154,7 @@ export async function manejarSincronizar(request: Request, deps: DependenciasTar
     cortadaPorCupo: false,
     personasConPendientes: 0,
     consultasErp: 0,
+    personasPospuestas: 0,
   };
   try {
     resumen.suscripcionesBorradas += await borrarSuscripcionesSinSesion(db, ahora);
@@ -151,9 +162,12 @@ export async function manejarSincronizar(request: Request, deps: DependenciasTar
     resumen.preguntasBorradas += await borrarPreguntasVencidas(db, ahora);
     const sesiones = await sesionesParaSegundoPlano(db, config.instalacionId, ahora);
     for (const sesion of sesiones) {
+      // Tanda 14: el tope de la corrida. Lo que esta persona podría gastar tiene que entrar entero.
+      if (resumen.consultasErp + PRESUPUESTO_FONDO_POR_PERSONA > PRESUPUESTO_FONDO_POR_CORRIDA) break;
       resumen.personas += 1;
       let r;
       try {
+        await anotarTurnoDeFondo(db, sesion.vinculo.id, ahora);
         r = await delegarConContexto<DeUnaPersona>({ config, db, sesion }, deps, async (token, contexto): Promise<ResultadoConsulta<DeUnaPersona>> => {
           resumen.consultasErp += 1; // mi_alcance, también cuando falla
           const a = await autorizacionViva(deps, token, contexto);
@@ -215,6 +229,7 @@ export async function manejarSincronizar(request: Request, deps: DependenciasTar
       }
       if (resumen.cortadaPorCupo) break;
     }
+    resumen.personasPospuestas = sesiones.length - resumen.personas;
   } catch {
     deps.registrar({ evento: "sesion.falla_local", etapa: "base" });
     // Tanda 12: la falla también se anota, si la base deja; si no, el vigía la ve por el tiempo sin éxitos.

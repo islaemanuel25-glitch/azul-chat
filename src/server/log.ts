@@ -78,6 +78,8 @@ export type RegistroTarea = {
   readonly personasConPendientes: number;
   /** Tanda 5B: consultas al ERP de toda la corrida, `mi_alcance` incluida. */
   readonly consultasErp: number;
+  /** Tanda 14: personas que no entraron en el tope de la corrida (o quedaron después de un corte por cupo). */
+  readonly personasPospuestas: number;
 };
 
 /**

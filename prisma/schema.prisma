@@ -73,6 +73,11 @@ model Vinculo {
   silencioActivo     Boolean             @default(false)
   silencioDesde      Int                 @default(0)
   silencioHasta      Int                 @default(7)
+  /// Tanda 14: cuándo la sincronización de fondo le tocó a esta persona por
+  /// última vez. Con varias personas, la corrida tiene un tope total de
+  /// consultas al ERP; si no entran todas, empieza por las que hace más que no
+  /// les toca (null primero). Solo ordena turnos: no es autoridad ni dato del ERP.
+  ultimoTurnoFondoEn DateTime?
 
   instalacion   Instalacion       @relation(fields: [instalacionId], references: [id], onDelete: Restrict)
   sesiones      Sesion[]

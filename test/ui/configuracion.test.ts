@@ -77,10 +77,10 @@ describe("el horario de silencio", () => {
 });
 
 describe("el saldo de IA", () => {
-  const saldo = (o: Partial<SaldoIa> = {}): SaldoIa => ({ gastadoCentavos: 124, topeCentavos: 500, preguntas: 12, agotado: false, reiniciaEl: "2026-11-01", ...o });
+  const saldo = (o: Partial<SaldoIa> = {}): SaldoIa => ({ gastadoCentavos: 124, topeCentavos: 500, preguntasPropias: 12, agotado: false, reiniciaEl: "2026-11-01", ...o });
 
-  it("lo gastado del mes contra el tope y las preguntas", () => {
-    assert.equal(texto(dibujar(createElement(VistaIa, { ia: saldo() }))), "Inteligencia artificial Gastado este mes: US$ 1,24 de US$ 5,00 Preguntas este mes: 12");
+  it("lo gastado del mes por todo el negocio contra el tope, y las preguntas propias (Tanda 14)", () => {
+    assert.equal(texto(dibujar(createElement(VistaIa, { ia: saldo() }))), "Inteligencia artificial Gastado este mes, entre todos: US$ 1,24 de US$ 5,00 Tus preguntas este mes: 12");
   });
 
   it("agotado: hasta el 1 del mes siguiente", () => {

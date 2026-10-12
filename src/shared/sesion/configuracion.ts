@@ -24,8 +24,12 @@ export type SaldoIa = {
   /** Lo gastado, en centavos de dólar, redondeado para arriba: nunca se muestra menos de lo que se gastó. */
   readonly gastadoCentavos: number;
   readonly topeCentavos: number;
-  /** Las preguntas que llegaron al modelo este mes. */
-  readonly preguntas: number;
+  /**
+   * Tanda 14: las preguntas que hizo ESTA persona este mes (las suyas
+   * guardadas). El gasto y el tope son de todo el negocio, uno solo para
+   * todas las personas; las preguntas de los demás no se muestran.
+   */
+  readonly preguntasPropias: number;
   /** Ya no entra una pregunta más: hasta el 1 del mes siguiente no se contesta ninguna. */
   readonly agotado: boolean;
   /** El primer día del mes siguiente, "AAAA-MM-DD": cuándo vuelve a cero. */

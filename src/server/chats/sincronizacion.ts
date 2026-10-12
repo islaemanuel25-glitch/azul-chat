@@ -136,6 +136,32 @@ export const RESERVA_PARA_LA_APP = 12;
 /** Consultas al ERP que una corrida de fondo gasta como mucho por persona, `mi_alcance` incluida. */
 export const PRESUPUESTO_FONDO_POR_PERSONA = CUPO_ERP_POR_PERSONA - RESERVA_PARA_LA_APP;
 
+// ── VARIAS PERSONAS: EL CUPO DE LA APLICACIÓN (Tanda 14) ───────────────────
+//
+// El ERP cuenta además 240 consultas por APLICACIÓN en la misma ventana fija
+// de 60 s (limitador.js, MAX_POR_APLICACION, leído en erpmanual ccf2894): una
+// sola cuenta para Azul Chat entero, todas las personas, app abierta y fondo
+// juntos. (El cupo por persona del ERP hoy es 120; Azul Chat sigue
+// presupuestando 30, del lado seguro.)
+//
+// La corrida gasta como mucho `PRESUPUESTO_FONDO_POR_CORRIDA` en total, y le
+// deja el resto a las apps abiertas de todos: 10 personas navegando a fondo en
+// el mismo minuto son 10 × 12 = 120. Antes de empezar con una persona, si lo
+// que podría gastar (su presupuesto entero) ya no entra, la corrida termina
+// ahí y las que faltan quedan para la siguiente, que empieza por ellas
+// (`Vinculo.ultimoTurnoFondoEn`). Como cada una gasta como mucho 18, entran
+// al menos 6 por corrida; en la práctica más, porque un local que ya trajo
+// otra persona hace menos de 30 s no se vuelve a pedir.
+
+/** El cupo del ERP por aplicación en 60 s: erpmanual lib/integraciones/azul-chat/limitador.js, MAX_POR_APLICACION. */
+export const CUPO_ERP_POR_APLICACION = 240;
+
+/** Lo que el fondo deja del cupo de la aplicación a las apps abiertas de todas las personas. */
+export const RESERVA_PARA_LAS_APPS = 120;
+
+/** Consultas al ERP que una corrida de fondo gasta como mucho EN TOTAL, todas las personas juntas. */
+export const PRESUPUESTO_FONDO_POR_CORRIDA = CUPO_ERP_POR_APLICACION - RESERVA_PARA_LAS_APPS;
+
 /** ¿Este fallo es el cupo del ERP? Por código, nunca por texto. */
 export function esFalloDeCupo(r: ResultadoConsulta<unknown>): boolean {
   return !r.ok && r.origen === "erp" && r.codigo === CODIGO_CUPO;

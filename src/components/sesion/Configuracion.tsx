@@ -153,7 +153,7 @@ export function VistaSilencio({
   );
 }
 
-/** Inteligencia artificial: lo gastado del mes contra el tope, y las preguntas. Sin IA en el servidor, nada. */
+/** Inteligencia artificial: lo gastado del mes por todo el negocio contra el tope, y las preguntas de esta persona. Sin IA en el servidor, nada. */
 export function VistaIa({ ia }: { ia: SaldoIa | null }) {
   if (!ia) return null;
   return (
@@ -164,9 +164,9 @@ export function VistaIa({ ia }: { ia: SaldoIa | null }) {
       <div className="ac-ajuste">
         <div className="ac-ajuste__texto">
           <p className="ac-ajuste__titulo">
-            Gastado este mes: {formatearUsd(ia.gastadoCentavos)} de {formatearUsd(ia.topeCentavos)}
+            Gastado este mes, entre todos: {formatearUsd(ia.gastadoCentavos)} de {formatearUsd(ia.topeCentavos)}
           </p>
-          <p className="ac-ajuste__estado">Preguntas este mes: {ia.preguntas.toLocaleString(IDIOMA)}</p>
+          <p className="ac-ajuste__estado">Tus preguntas este mes: {ia.preguntasPropias.toLocaleString(IDIOMA)}</p>
           {ia.agotado && <p className="ac-ajuste__estado">Saldo agotado hasta el {diaDeReinicio(ia.reiniciaEl)}</p>}
         </div>
       </div>
