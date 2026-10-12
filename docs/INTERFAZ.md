@@ -379,9 +379,20 @@ colores de los tokens `--ac-color-marca` y `--ac-color-fondo`.
 El service worker (`public/sw.js`) es mínimo a propósito: maneja `push`
 (muestra el aviso) y `notificationclick` (abre o trae al frente Azul Chat en
 ese local, y solo una URL `/?vista=local&localId=N` validada). **No tiene
-`fetch` ni caché**: no intercepta ningún pedido, así que no puede servir JS
-viejo y la recarga por versión sigue igual; tampoco guarda nada. Se registra
-recién al activar las notificaciones, con `updateViaCache: "none"`.
+`fetch`**: no intercepta ningún pedido, así que no puede servir JS viejo y la
+recarga por versión sigue igual. Se registra recién al activar las
+notificaciones, con `updateViaCache: "none"`.
+
+**El orden de los avisos (Tanda 13).** Android puede entregar los push tarde y
+desordenados: el 12/10 la apertura de un incidente llegó después de su
+recuperación y, con la misma etiqueta, la pisó. Por eso lo ÚNICO que guarda el
+service worker es, por etiqueta, la hora (`creadoEn`) del último aviso que
+mostró, en una caché propia (`azul-chat-avisos-v1`) que no sirve nada. Un aviso
+MÁS VIEJO que ese, con la misma etiqueta, no se muestra; uno igual o más nuevo,
+sí (y reemplaza al anterior en la bandeja, como antes). Vale aunque la persona
+haya borrado la notificación nueva o el service worker se haya reiniciado.
+Etiquetas distintas no se tocan. Si leer la caché falla, o el aviso no trae
+hora, se muestra: ante la duda, mostrar. La decisión es `decidirAviso`, pura.
 
 Activar: pedir permiso, pedir la clave a `GET /api/push/clave`, suscribirse y
 mandar la suscripción a `POST /api/push/suscribir`; si el servidor no la
@@ -555,9 +566,16 @@ estaba. No hay scroll infinito ni refresco automático.
   Ventas con el mismo texto y en espera; el cliente leyendo el 429; y el
   título con el nombre de la lista (por la URL), "Chat" sin él.
 - `test/frontera/alcanceUi.test.ts` (Tanda 5A): el service worker solo escucha
-  push y el toque, sin fetch, caché, almacenamiento ni temporizadores; service
+  push y el toque, sin fetch, almacenamiento ni temporizadores, y desde la
+  Tanda 13 con una sola caché, la de las horas de los avisos, que solo guarda
+  una hora y se consulta antes de mostrar; service
   worker y Push API solo en su cliente; el manifest con los colores de los
   tokens; y los textos de la pantalla 06 que no existen siguen prohibidos.
+- `test/unidad/serviceWorker.test.ts` (Tanda 13): corre el `public/sw.js` de
+  verdad en `node:vm` y prueba el orden: apertura y recuperación en orden, la
+  apertura vieja después de la recuperación (aunque se haya borrado o el
+  service worker se haya reiniciado), la lectura que falla, etiquetas
+  distintas y los avisos de eventos como antes.
 
 - `test/ui/chats.test.ts` (Tanda 6A): sin IA no hay caja ni burbujas (con
   preguntas en curso igual); con IA, la caja debajo del chip y su texto en un
