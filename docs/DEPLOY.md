@@ -228,6 +228,19 @@ pregunta y el cupo del ERP que gasta (1 + N) están en `docs/CHATS.md`.
   `/api/sesion/silencio`, `/api/sesion/otras`) no necesitan nada en nginx: van
   por el mismo `location` de la app.
 
+### Tanda 14: migración del turno de fondo
+
+- La migración es `20261015120000_turno_de_fondo`: agrega a `Vinculo` la
+  columna `ultimoTurnoFondoEn`, nula, sin valor por defecto ni CHECK. Es
+  aditiva: las filas que ya están quedan en null ("nunca le tocó") y van
+  primero en la próxima corrida, en el mismo orden que hasta hoy. Entra con el
+  paso 3 del DEPLOY; volver a la imagen anterior es seguro (el código viejo no
+  la mira).
+- Para sumar otro dueño no hay nada que configurar en el servidor: se vincula
+  solo, con su usuario del ERP (`docs/CHATS.md`, "Cómo se suma un dueño").
+  `AZUL_CHAT_AVISOS_SISTEMA` no cambia: los avisos del vigía siguen yendo solo
+  a quien figure ahí.
+
 ### Tanda 12: migración de la salud de la sincronización
 
 - La migración es `20261014120000_salud_sincronizacion`: crea la tabla
@@ -638,9 +651,11 @@ aparte, con su prueba en `test/db/cupo.test.ts`.
   contesta 200 con `cortadaPorCupo: true`; la siguiente empieza por eso. La app
   muestra "Muchas consultas seguidas al ERP. Probá de nuevo en un minuto." con
   Reintentar deshabilitado 20 s.
-- **El cupo por aplicación (240)** no lo cubre esta cuenta: con 18 por
-  persona alcanza para 13 personas por corrida. Con más personas vinculadas a
-  la vez, hay que revisarlo.
+- **El cupo por aplicación (240)** lo cubre desde la Tanda 14 un tope por
+  corrida: el fondo gasta como mucho 120 en total, todas las personas juntas,
+  y deja 120 para las apps abiertas. Si no entran todas, las que faltan van
+  primero en la corrida siguiente. Hasta cuántas personas entra, y con qué
+  demora, está en `docs/CHATS.md`, "Varias personas".
 
 **Por qué cada 2 minutos.** Con 2 minutos entre corridas, dos nunca caen en la
 misma ventana de 60 s, que es lo que hace valer el tope de 18. Y el código usa

@@ -743,10 +743,13 @@ solicitud, nunca sobre un id que mande el navegador
 
 - `GET /api/sesion/configuracion`: `{ estado: "OK", silencio: { activo,
   desde, hasta }, ia, dispositivos }`. `ia` es null sin IA configurada; si no,
-  `{ gastadoCentavos, topeCentavos, preguntas, agotado, reiniciaEl }` del mes
-  de Argentina en `ConsumoIa` (centavos redondeados para arriba; `agotado`
-  es lo mismo que decide `reservarPregunta`: que la reserva de una pregunta más
-  ya no entre). `dispositivos`: las sesiones vigentes de la persona, `{
+  `{ gastadoCentavos, topeCentavos, preguntasPropias, agotado, reiniciaEl }`
+  del mes de Argentina. El gasto y el tope son de TODO el negocio (`ConsumoIa`,
+  uno solo para todas las personas; centavos redondeados para arriba;
+  `agotado` es lo mismo que decide `reservarPregunta`: que la reserva de una
+  pregunta más ya no entre). Desde la Tanda 14, `preguntasPropias` son las de
+  esta persona en el mes (sus preguntas guardadas desde el 1, hora de
+  Argentina); las de los demás no se muestran. `dispositivos`: las sesiones vigentes de la persona, `{
   creadaEn, esEste }`, la de este navegador primero; sin ids. Sin Origin (GET).
 - `PUT /api/sesion/silencio`: el horario entero, exactamente `{ activo,
   desde, hasta }`, horas enteras de 0 a 23 distintas. Sesión y Origin.
@@ -766,3 +769,83 @@ nada.
 `POST /api/interno/sincronizar` no es del navegador ni de esta API: es del timer
 del VPS, por 127.0.0.1 y con su secreto; a todo lo demás le contesta 404
 (`docs/DEPLOY.md`).
+
+## Varias personas: otros dueños (Tanda 14)
+
+Azul Chat no es de una sola persona. Cada dueño (o encargado) del negocio usa
+su propio usuario del ERP y ve **solo lo que el ERP le deja ver a ese
+usuario**: el `mi_alcance` de su usuario, pedido de nuevo en cada pedido. No
+hay mensajes entre personas.
+
+### Cómo se suma un dueño, paso a paso
+
+1. **En el ERP, con su propio usuario.** El dueño entra al ERP como siempre,
+   con su usuario y su contraseña (no con los de otra persona).
+2. Arriba a la derecha toca **su nombre** para abrir el menú de su usuario, y
+   elige **"Vincular Azul Chat"**. No hace falta ningún permiso especial: es
+   de la persona, para sí misma, y nadie puede generarlo por otro.
+3. En la ventana que se abre toca **"Generar código"**. El ERP muestra un
+   **código que empieza con `vin1_`** ("Pegá este código en Azul Chat"); lo
+   copia con **"Copiar"**. Sirve **una sola vez** y **vence a los 10
+   minutos**.
+4. **En Azul Chat**, en el teléfono o la computadora de esa persona, abre
+   `https://chat.operix.cloud`. Si no tiene sesión, aparece "Vinculá Azul
+   Chat con el ERP": pega el código en **"Código del ERP"** y toca
+   **"Vincular"**.
+5. Listo. Ve sus locales. Si quiere avisos en el teléfono, los activa en
+   **Configuración → Notificaciones** (cada persona los suyos), y ahí mismo
+   elige su **horario de silencio**.
+
+Si el código venció o ya se usó, se genera otro (paso 2): generar uno nuevo
+anula el anterior. Si esa persona ya tenía Azul Chat en otro dispositivo, al
+vincular de nuevo el anterior deja de andar (el ERP tiene un vínculo vigente
+por persona).
+
+### Qué ve cada uno
+
+- **Sus locales.** Los que el ERP le da hoy a su usuario. Un dueño que no es
+  administrador ve su local (el `localId` de su usuario en el ERP); uno sin
+  local asignado se vincula igual y ve "No tenés locales asignados.". Si el
+  ERP le saca un local, deja de verlo en el pedido siguiente: lo guardado no
+  es un permiso.
+- **Lo suyo es suyo.** Lo leído, los avisos, las preguntas guardadas, el
+  horario de silencio y "cerrar otras sesiones" son de cada persona: marcar
+  leído un chat no lo marca para los demás, y nadie ve las preguntas de otro
+  (lo vigilan `test/db/duenos.test.ts` y `test/frontera/porPersona.test.ts`).
+- **Los avisos de un evento** llegan solo a quien tiene ese local hoy.
+- **La IA tiene un solo tope para todo el negocio** (US$ 5 por mes,
+  `AZUL_CHAT_IA_TOPE_USD`). En Configuración cada uno ve lo gastado entre
+  todos contra el tope y cuántas preguntas hizo él este mes. Cuando se
+  alcanza, se corta para todos igual.
+- **Los avisos del vigía** ("Azul Chat no se está actualizando") van solo a
+  quien figure en `AZUL_CHAT_AVISOS_SISTEMA` (`docs/DEPLOY.md`), no a todos.
+
+### La sincronización de fondo con varias personas
+
+La corrida de fondo atiende a cada persona con su token, con su `mi_alcance`
+vivo y con su tope de 18 consultas al ERP. El ERP además cuenta 240 consultas
+por minuto para Azul Chat ENTERO (todas las personas, app abierta y fondo
+juntos). Por eso la corrida gasta como mucho 120 en total y deja las otras 120
+para las apps abiertas: 10 personas navegando a fondo en el mismo minuto son
+10 × 12 = 120.
+
+- **Hasta 6 personas** con 5 locales propios cada una entran siempre en una
+  corrida (6 × 18 = 108). En la práctica entran más: un local que ya trajo
+  otra persona hace menos de 30 s no se vuelve a pedir, y un dueño con un solo
+  local gasta unas 5 consultas.
+- **Con más,** la corrida termina al llegar al tope y las que faltan van
+  primero en la siguiente, 2 minutos después (`Vinculo.ultimoTurnoFondoEn`).
+  Con 10 personas de 5 locales distintos cada una, todas se atienden en dos
+  corridas (4 minutos). Medido en `test/db/duenos.test.ts` con el cupo de hoy
+  del ERP (120 por persona, 240 por aplicación): con 2, 5 y 10 personas,
+  ninguna pasa de 18, la corrida no pasa de 120 y el ERP no rechaza nada,
+  aunque las 10 naveguen a fondo en el mismo minuto.
+- **Hasta cuántas personas entra.** Con el uso de la app de hoy, hasta **10
+  personas navegando a la vez** sin que el ERP rechace nada. La ingesta sola
+  entra para cualquier cantidad (rota); lo que crece es la demora: con N
+  personas de muchos locales distintos, cada una se atiende cada
+  2 × ⌈N / 6⌉ minutos. Con locales distintos y 7 o más personas, alguna
+  capacidad puede mostrar "Actualización demorada" (más de 6 minutos sin
+  traerse). Con más de 10 personas usando la app a la vez, hay que revisar
+  esta cuenta.
+
