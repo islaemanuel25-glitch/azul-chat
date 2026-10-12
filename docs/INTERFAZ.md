@@ -79,6 +79,24 @@ grande se centra en una columna de 480 px; no hay un diseño de escritorio.
   espera (`TarjetaCajas` y `ResultadoCaja`, en `Cajas.tsx`; `useCaja`, en
   `Conversacion.tsx`; `reducirCaja`, en `logica.ts`; los textos, en
   `formato.ts`).
+- **Bajo mínimo (Tanda 8B).** Si `chats/local` trae `local.stock: true`, la
+  barra lleva el chip "Stock" después de "Ventas" y "Caja" (Figma nodo 1:150);
+  sin el anuncio no está. Tocarlo pide `GET /api/chats/stock` y aparece al
+  final del historial la tarjeta "Bajo mínimo · {local}". El Figma no la
+  dibuja: está armada con las MISMAS piezas y tokens que Ventas y Caja
+  (`ac-ventas`), sin colores nuevos. Dice "{total} productos por debajo del
+  mínimo" ("1 producto…" en singular), muestra los primeros 10 —"{nombre} ·
+  {lo que hay} · mín. {mínimo}"— y, si vinieron más, "Ver todos ({n})" los
+  despliega (`<details>`, hasta 50, lo que manda el ERP); si el ERP tiene más
+  de 50, "Se muestran 50 de {total}.". "Lo que hay" es la `equivalencia` del
+  ERP tal cual, el texto de su pantalla de stock ("3 uds", "2 bultos + 6
+  uds"). Sin mínimo cargado en el local: "Este local no tiene stock mínimo
+  cargado."; con mínimo y nada por debajo: "Nada por debajo del mínimo.". Los
+  estados son los de Ventas: "Consultando stock…" en el chip, la tarjeta de
+  error con "Reintentar" a mano y el texto del cupo con su espera
+  (`TarjetaBajoMinimo` y `ResultadoStock`, en `Stock.tsx`; `useStock`, en
+  `Conversacion.tsx`; `reducirStock`, en `logica.ts`; los textos, en
+  `formato.ts`).
 
 - **Preguntas (Tanda 6A).** Si `chats/local` o `chats/general` traen
   `preguntas: true` (el servidor tiene la IA configurada), hay una caja de texto
@@ -102,7 +120,19 @@ grande se centra en una columna de 480 px; no hay un diseño de escritorio.
   - caja (Tanda 7B): la misma tarjeta de cajas del día ("Cajas de hoy",
     "Cajas de ayer" o "Cajas del 11/10 · {local}"), una por local si es de
     todos, con cuáles no se pudieron consultar;
-  - ventas de un turno (Tanda 7B): "Turno {turno} · {período} · {local}", el
+  - stock (Tanda 8B): de un producto, "Stock de «{texto}» · {local}" con una
+    fila por resultado —nombre; código · lo que hay · mín. {mínimo}— y, si
+    está bajo mínimo, "⚠ Bajo mínimo" con la MISMA marca de alerta que
+    "recibida con diferencias" (`ac-evento__marca`) y el borde de alerta; si
+    el ERP encontró más de 10, "Hay más coincidencias: escribí el nombre más
+    completo."; si ninguno, "No encontré «{texto}» en {local}.". Lo que hay es
+    la equivalencia del ERP o, si no viniera, la existencia con su unidad. De
+    bajo mínimo, la tarjeta del chip. De todos: UNA tarjeta ("… · Todos los
+    locales") con una sección por local, cada uno con lo suyo, sin sumas, y
+    cuáles no se pudieron consultar;
+  - ventas de un turno (Tanda 7B): "Turno {turno} · {período} · {local}" (si
+    el nombre del turno ya empieza con "turno", sin repetirlo: "Turno mañana",
+    no "Turno Turno mañana"; Tanda 8B, `nombreDeTurno`), el
     total del turno por medio y debajo sus cajas; de todos, la suma por medio
     y una sección por local, sin total si falta alguno. Si el turno no está
     entre los del día, arriba el aviso fijo "No encontré el turno «{texto}».
@@ -392,8 +422,8 @@ estaba. No hay scroll infinito ni refresco automático.
   plural, advertencias), el error con "Reintentar" y la consulta que reemplaza.
 - `test/frontera/alcanceUi.test.ts`: la interfaz no muestra "Ver diferencias",
   "Abrir en ERP", "Última transferencia", "Ver detalle", "Comparar" ni los chips
-  Transferencias, Pedidos o Stock —"Caja" existe desde la Tanda 7B y solo en
-  `Piezas.tsx`—; "Ventas de hoy" y "Ventas de ayer" se
+  Transferencias o Pedidos —"Caja" (Tanda 7B) y "Stock" (Tanda 8B) existen, y
+  solo en `Piezas.tsx`—; "Ventas de hoy" y "Ventas de ayer" se
   admiten SOLO como títulos de la tarjeta, en `formato.ts`; "Preguntá" y el
   único `<input>`, SOLO en la caja de `Preguntas.tsx` (Tanda 6A); no tiene refresco
   automático —salvo la recarga por versión, con cada pieza en su único archivo:
@@ -453,6 +483,14 @@ estaba. No hay scroll infinito ni refresco automático.
   faltante y la foto guardada. `test/frontera/alcanceUi.test.ts`: el chip
   "Caja" solo en `Piezas.tsx`.
 
+- `test/ui/stock.test.ts` (Tanda 8B): la tarjeta de bajo mínimo sobre el
+  fixture del ERP (con faltantes, más de 10 con "Ver todos", el tope de 50,
+  sin mínimo, nada por debajo), la de productos (varios, uno, kg, bultos,
+  ninguno, más coincidencias, la marca de bajo mínimo), el chip y sus estados,
+  el cliente, las respuestas de un local y de todos, la foto guardada y
+  "Turno Turno" con su contraprueba. `test/frontera/alcanceUi.test.ts`: el
+  chip "Stock" solo en `Piezas.tsx`.
+
 ## Fuera de alcance
 
 No existen todavía, y la interfaz no los muestra ni los insinúa: Pendientes,
@@ -462,8 +500,8 @@ ERP"), las notificaciones y cualquier actualización en vivo (WebSocket, SSE o
 refresco periódico). La recarga por versión no es eso: no trae datos, solo
 reemplaza el JS de un despliegue viejo, y solo en los dos momentos de arriba.
 
-De las acciones rápidas del diseño existen "Ventas" y "Caja" (Tanda 7B), y solo
-para hoy; otros períodos (ayer, rango), los turnos y todos los locales se piden
-con una pregunta (Tanda 6A), no con un chip. No existen: los chips
-Transferencias, Pedidos y Stock; "Ver detalle" y "Comparar" en la tarjeta de
+De las acciones rápidas del diseño existen "Ventas", "Caja" (Tanda 7B) y
+"Stock" (Tanda 8B, solo bajo mínimo), y solo para hoy; otros períodos (ayer,
+rango), los turnos, un producto y todos los locales se piden con una pregunta
+(Tanda 6A), no con un chip. No existen: los chips Transferencias y Pedidos; "Ver detalle" y "Comparar" en la tarjeta de
 ventas; y el chip "Ventas" en General.
