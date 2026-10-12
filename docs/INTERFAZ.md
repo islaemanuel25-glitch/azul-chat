@@ -25,6 +25,23 @@ grande se centra en una columna de 480 px; no hay un diseño de escritorio.
 - **General.** Encabezado con volver, "General" y "Eventos de todos los
   locales". Cada evento dice de qué local es. Es la misma proyección de la API:
   ningún evento se repite.
+- **Buscar (Tanda 10).** Figma pantalla 05, "Buscar historial" (1:241–1:270).
+  La lupa "⌕" del encabezado de un Local y de General abre Buscar en ESE chat:
+  título "Buscar", el nombre del local (o "General") debajo, y "Volver al
+  chat". Debajo, el campo ("Número o texto", el mismo de la caja de
+  preguntas), las pills Todos · Transferencias · Pedidos · Preguntas (los
+  chips de la lista), el contador "N resultados" —el total de la búsqueda, no
+  lo cargado— y la lista, del más nuevo al más viejo con un separador por día.
+  Cada resultado es la MISMA tarjeta del chat: el evento (`TarjetaEvento`) o la
+  pregunta guardada como foto (`PreguntaGuardadaVista`); en General, con el
+  local arriba ("General" si la pregunta se hizo ahí). Busca al enviar (botón
+  o Enter), nunca mientras se escribe; cambiar de pill vuelve a buscar el
+  mismo texto. Hasta 50 y "Ver más". Sin resultados: "No encontré «X».".
+  Antes de buscar: "Buscá por número de transferencia o de pedido, o por
+  texto.". Una falla reemplaza los resultados, con los mismos estados que la
+  conversación. No lleva al punto del historial. Las pills del diseño "Caja"
+  y "Ventas" no están: caja y ventas no se guardan, así que no hay nada que
+  buscar. Qué encuentra cada texto: `docs/CHATS.md`, `GET /api/chats/buscar`.
 - **El evento.** "Transferencia #182 recibida" o "Transferencia #182 recibida
   con diferencias". Si tiene diferencias, "1 línea con diferencia" o "N líneas
   con diferencias": el dato cuenta líneas del remito, no productos. Además, de
@@ -234,7 +251,10 @@ grande se centra en una columna de 480 px; no hay un diseño de escritorio.
 ## Cómo se navega
 
 La vista va en la consulta de la URL: `/`, `/?vista=local&localId=N` y
-`/?vista=general`. No hay segmentos de ruta (`test/frontera/rutas.test.ts` no
+`/?vista=general`; desde la Tanda 10 también Buscar, `/?vista=buscar&localId=N`
+(con `&nombre=…` si se conoce) y `/?vista=buscar&general=1`, cuya flecha
+"Volver al chat" vuelve a ese Local o a General (con el "atrás" si la entrada
+es de la app; si no, reemplaza la URL por la del chat). No hay segmentos de ruta (`test/frontera/rutas.test.ts` no
 los admite en `src/app`). Abrir un chat agrega una entrada al historial, así el
 "atrás" del teléfono vuelve a la lista. Cada pantalla tiene además su propia
 flecha "Volver a chats", que no depende del historial: si la entrada no es de
@@ -538,10 +558,20 @@ estaba. No hay scroll infinito ni refresco automático.
   pregunta, la foto guardada y el cliente. `test/frontera/alcanceUi.test.ts`:
   el chip "Pendientes" solo en `Piezas.tsx`, y "Ver detalle" sigue en rojo en
   la tarjeta.
+- `test/ui/buscar.test.ts` (Tanda 10): leer el texto (número con y sin "#",
+  entero dentro de una pregunta, sin acentos ni mayúsculas, largo y vacío), la
+  pantalla en sus estados (antes de buscar, buscando, "No encontré «X».", con
+  resultados y el contador del total, General con el local, "Ver más", las
+  fallas), las pills, el campo que busca solo al enviar, la lupa del Local y de
+  General (y sin ella, la contraprueba), la vista por la URL y "Volver al
+  chat", el reductor y el cliente. `test/frontera/alcanceUi.test.ts`: el campo
+  de Buscar es el segundo y último campo de los chats, uno solo en `Buscar.tsx`,
+  y las pills "Transferencias" y "Pedidos" solo ahí; como chips de la barra
+  siguen en rojo, igual que las pills "Caja" del diseño en Buscar.
 
 ## Fuera de alcance
 
-No existen todavía, y la interfaz no los muestra ni los insinúa: buscar en el historial, la configuración completa, el compositor y los mensajes
+No existen todavía, y la interfaz no los muestra ni los insinúa: ir desde un resultado de Buscar al punto del historial, buscar en caja o ventas, la configuración completa, el compositor y los mensajes
 de personas, la IA más allá de interpretar una pregunta, las acciones sobre el ERP ("Ver diferencias", "Abrir en
 ERP"), las notificaciones y cualquier actualización en vivo (WebSocket, SSE o
 refresco periódico). La recarga por versión no es eso: no trae datos, solo
@@ -551,6 +581,7 @@ De las acciones rápidas del diseño existen "Ventas", "Caja" (Tanda 7B),
 "Stock" (Tanda 8B, solo bajo mínimo) y "Pendientes" (Tanda 9B, también en
 General), y solo para hoy; otros períodos (ayer, rango), los turnos, un
 producto y todos los locales se piden con una pregunta (Tanda 6A), no con un
-chip. No existen: los chips Transferencias y Pedidos; "Ver detalle" y
+chip. No existen: los chips Transferencias y Pedidos en la barra del chat (existen
+solo como pills de filtro de Buscar, Tanda 10); "Ver detalle" y
 "Comparar" en la tarjeta de ventas; "Ver detalle" y "Abrir en ERP" en la de
 pendientes; y los chips "Ventas", "Caja" y "Stock" en General.

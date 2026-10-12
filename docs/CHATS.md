@@ -358,6 +358,62 @@ Nada se guarda y no se toca la lectura. Candados: `test/db/pendientes.test.ts`,
 `test/fixtures/erp-ccf2894.json`, copia sin tocar de
 `docs/integraciones/azul-chat/erp-pedidos-pendientes.json` de ccf2894).
 
+### GET /api/chats/buscar?texto=T&filtro=F&(localId=N | general=1)[&cursor=C]
+
+Tanda 10. Busca en el historial GUARDADO de un Local o de General: los eventos
+(`TRANSFERENCIA_RECIBIDA`, `TRANSFERENCIA_ENVIADA`, `PEDIDO_SOLICITADO`,
+`TRANSFERENCIA_CANCELADA`) y las preguntas guardadas de la persona. Solo la
+base propia: del ERP, solo `mi_alcance`, la autorización viva de cualquier GET
+de chats. Sin ella no se busca (P1). Código: `src/server/buscar/buscar.ts`;
+lo que se lee del texto, en `src/shared/chats/buscar.ts`.
+
+- **Parámetros exactos.** `texto`, de 1 a 60 caracteres sin contar los
+  espacios de las puntas y sin caracteres de control; `filtro`, uno de
+  `todos`, `transferencias`, `pedidos`, `preguntas`; `localId=N` o
+  `general=1`, uno de los dos; `cursor`, opcional. Una clave de más, repetida
+  o con otra forma: `SOLICITUD_INVALIDA`, sin llamar al ERP.
+- **Dónde.** En un Local, ese local tiene que estar hoy entre los de los chats
+  (si no, `NO_AUTORIZADO`) y se buscan sus eventos y las preguntas hechas en
+  ese Local. En General, todos los locales de hoy, las preguntas de General y
+  las de cada uno de esos locales. De cada local, solo los tipos que la persona
+  ve hoy, como el historial; las preguntas, con la misma regla de siempre
+  (retención, requisitos vivos, versión legible). Las de otra persona, nunca.
+- **Un número** (con o sin `#`) es el número de la transferencia o del pedido
+  (`erpReferenciaId`, el que muestra el título), y además cualquier pregunta
+  guardada cuyo texto lo contenga como número entero ("18" no encuentra la
+  182).
+- **Un texto** se compara sin mayúsculas ni acentos con lo que se ve del
+  evento: el título sin el número ("Transferencia recibida", "con
+  diferencias", "Pedido solicitado", "enviada", "cancelada": las palabras
+  salen de `src/shared/chats/textos.ts`, las mismas del título) y el nombre
+  del origen o, en una recepción, del destino; y con el texto de la pregunta
+  guardada. Nunca dentro de la respuesta guardada. Como la base no compara sin
+  acentos sin una extensión, primero se leen los nombres distintos de esos
+  locales y se comparan en el servidor; la consulta pide los que coinciden.
+- **Filtros.** Transferencias: recibidas, enviadas y canceladas. Pedidos: los
+  pedidos solicitados. Preguntas: solo preguntas guardadas. Todos: todo.
+
+Devuelve `{ estado: "OK", total, resultados, siguiente }`. `total` es el de
+toda la búsqueda, no el de la página. Cada resultado: `{ tipo: "EVENTO",
+evento, local: { localId, nombre } }` (el evento público de siempre) o `{ tipo:
+"PREGUNTA", guardada, local }` (la pregunta guardada de siempre; `local` null si
+se hizo en General). Del más nuevo al más viejo, hasta 50, en el orden del
+historial —a igual instante, la pregunta primero— y paginados por la misma
+función y el mismo cursor que la conversación (ver "Paginación"). El cursor no
+lleva el texto ni el filtro: con otro texto, otra búsqueda.
+
+**Sin índice nuevo.** Medido con 60.000 eventos en 6 locales: un número, 7 ms
+(usa el índice `(instalacionId, tipo, erpReferenciaId)` que ya estaba); un
+texto en General, de 80 a 146 ms. No hay migración: lo único que lo haría más
+rápido —un índice de trigramas— necesita una extensión, no solo un
+`CREATE INDEX`.
+
+**Cupo:** 1. Nada se guarda y no se toca la lectura. Candados:
+`test/db/buscar.test.ts` (número con y sin `#`, acentos y mayúsculas, filtros,
+Local y General, local no autorizado hoy, preguntas de otra persona,
+paginación sin repetidos ni faltantes, parámetros, fallo cerrado; cada uno con
+su contraprueba ejercida rompiendo el código) y `test/ui/buscar.test.ts`.
+
 ### POST /api/chats/preguntar
 
 Tanda 6A. Una pregunta en lenguaje natural, desde un Local o desde General.

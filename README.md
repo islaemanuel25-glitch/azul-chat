@@ -78,7 +78,8 @@ no toca a los demás.
 - `src/app/` — Next.js App Router. Las rutas `api/` solo delegan:
   `salud`, `version`, `sesion` (GET, DELETE), `sesion/vincular` (POST) y los
   chats: `chats`, `chats/local`, `chats/general`, `chats/ventas`, desde la Tanda 7B `chats/caja` y desde la
-  8B `chats/stock` (GET),
+  8B `chats/stock` (GET), desde la 9B `chats/pendientes` y `chats/pendientes/general` (GET),
+  desde la 10 `chats/buscar` (GET),
   `chats/leido` (POST) y, desde la Tanda 6A, `chats/preguntar` (POST),
   descritos en `docs/CHATS.md`; desde la Tanda 5A,
   `push/clave` (GET) y `push/suscribir` (POST, DELETE), y
@@ -98,7 +99,8 @@ no toca a los demás.
     "Pendientes" en un Local y en General y su tarjeta (`Pendientes.tsx`, Tanda
     9B: pedidos sin enviar y cajas a revisar, con pills IMPORTANTE / NORMAL) y la recarga al
     cambiar de versión (`version.ts`, Tanda 3B) y las preguntas en lenguaje
-    natural (`Preguntas.tsx`, Tanda 6A), con un único cliente HTTP
+    natural (`Preguntas.tsx`, Tanda 6A) y, desde la Tanda 10, la pantalla Buscar
+    (`Buscar.tsx`: la lupa del encabezado de un Local o de General), con un único cliente HTTP
     (`clienteChats.ts`) para las rutas de chats y `/api/version`.
     Descrita en `docs/INTERFAZ.md`.
   - `sesion/PanelSesion.tsx` — vincular, ver la sesión y cerrarla, y desde la
@@ -116,7 +118,7 @@ no toca a los demás.
     sesión al token (`delegacion.ts`).
   - `chats/` — autorización viva por capacidad, la sincronización (frecuencia
     mínima, presupuesto del cupo del ERP, orden por lo pendiente) y el estado
-    "Actualización demorada" desde los cursores, historial paginado y las nueve
+    "Actualización demorada" desde los cursores, historial paginado y las diez
     rutas de chats. Desde la Tanda 5B las rutas NO ingieren: una `mi_alcance`
     por pedido y la base propia.
   - `interno/` — la sincronización en segundo plano (Tanda 5A), la única que
@@ -140,6 +142,10 @@ no toca a los demás.
     dice cuál faltó. La etiqueta y el orden, en `src/shared/chats/pendientes.ts`.
     Lo usan `GET /api/chats/pendientes`, `GET /api/chats/pendientes/general` y
     las preguntas.
+  - `buscar/buscar.ts` — buscar en el historial guardado (Tanda 10): eventos y
+    preguntas guardadas de la persona, en la base propia, con la misma
+    visibilidad y el mismo cursor que el historial. Del ERP, solo `mi_alcance`.
+    Lo usa `GET /api/chats/buscar`.
   - `ia/` — la IA de las preguntas (Tanda 6A): configuración, la llamada a
     Gemini (una sola, por `fetch`, sin SDK), la tarifa con su fecha y el tope de
     gasto del mes.
@@ -242,7 +248,7 @@ sobre bytes UTF-8, con `marca` = Unix timestamp en segundos y `cuerpo` =
   entrega push a la app instalada en la pantalla de inicio.
 - El cupo del ERP (120 por persona en 60 s desde el 2026-10-11; 30 antes) lo
   comparten la app y la sincronización de fondo. Desde la Tanda 5B la app gasta 1 consulta por
-  pantalla (Ventas, Caja y Stock, 2) y el fondo como mucho 18 por persona por corrida: una
+  pantalla (Ventas, Caja y Stock, 2; Buscar, Tanda 10, 1) y el fondo como mucho 18 por persona por corrida: una
   navegación intensa de un minuto (12) entra con la corrida en cualquier orden.
   "Pendientes" (Tanda 9B) es la más cara: 1 + hasta 3 de un local (pedidos,
   cajas de hoy y de ayer) y, en General, 1 + hasta 3 por local con alguna de
