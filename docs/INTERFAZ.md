@@ -105,6 +105,35 @@ grande se centra en una columna de 480 px; no hay un diseño de escritorio.
   (`TarjetaBajoMinimo` y `ResultadoStock`, en `Stock.tsx`; `useStock`, en
   `Conversacion.tsx`; `reducirStock`, en `logica.ts`; los textos, en
   `formato.ts`).
+- **Pendientes (Tanda 9B).** Figma "Azul Chat — Mobile V1", pantalla 04
+  "Pendientes" (nodos 1:204-1:240). Si `chats/local` trae
+  `local.pendientes: true` (el local anuncia `pedidos_pendientes` o
+  `cajas_resumen`), la barra lleva el chip "Pendientes" al final, después de
+  "Stock". En General, si `chats/general` trae `pendientes: true` (algún local
+  lo anuncia), la barra de General lleva el mismo chip —General no tenía
+  chips: es el primero—, con la caja de preguntas debajo si hay IA. Tocarlo
+  pide `GET /api/chats/pendientes?localId=N` (o `/general`) y aparece al final
+  la tarjeta "Pendientes · {local}" (o "Pendientes · Todos los locales", con
+  una sección por local y los que no tienen nada al final). No se guarda,
+  como Ventas. Cada fila lleva su pill: IMPORTANTE con la marca de alerta de
+  siempre (borde y fondo de alerta, la de "recibida con diferencias" y "bajo
+  mínimo"), NORMAL con el tono suave; sin colores nuevos. IMPORTANTE arriba y,
+  dentro de cada grupo, lo más viejo primero (lo ordena el servidor). Las
+  filas:
+  - pedido: "Pedido #N", "Pendiente de envío · desde hace {X días | Y h}" (con
+    menos de una hora, "menos de 1 h") y "A {origen} · {k} línea(s)";
+  - caja: "Caja de {operador} · {Turno} · {hoy | ayer}" (sin operador, el
+    nombre de la caja del ERP; "Sin turno asignado" como está) y "Falta $ …",
+    "Sobra $ …" o "Falta verificar en Tesorería".
+  Sin pendientes: "Nada pendiente en {local}.". Si una fuente no contestó,
+  debajo del título: "No se pudo consultar: los pedidos, las cajas de hoy… La
+  lista puede estar incompleta." y lo que sí llegó. Sin los botones "Ver
+  detalle" / "Abrir en ERP" del Figma: todavía no hay a dónde llevar. Los
+  estados son los de Ventas: "Consultando pendientes…" en el chip, la tarjeta
+  de error con "Reintentar" a mano y el texto del cupo con su espera
+  (`TarjetaPendientes`, `TarjetaPendientesTodos` y `ResultadoPendientes`, en
+  `Pendientes.tsx`; `usePendientes`, en `Conversacion.tsx`;
+  `reducirPendientes`, en `logica.ts`; los textos, en `formato.ts`).
 
 - **Preguntas (Tanda 6A).** Si `chats/local` o `chats/general` traen
   `preguntas: true` (el servidor tiene la IA configurada), hay una caja de texto
@@ -138,6 +167,8 @@ grande se centra en una columna de 480 px; no hay un diseño de escritorio.
     bajo mínimo, la tarjeta del chip. De todos: UNA tarjeta ("… · Todos los
     locales") con una sección por local, cada uno con lo suyo, sin sumas, y
     cuáles no se pudieron consultar;
+  - pendientes (Tanda 9B): la misma tarjeta que el chip, de un local o de
+    todos;
   - ventas de un turno (Tanda 7B): "Turno {turno} · {período} · {local}" (si
     el nombre del turno ya empieza con "turno", sin repetirlo: "Turno mañana",
     no "Turno Turno mañana"; Tanda 8B, `nombreDeTurno`), el
@@ -430,8 +461,8 @@ estaba. No hay scroll infinito ni refresco automático.
   plural, advertencias), el error con "Reintentar" y la consulta que reemplaza.
 - `test/frontera/alcanceUi.test.ts`: la interfaz no muestra "Ver diferencias",
   "Abrir en ERP", "Última transferencia", "Ver detalle", "Comparar" ni los chips
-  Transferencias o Pedidos —"Caja" (Tanda 7B) y "Stock" (Tanda 8B) existen, y
-  solo en `Piezas.tsx`—; "Ventas de hoy" y "Ventas de ayer" se
+  Transferencias o Pedidos —"Caja" (Tanda 7B), "Stock" (Tanda 8B) y
+  "Pendientes" (Tanda 9B) existen, y solo en `Piezas.tsx`—; "Ventas de hoy" y "Ventas de ayer" se
   admiten SOLO como títulos de la tarjeta, en `formato.ts`; "Preguntá" y el
   único `<input>`, SOLO en la caja de `Preguntas.tsx` (Tanda 6A); no tiene refresco
   automático —salvo la recarga por versión, con cada pieza en su único archivo:
@@ -498,18 +529,28 @@ estaba. No hay scroll infinito ni refresco automático.
   el cliente, las respuestas de un local y de todos, la foto guardada y
   "Turno Turno" con su contraprueba. `test/frontera/alcanceUi.test.ts`: el
   chip "Stock" solo en `Piezas.tsx`.
+- `test/ui/pendientes.test.ts` (Tanda 9B): las plantillas (la antigüedad, la
+  caja con y sin operador, "Sin turno asignado"), la tarjeta con los fixtures
+  del ERP (pedidos de ccf2894, cajas de 14ae247) en el orden y con las pills,
+  sin los botones del Figma, "Nada pendiente", la fuente que faltó, la de
+  todos, el chip en el Local y en General (con y sin preguntas, y sin ningún
+  local que lo anuncie), la falla y el cupo, el reductor, la respuesta de la
+  pregunta, la foto guardada y el cliente. `test/frontera/alcanceUi.test.ts`:
+  el chip "Pendientes" solo en `Piezas.tsx`, y "Ver detalle" sigue en rojo en
+  la tarjeta.
 
 ## Fuera de alcance
 
-No existen todavía, y la interfaz no los muestra ni los insinúa: Pendientes,
-buscar en el historial, la configuración completa, el compositor y los mensajes
+No existen todavía, y la interfaz no los muestra ni los insinúa: buscar en el historial, la configuración completa, el compositor y los mensajes
 de personas, la IA más allá de interpretar una pregunta, las acciones sobre el ERP ("Ver diferencias", "Abrir en
 ERP"), las notificaciones y cualquier actualización en vivo (WebSocket, SSE o
 refresco periódico). La recarga por versión no es eso: no trae datos, solo
 reemplaza el JS de un despliegue viejo, y solo en los dos momentos de arriba.
 
-De las acciones rápidas del diseño existen "Ventas", "Caja" (Tanda 7B) y
-"Stock" (Tanda 8B, solo bajo mínimo), y solo para hoy; otros períodos (ayer,
-rango), los turnos, un producto y todos los locales se piden con una pregunta
-(Tanda 6A), no con un chip. No existen: los chips Transferencias y Pedidos; "Ver detalle" y "Comparar" en la tarjeta de
-ventas; y el chip "Ventas" en General.
+De las acciones rápidas del diseño existen "Ventas", "Caja" (Tanda 7B),
+"Stock" (Tanda 8B, solo bajo mínimo) y "Pendientes" (Tanda 9B, también en
+General), y solo para hoy; otros períodos (ayer, rango), los turnos, un
+producto y todos los locales se piden con una pregunta (Tanda 6A), no con un
+chip. No existen: los chips Transferencias y Pedidos; "Ver detalle" y
+"Comparar" en la tarjeta de ventas; "Ver detalle" y "Abrir en ERP" en la de
+pendientes; y los chips "Ventas", "Caja" y "Stock" en General.

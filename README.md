@@ -94,7 +94,9 @@ no toca a los demás.
   - `chats/` — la app móvil (Tanda 2C): la lista de chats, un Local, General y
     sus estados, el botón "Ventas" de un Local (Tanda 3A), el botón "Caja" y
     la tarjeta de cajas por turno (`Cajas.tsx`, Tanda 7B), el botón "Stock" y
-    las tarjetas de bajo mínimo y de productos (`Stock.tsx`, Tanda 8B) y la recarga al
+    las tarjetas de bajo mínimo y de productos (`Stock.tsx`, Tanda 8B), el botón
+    "Pendientes" en un Local y en General y su tarjeta (`Pendientes.tsx`, Tanda
+    9B: pedidos sin enviar y cajas a revisar, con pills IMPORTANTE / NORMAL) y la recarga al
     cambiar de versión (`version.ts`, Tanda 3B) y las preguntas en lenguaje
     natural (`Preguntas.tsx`, Tanda 6A), con un único cliente HTTP
     (`clienteChats.ts`) para las rutas de chats y `/api/version`.
@@ -106,7 +108,7 @@ no toca a los demás.
 - `src/server/` — solo servidor. Cada archivo importa `server-only`.
   - `erp/` — configuración, firma, constructores de cuerpo (`canje`,
     `miAlcance`, `ventasResumen`, `cajasResumen` (Tanda 7B), `stockConsulta`
-    (Tanda 8B) y, uno común a las cuatro capacidades de
+    (Tanda 8B), `pedidosPendientes` (Tanda 9B) y, uno común a las cuatro capacidades de
     eventos, `eventos.ts`) y el cliente firmado, sin reintentos.
   - `seguridad/cifradoToken.ts` — AES-256-GCM del token.
   - `http/` — Origin, cupo, lectura del cuerpo y respuestas.
@@ -114,7 +116,7 @@ no toca a los demás.
     sesión al token (`delegacion.ts`).
   - `chats/` — autorización viva por capacidad, la sincronización (frecuencia
     mínima, presupuesto del cupo del ERP, orden por lo pendiente) y el estado
-    "Actualización demorada" desde los cursores, historial paginado y las siete
+    "Actualización demorada" desde los cursores, historial paginado y las nueve
     rutas de chats. Desde la Tanda 5B las rutas NO ingieren: una `mi_alcance`
     por pedido y la base propia.
   - `interno/` — la sincronización en segundo plano (Tanda 5A), la única que
@@ -132,6 +134,12 @@ no toca a los demás.
   - `stock/stockConsulta.ts` — "bajo mínimo" y la búsqueda de un producto
     desde una sesión (Tanda 8B), copiados campo por campo. Lo usan
     `GET /api/chats/stock` y las preguntas.
+  - `pendientes/pendientes.ts` — "Pendientes" de uno o varios locales desde una
+    sesión (Tanda 9B): `pedidos_pendientes` y `cajas_resumen` de hoy y de ayer,
+    solo lo que cada local anuncia; una fuente que falla no tira las otras y se
+    dice cuál faltó. La etiqueta y el orden, en `src/shared/chats/pendientes.ts`.
+    Lo usan `GET /api/chats/pendientes`, `GET /api/chats/pendientes/general` y
+    las preguntas.
   - `ia/` — la IA de las preguntas (Tanda 6A): configuración, la llamada a
     Gemini (una sola, por `fetch`, sin SDK), la tarifa con su fecha y el tope de
     gasto del mes.
@@ -232,10 +240,13 @@ sobre bytes UTF-8, con `marca` = Unix timestamp en segundos y `cuerpo` =
 - Los avisos push son "a lo sumo una vez": si el servicio de push no contesta,
   ese aviso se pierde (la novedad sigue en la app). En iPhone, el navegador solo
   entrega push a la app instalada en la pantalla de inicio.
-- El cupo del ERP (30 por persona en 60 s) lo comparten la app y la
-  sincronización de fondo. Desde la Tanda 5B la app gasta 1 consulta por
+- El cupo del ERP (120 por persona en 60 s desde el 2026-10-11; 30 antes) lo
+  comparten la app y la sincronización de fondo. Desde la Tanda 5B la app gasta 1 consulta por
   pantalla (Ventas, Caja y Stock, 2) y el fondo como mucho 18 por persona por corrida: una
   navegación intensa de un minuto (12) entra con la corrida en cualquier orden.
+  "Pendientes" (Tanda 9B) es la más cara: 1 + hasta 3 de un local (pedidos,
+  cajas de hoy y de ayer) y, en General, 1 + hasta 3 por local con alguna de
+  las dos capacidades: con 5 locales, 16, que con el fondo (18) suman 34 de 120.
   Lo nuevo llega a la app solo por el fondo, cada 2 minutos; con 5 locales
   cada capacidad se trae al menos cada 4. Con 9 o más locales por persona, o
   más de 6 personas a la vez (cupo de 120 por aplicación), hay que revisar la
@@ -246,7 +257,8 @@ sobre bytes UTF-8, con `marca` = Unix timestamp en segundos y `cuerpo` =
   para un local, o los locales con ventas para "todos"); caja y ventas por
   turno (Tanda 7B), igual con `cajas_resumen`; stock (Tanda 8B), igual con
   `stock_consulta`: 1 + 1 de un local, 1 + los locales con la capacidad de
-  "todos". Eventos, 1. La IA se
+  "todos"; pendientes (Tanda 9B), como el botón: 1 + hasta 3 por local.
+  Eventos, 1. La IA se
   paga aparte, con tope mensual (`AZUL_CHAT_IA_TOPE_USD`); la tarifa y la
   cuenta por pregunta están en `docs/CHATS.md`. La IA solo interpreta la
   pregunta: no recibe ventas, eventos ni ids.
