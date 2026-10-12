@@ -2,7 +2,7 @@
 //
 // EL CLIENTE DE AZUL CHAT HACIA EL ERP. Server-side, y NO genérico.
 //
-// Conoce DOS rutas del ERP, fijas, y OCHO operaciones:
+// Conoce DOS rutas del ERP, fijas, y DIEZ operaciones:
 //
 //   · canjear(codigo)                         → POST /api/integraciones/azul-chat/vinculo/canjear
 //   · miAlcance(token)                        → POST /api/integraciones/azul-chat/consultar
@@ -13,6 +13,7 @@
 //   · cancelacionesEventos(token, entrada)    → POST /api/integraciones/azul-chat/consultar
 //   · cajasResumen(token, entrada)            → POST /api/integraciones/azul-chat/consultar (Tanda 7B)
 //   · stockConsulta(token, entrada)           → POST /api/integraciones/azul-chat/consultar (Tanda 8B)
+//   · pedidosPendientes(token, entrada)       → POST /api/integraciones/azul-chat/consultar (Tanda 9B)
 //
 // No recibe URLs, rutas, métodos, cabeceras ni nombres de capacidad de quien lo
 // usa: no hay forma de pedirle que llame otra cosa. Una capacidad nueva es un
@@ -62,6 +63,8 @@ import {
   type DatosCajasResumen,
   esDatosStockConsulta,
   type DatosStockConsulta,
+  esDatosPedidosPendientes,
+  type DatosPedidosPendientes,
   type CodigoErrorLocal,
   type DatosMiAlcance,
   type DatosTransferenciasEventos,
@@ -80,6 +83,7 @@ import { construirCuerpoTransferenciasEventos } from "./transferenciasEventos.ts
 import { construirCuerpoVentasResumen } from "./ventasResumen.ts";
 import { construirCuerpoCajasResumen } from "./cajasResumen.ts";
 import { construirCuerpoStockConsulta } from "./stockConsulta.ts";
+import { construirCuerpoPedidosPendientes } from "./pedidosPendientes.ts";
 
 /** Las únicas dos rutas del ERP que este cliente sabe llamar. */
 export const RUTA_CONSULTAR = "/api/integraciones/azul-chat/consultar";
@@ -126,6 +130,8 @@ export type ClienteErp = {
   cajasResumen(token: string, entrada: unknown): Promise<ResultadoConsulta<DatosCajasResumen>>;
   /** El stock de un local: un producto por texto, o los que están bajo mínimo (Tanda 8B). `entrada` = `{ alcance, parametros }`. */
   stockConsulta(token: string, entrada: unknown): Promise<ResultadoConsulta<DatosStockConsulta>>;
+  /** Los pedidos de un local que siguen sin enviar (Tanda 9B). `entrada` = `{ alcance }`. */
+  pedidosPendientes(token: string, entrada: unknown): Promise<ResultadoConsulta<DatosPedidosPendientes>>;
 };
 
 /** Lee el cuerpo de la respuesta sin pasarse de `max` bytes, en UTF-8 estricto. */
@@ -329,5 +335,11 @@ export function crearClienteErp(deps: DependenciasCliente = {}): ClienteErp {
         const construido = construirCuerpoStockConsulta(token, entrada);
         return construido.ok ? { ok: true, cuerpo: construido.cuerpo } : { ok: false, codigo: construido.codigo };
       }, esDatosStockConsulta),
+
+    pedidosPendientes: (token: string, entrada: unknown) =>
+      llamar("pedidos_pendientes", RUTA_CONSULTAR, (): CuerpoArmado => {
+        const construido = construirCuerpoPedidosPendientes(token, entrada);
+        return construido.ok ? { ok: true, cuerpo: construido.cuerpo } : { ok: false, codigo: construido.codigo };
+      }, esDatosPedidosPendientes),
   });
 }

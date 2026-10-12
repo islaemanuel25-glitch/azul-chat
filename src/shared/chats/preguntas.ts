@@ -8,7 +8,7 @@
 // que se muestra lo arma el código con datos del ERP (ventas) o de la base
 // propia (eventos): ni un texto ni un número de la respuesta sale del modelo.
 
-import type { BajoMinimoDelLocal, CajasDelDia, EventoGeneral, FallaChats, ProductosDelLocal, TotalesDeTurnoPublico } from "./api.ts";
+import type { BajoMinimoDelLocal, CajasDelDia, EventoGeneral, FallaChats, PendientesDelLocal, ProductosDelLocal, TotalesDeTurnoPublico } from "./api.ts";
 
 /** Lo que manda el navegador. `localId`: desde qué Local se pregunta (sin él, desde General). */
 export type PedidoPregunta = { readonly pregunta: string; readonly localId?: number };
@@ -175,6 +175,18 @@ export type RespuestaPregunta =
       readonly locales: readonly BajoMinimoDelLocal[];
       readonly fallidos: readonly { readonly id: number; readonly nombre: string }[];
     }
+  /** Tanda 9B: lo pendiente de UN local (pedidos sin enviar y cajas a revisar), con la fuente que faltó si faltó alguna. */
+  | {
+      readonly estado: "PENDIENTES";
+      readonly alcance: "LOCAL";
+      readonly resultado: PendientesDelLocal;
+    }
+  /** Tanda 9B: lo mismo de cada local con alguna de las dos fuentes; los que no tienen nada, al final. */
+  | {
+      readonly estado: "PENDIENTES";
+      readonly alcance: "TODOS";
+      readonly locales: readonly PendientesDelLocal[];
+    }
   /** No se entendió, o lo entendido no se puede contestar. Con ejemplos de lo que sí. */
   | { readonly estado: "NO_ENTIENDO"; readonly ejemplos: readonly string[] }
   /** Se alcanzó el tope de gasto del mes: no se llamó a la IA. */
@@ -202,6 +214,8 @@ export const ESTADOS_GUARDADOS = [
   "VENTAS_TURNO",
   // Tanda 8B, versión 3 del resultado.
   "STOCK",
+  // Tanda 9B, versión 4 del resultado.
+  "PENDIENTES",
 ] as const;
 export type RespuestaGuardada = Extract<RespuestaPregunta, { readonly estado: (typeof ESTADOS_GUARDADOS)[number] }>;
 
@@ -226,4 +240,5 @@ export const EJEMPLOS_DE_PREGUNTAS: readonly string[] = Object.freeze([
   "¿Cuánto vendió el turno tarde?",
   "¿Cuánta leche hay?",
   "¿Qué productos están por debajo del mínimo?",
+  "¿Qué está pendiente?",
 ]);

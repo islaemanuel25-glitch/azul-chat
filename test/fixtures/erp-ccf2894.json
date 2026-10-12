@@ -1,0 +1,135 @@
+{
+  "_origen": {
+    "generadoPor": "scripts/pruebas-db/azulChatPedidosPendientes.mjs",
+    "commit": "3f19c48a43d60536798d9df3f38a0f413d09bef3",
+    "nota": "Pedidos y respuestas reales de la puerta del ERP (atenderSolicitudAzulChat) contra una base descartable. No se edita a mano: se regenera."
+  },
+  "ahora": "2026-10-13T07:12:46.349Z",
+  "canceladoQueNoAparece": {
+    "id": 3,
+    "estado": "Cancelado"
+  },
+  "varios": {
+    "pedido": {
+      "capacidad": "pedidos_pendientes",
+      "delegacion": {
+        "token": "<token>"
+      },
+      "alcance": {
+        "grupoId": 1,
+        "localId": 2
+      },
+      "parametros": {}
+    },
+    "respuesta": {
+      "status": 200,
+      "cuerpo": {
+        "ok": true,
+        "datos": {
+          "capacidad": "pedidos_pendientes",
+          "version": 1,
+          "local": {
+            "id": 2,
+            "nombre": "Local A"
+          },
+          "grupoId": 1,
+          "pedidos": [
+            {
+              "id": 4,
+              "solicitadoAt": "2026-10-12T04:42:46.064Z",
+              "origen": {
+                "id": 1,
+                "nombre": "Depósito"
+              },
+              "lineas": 1,
+              "antiguedadHoras": 26
+            },
+            {
+              "id": 7,
+              "solicitadoAt": "2026-10-12T04:42:46.345Z",
+              "origen": {
+                "id": 3,
+                "nombre": "Local B"
+              },
+              "lineas": 3,
+              "antiguedadHoras": 26
+            }
+          ]
+        }
+      }
+    }
+  },
+  "ninguno": {
+    "pedido": {
+      "capacidad": "pedidos_pendientes",
+      "delegacion": {
+        "token": "<token>"
+      },
+      "alcance": {
+        "grupoId": 1,
+        "localId": 3
+      },
+      "parametros": {}
+    },
+    "respuesta": {
+      "status": 200,
+      "cuerpo": {
+        "ok": true,
+        "datos": {
+          "capacidad": "pedidos_pendientes",
+          "version": 1,
+          "local": {
+            "id": 3,
+            "nombre": "Local B"
+          },
+          "grupoId": 1,
+          "pedidos": []
+        }
+      }
+    }
+  },
+  "sinPermiso": {
+    "pedido": {
+      "capacidad": "pedidos_pendientes",
+      "delegacion": {
+        "token": "<token>"
+      },
+      "alcance": {
+        "grupoId": 1,
+        "localId": 2
+      },
+      "parametros": {}
+    },
+    "respuesta": {
+      "status": 403,
+      "cuerpo": {
+        "ok": false,
+        "codigo": "NO_AUTORIZADO",
+        "error": "El usuario no está autorizado para esta consulta."
+      }
+    }
+  },
+  "conParametro": {
+    "pedido": {
+      "capacidad": "pedidos_pendientes",
+      "delegacion": {
+        "token": "<token>"
+      },
+      "alcance": {
+        "grupoId": 1,
+        "localId": 2
+      },
+      "parametros": {
+        "estado": "Cancelado"
+      }
+    },
+    "respuesta": {
+      "status": 400,
+      "cuerpo": {
+        "ok": false,
+        "codigo": "SOLICITUD_INVALIDA",
+        "error": "La solicitud no tiene la forma esperada."
+      }
+    }
+  }
+}

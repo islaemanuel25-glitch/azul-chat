@@ -825,7 +825,7 @@ describe("6C. las preguntas se guardan con su respuesta y vuelven en el historia
     reloj += 60_000;
     await preguntar(cookie, { pregunta: "nueva", localId: CASIANO.id });
     const vinculo = (await base.db.vinculo.findFirst({ select: { id: true } }))!;
-    const hoy = { autorizados: [{ localId: CASIANO.id, capacidades: ["transferencias_eventos"] }], conVentas: [], conCaja: [], conStock: [] };
+    const hoy = { autorizados: [{ localId: CASIANO.id, capacidades: ["transferencias_eventos"] }], conVentas: [], conCaja: [], conStock: [], conPendientes: [] };
     const aLos = (ms: number) => fuenteDePreguntas(base.db, { vinculoId: vinculo.id, erpLocalId: CASIANO.id, hoy, ahora: new Date(ms) })(null, 10);
     const NOVENTA = DIAS_DE_RETENCION * 24 * 60 * 60 * 1000;
     assert.deepEqual((await aLos(reloj - 60_000 + NOVENTA)).map((p) => p.pregunta.pregunta), ["nueva", "vieja"], "el día 90 todavía está");
@@ -864,7 +864,7 @@ describe("6C. la paginación intercala preguntas y eventos sin repetir ni perder
     for (const [i, creadaEn] of momentos.entries()) {
       await guardarPregunta(base.db, { vinculoId: vinculo.id, erpLocalId: CASIANO.id, texto: `p${i}`, creadaEn, respuesta, intencion: null });
     }
-    const hoy = { autorizados: [{ localId: CASIANO.id, capacidades: ["transferencias_eventos"] }], conVentas: [], conCaja: [], conStock: [] };
+    const hoy = { autorizados: [{ localId: CASIANO.id, capacidades: ["transferencias_eventos"] }], conVentas: [], conCaja: [], conStock: [], conPendientes: [] };
     const fuente = fuenteDePreguntas(base.db, { vinculoId: vinculo.id, erpLocalId: CASIANO.id, hoy, ahora: new Date(reloj) });
     const locales = [{ localId: CASIANO.id, tipos: ["TRANSFERENCIA_RECIBIDA" as const] }];
     return { fuente, locales };
@@ -1068,8 +1068,9 @@ describe("7B. caja y ventas por turno: el ERP calcula, el código elige el turno
     assert.deepEqual(r.cuerpo.locales.map(nombres), [["Mañana", "Tarde", "Sin turno asignado"], ["Mañana", "Tarde", "Sin turno asignado"]]);
   });
 
-  // Tanda 8B: desde que STOCK existe, todo se guarda en la versión 3 (las de antes se siguen leyendo; ver 8B).
-  it("guardado: caja y ventas por turno vuelven en el historial como foto (versión 3); sin cajas_resumen hoy, no se muestran", async () => {
+  // Tanda 8B: desde que STOCK existe, todo se guardaba en la versión 3. Tanda 9B: desde que PENDIENTES
+  // existe, en la 4 (las de antes se siguen leyendo, cada una con sus estados; ver 8B y 9B).
+  it("guardado: caja y ventas por turno vuelven en el historial como foto (versión 4); sin cajas_resumen hoy, no se muestran", async () => {
     conCaja(CASIANO.id);
     const cookie = await vincular(ADMIN);
     respuestaIa = () => respuestaGemini({ intencion: "caja", local: "Casiano", periodo: "hoy" });
@@ -1081,8 +1082,8 @@ describe("7B. caja y ventas por turno: el ERP calcula, el código elige el turno
     assert.deepEqual(guardadas.map((g) => [g.id, g.respuesta]), [[v.guardadaId, v.cuerpo], [c.guardadaId, c.cuerpo]]);
     const filas = await base.db.pregunta.findMany({ orderBy: { id: "asc" }, select: { resultadoVersion: true, requisitos: true } });
     assert.deepEqual(filas, [
-      { resultadoVersion: 3, requisitos: [{ localId: CASIANO.id, capacidad: "cajas_resumen" }] },
-      { resultadoVersion: 3, requisitos: [{ localId: CASIANO.id, capacidad: "cajas_resumen" }] },
+      { resultadoVersion: 4, requisitos: [{ localId: CASIANO.id, capacidad: "cajas_resumen" }] },
+      { resultadoVersion: 4, requisitos: [{ localId: CASIANO.id, capacidad: "cajas_resumen" }] },
     ]);
     // Hoy Casiano ya no anuncia cajas_resumen: no se muestran (siguen guardadas).
     const a = erp.alcances.get(ADMIN) as Rompible<DatosMiAlcance>;
@@ -1200,7 +1201,7 @@ describe("8B. stock: el ERP busca y decide; el código arma la respuesta", () =>
     }
   });
 
-  it("guardado: la foto vuelve en el historial (versión 3, requisito stock_consulta); sin stock_consulta hoy, no se muestra", async () => {
+  it("guardado: la foto vuelve en el historial (versión 4 desde la 9B, requisito stock_consulta); sin stock_consulta hoy, no se muestra", async () => {
     conStock(CASIANO.id);
     const cookie = await vincular(ADMIN);
     respuestaIa = () => stock({ modoStock: "bajo_minimo", producto: null });
@@ -1208,7 +1209,7 @@ describe("8B. stock: el ERP busca y decide; el código arma la respuesta", () =>
     const guardadas = (await verLocal(cookie)).guardadas;
     assert.deepEqual(guardadas.map((g) => [g.id, g.respuesta]), [[b.guardadaId, b.cuerpo]]);
     const filas = await base.db.pregunta.findMany({ select: { resultadoVersion: true, requisitos: true } });
-    assert.deepEqual(filas, [{ resultadoVersion: 3, requisitos: [{ localId: CASIANO.id, capacidad: "stock_consulta" }] }]);
+    assert.deepEqual(filas, [{ resultadoVersion: 4, requisitos: [{ localId: CASIANO.id, capacidad: "stock_consulta" }] }]);
     const a = erp.alcances.get(ADMIN) as Rompible<DatosMiAlcance>;
     a.locales.find((l) => l.id === CASIANO.id)!.capacidades = ["ventas_resumen", "transferencias_eventos"] as never;
     assert.deepEqual((await verLocal(cookie)).guardadas, []);
@@ -1229,5 +1230,22 @@ describe("8B. stock: el ERP busca y decide; el código arma la respuesta", () =>
     await base.db.pregunta.create({ data: fila("de la 7B", "NO_ENTIENDO", 20) });
     await base.db.pregunta.create({ data: fila("imposible", "STOCK", 10) });
     assert.deepEqual((await verLocal(cookie)).guardadas.map((g) => g.pregunta), ["de la 7B"]);
+  });
+
+  it("Tanda 9B: una fila v3 se sigue leyendo (con STOCK); una v3 con PENDIENTES, que la v3 no tenía, no (CONTRAPRUEBA)", async () => {
+    const cookie = await vincular(ADMIN);
+    const vinculo = (await base.db.vinculo.findFirst({ select: { id: true } }))!;
+    const fila = (texto: string, estado: string, segundos: number) => ({
+      vinculoId: vinculo.id,
+      erpLocalId: CASIANO.id,
+      texto,
+      creadaEn: new Date(reloj - segundos * 1000),
+      resultadoVersion: 3,
+      resultado: { estado, ejemplos: [] },
+      requisitos: [],
+    });
+    await base.db.pregunta.create({ data: fila("de la 8B", "STOCK", 20) });
+    await base.db.pregunta.create({ data: fila("imposible", "PENDIENTES", 10) });
+    assert.deepEqual((await verLocal(cookie)).guardadas.map((g) => g.pregunta), ["de la 8B"]);
   });
 });

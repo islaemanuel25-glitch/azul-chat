@@ -87,7 +87,8 @@ mentira (`test/db/chats.test.ts`, caso (a)): la lista, un local, una página
 anterior, General, marcar leído y "Actualizar", 1 consulta cada uno
 (`mi_alcance`); Ventas, 2 (`mi_alcance` y `ventas_resumen`); Caja (Tanda 7B),
 2 (`mi_alcance` y `cajas_resumen`); Stock (Tanda 8B), 2 (`mi_alcance` y
-`stock_consulta`). La corrida de
+`stock_consulta`); Pendientes (Tanda 9B), 1 + hasta 3 de un local y 1 + hasta
+3 por local en General (abajo). La corrida de
 fondo gasta como mucho 18 por persona y le deja 12 a la app: el cupo y el
 presupuesto, con números, están en `docs/DEPLOY.md`.
 
@@ -143,7 +144,7 @@ evento es el más reciente entre ellos, con su local.
 ### GET /api/chats/local?localId=N[&cursor=C]
 
 El historial de un local, 30 eventos por página, del más reciente al más
-antiguo. Devuelve `{ estado: "OK", local: { localId, nombre, esDeposito, ventas, caja, stock },
+antiguo. Devuelve `{ estado: "OK", local: { localId, nombre, esDeposito, ventas, caja, stock, pendientes },
 sincronizacion, noLeidos, leidoHasta, eventos, guardadas, siguiente, preguntas }`. `siguiente` es el
 cursor de la página siguiente, o `null`.
 
@@ -154,7 +155,9 @@ consulta ventas.
 
 `local.caja` (Tanda 7B) es lo mismo para `cajas_resumen` y el botón "Caja":
 un anuncio, que `GET /api/chats/caja` vuelve a decidir. `local.stock` (Tanda
-8B), lo mismo para `stock_consulta` y el botón "Stock".
+8B), lo mismo para `stock_consulta` y el botón "Stock". `local.pendientes`
+(Tanda 9B), `true` si el local anuncia `pedidos_pendientes` o `cajas_resumen`:
+el botón "Pendientes", que `GET /api/chats/pendientes` vuelve a decidir.
 
 `preguntas` (Tanda 6A, también en General) es `true` si el servidor tiene la
 IA configurada: es el anuncio de la caja de preguntas, no una autorización.
@@ -172,8 +175,9 @@ General es una **proyección**: la misma tabla de eventos, filtrada por los
 locales autorizados de ahora. No hay un "local General" ni se copia nada. Un
 evento de General es el mismo `Evento.id` que en su Local, con el mismo
 contenido, más `local: { localId, nombre }`. Devuelve `{ estado: "OK",
-noLeidos, eventos, guardadas, siguiente, localesDemorados, preguntas }`; `noLeidos` es la suma de los
-locales.
+noLeidos, eventos, guardadas, siguiente, localesDemorados, preguntas, pendientes }`; `noLeidos` es la suma de los
+locales. `pendientes` (Tanda 9B): algún local anuncia `pedidos_pendientes` o
+`cajas_resumen`, el botón "Pendientes" de General.
 
 ### POST /api/chats/leido
 
@@ -288,6 +292,72 @@ Nada se guarda. Candados: `test/db/stock.test.ts`,
 `test/unidad/stockChats.test.ts` y `test/erp/stockConsulta.test.ts` (forma,
 contra el fixture del ERP `test/fixtures/erp-41f702b.json`).
 
+### GET /api/chats/pendientes?localId=N y GET /api/chats/pendientes/general
+
+Tanda 9B. Lo pendiente: los pedidos que el local pidió y siguen sin enviar
+(`pedidos_pendientes` del ERP ccf2894: los Solicitado, ni el carrito, ni lo
+despachado, ni lo cancelado) y, de `cajas_resumen` de HOY y de AYER, las cajas
+con diferencia (`CON_DIFERENCIA`) o que Tesorería todavía no verificó
+(`FALTA_VERIFICAR`).
+
+**Dos rutas, no un `?localId=todos`.** Cada una con sus parámetros exactos,
+como el resto: la de un local lleva solo `localId` (uno de más, repetido o mal
+formado es 400); la de General, ninguno. Estáticas, sin segmentos dinámicos
+(`test/frontera/rutas.test.ts`).
+
+**Autorización viva.** Sesión y `mi_alcance` vivo, una vez. Un local cuenta si
+anuncia `pedidos_pendientes` o `cajas_resumen` (`conPendientes`, con cuál de
+las dos); si no, `NO_AUTORIZADO` (403) sin consultar nada más. General toma
+todos los que anuncian alguna, en el orden de `mi_alcance`; si ninguno,
+`NO_AUTORIZADO`. El `grupoId` sale de `mi_alcance`.
+
+**Por local, solo lo que anuncia, de a una y sin reintentos**
+(`src/server/pendientes/pendientes.ts`): `pedidos_pendientes` si la anuncia;
+`cajas_resumen` de hoy y de ayer si anuncia esa. Lo que el ERP contesta se
+copia si es del local, el grupo (y, en cajas, el día) pedidos; si no, esa
+fuente faltó.
+
+**Una fuente que falla no tira las otras.** El local muestra lo que sí llegó y
+`faltaron` dice cuál no (`PEDIDOS`, `CAJAS_HOY`, `CAJAS_AYER`). El primer
+`LIMITE_EXCEDIDO` corta todo lo que queda (no se sigue gastando) y también
+queda en `faltaron`. Sin sesión (o VINCULO_NO_VALIDO, que revoca) o con el
+servicio caído no hay respuesta. Si NINGUNA consulta contestó, es la falla de
+la primera (`ERP_NO_DISPONIBLE` 503 o `ERP_CUPO_EXCEDIDO` 429): "nada
+pendiente" sin haber mirado sería inventar.
+
+**Etiqueta y orden** (`src/shared/chats/pendientes.ts`, reglas del dueño;
+Figma 04 "Pendientes"):
+
+- Pedido: IMPORTANTE con más de 24 h (`antiguedadHoras > 24`, las del ERP);
+  si no, NORMAL.
+- Caja con faltante: IMPORTANTE. Con sobrante: NORMAL. Sin diferencia pero sin
+  verificar: NORMAL. Una caja con diferencia que además falta verificar es UNA
+  fila, por la diferencia.
+- IMPORTANTE primero; dentro de cada grupo, lo más viejo primero (el pedido
+  por `solicitadoAt`, la caja por su apertura; sin fecha, al final; empate:
+  pedido antes que caja, después por id).
+
+Devuelve `{ estado: "OK", local: { id, nombre }, pendientes, faltaron }`, y
+General `{ estado: "OK", locales: [ … lo mismo por local … ] }` con los locales
+que tienen algo que decir (pendientes, o una fuente que faltó) primero y los
+que no tienen nada al final. Cada pendiente: `{ tipo: "PEDIDO", etiqueta,
+pedidoId, solicitadoAt, origen: { id, nombre }, lineas, antiguedadHoras }` o
+`{ tipo: "CAJA", etiqueta, cajaId, operador, nombreCaja, turno, dia: "hoy" |
+"ayer", apertura, motivo: "FALTA" | "SOBRA" | "FALTA_VERIFICAR", monto }`.
+
+**Cupo.** Un local: 1 `mi_alcance` + hasta 3 (pedidos, cajas de hoy, cajas de
+ayer). General: 1 + hasta 3 por local con alguna de las dos. Con 5 locales,
+16; con la corrida de fondo (como mucho 18 por persona por corrida), 34 del
+cupo del ERP de 120 por persona por minuto (`limitador.js` de ccf2894). Contado
+en `test/db/pendientes.test.ts` con el cupo real del ERP de mentira: un local
+con las dos fuentes gasta exactamente 4.
+
+Nada se guarda y no se toca la lectura. Candados: `test/db/pendientes.test.ts`,
+`test/unidad/pendientesChats.test.ts`, `test/ui/pendientes.test.ts` y
+`test/erp/pedidosPendientes.test.ts` (forma, contra el fixture del ERP
+`test/fixtures/erp-ccf2894.json`, copia sin tocar de
+`docs/integraciones/azul-chat/erp-pedidos-pendientes.json` de ccf2894).
+
 ### POST /api/chats/preguntar
 
 Tanda 6A. Una pregunta en lenguaje natural, desde un Local o desde General.
@@ -302,7 +372,8 @@ autorizados hoy. Nada más: ni ventas, ni eventos, ni ids. Devuelve UNA
 intención por salida estructurada, contra un esquema cerrado:
 `ventas` (un local o "todos"; hoy, ayer o rango), `caja` (Tanda 7B: un local
 o "todos"; un solo día: hoy, ayer o una fecha), `stock` (Tanda 8B: un local o
-"todos"; un producto o lo que está bajo mínimo; el stock de ahora), `eventos` (recibidas,
+"todos"; un producto o lo que está bajo mínimo; el stock de ahora), `pendientes`
+(Tanda 9B: un local o "todos"; de ahora), `eventos` (recibidas,
 recibidas con diferencias, enviadas, pedidos o cancelaciones; un local o
 "todos"; hoy, ayer o rango) o `no_entiendo`. Elige el local por su nombre, de
 una lista cerrada que el esquema le da (`enum`); el id lo pone el código. Todo
@@ -360,6 +431,15 @@ compara, ni corrige.
   de evento es `NO_ENTIENDO`; también un texto fuera de 2 a 60, o
   `modoStock`/`producto` en otra intención.
 
+**Pendientes (Tanda 9B).** "¿Qué está pendiente?", "¿hay pedidos sin enviar?",
+"¿qué cajas hay que revisar?": la intención `pendientes` con un local o
+"todos". No lleva claves nuevas en el esquema. Es de ahora: con período que no
+sea hoy, con turno, con tipo de evento o con producto es `NO_ENTIENDO` ("los
+pedidos que se hicieron ayer" son eventos). La respuesta es la MISMA que el
+botón (`pendientesDeLocales`): `{ estado: "PENDIENTES", alcance: "LOCAL",
+resultado }` o `{ estado: "PENDIENTES", alcance: "TODOS", locales }`, con
+`faltaron` en cada local. Si ninguna fuente contestó, la falla de siempre.
+
 En orden:
 
 1. Forma, Origin y cuerpo. Sin la clave de la IA (o mal configurada):
@@ -373,8 +453,9 @@ En orden:
    contesta: `IA_NO_DISPONIBLE` (503).
 5. El código valida la intención (`src/server/preguntas/intencion.ts`): exactamente
    las diez claves del esquema; el local, uno de los de hoy CON la capacidad que la
-   intención necesita (`ventas_resumen`, `cajas_resumen`, `stock_consulta` o la
-   del tipo de evento); `caja` de un solo día; `stock` de hoy; fechas reales,
+   intención necesita (`ventas_resumen`, `cajas_resumen`, `stock_consulta`,
+   `pedidos_pendientes` o `cajas_resumen` en pendientes, o la del tipo de
+   evento); `caja` de un solo día; `stock` y `pendientes` de hoy; fechas reales,
    `desde` ≤ `hasta` y un rango de 31 días como mucho. Lo que no cierra es
    `NO_ENTIENDO`, con ejemplos fijos de lo que sí se puede preguntar.
 6. La respuesta:
@@ -393,6 +474,7 @@ En orden:
      más hay (`restantes`, "y N más").
    - **Caja** y **ventas por turno**: arriba, "Turnos".
    - **Stock**: arriba, "Stock".
+   - **Pendientes**: arriba, "Pendientes".
 
 Estados: `VENTAS` (`alcance` `LOCAL` o `TODOS`) y `EVENTOS`, los dos con
 `noSeparaPor`; `CAJA` y `VENTAS_TURNO` (Tanda 7B, `LOCAL` o `TODOS`, con
@@ -400,7 +482,8 @@ Estados: `VENTAS` (`alcance` `LOCAL` o `TODOS`) y `EVENTOS`, los dos con
 `fallidos`; `VENTAS_TURNO` además `noSeparaPor` y, en `TODOS`, `total` o null);
 `STOCK` (Tanda 8B: `modo` `producto` o `bajo_minimo`, `alcance` `LOCAL` con
 `resultado` o `TODOS` con `locales` y `fallidos`; en producto, `texto`);
-`NO_ENTIENDO`,
+`PENDIENTES` (Tanda 9B: `alcance` `LOCAL` con `resultado` o `TODOS` con
+`locales`, cada uno con su `faltaron`); `NO_ENTIENDO`,
 `SALDO_AGOTADO` (200), `IA_NO_DISPONIBLE` (503), y las fallas de siempre:
 `ERP_NO_DISPONIBLE` (503), `ERP_CUPO_EXCEDIDO` (429), `SIN_SESION`,
 `NO_AUTORIZADO`, `SOLICITUD_INVALIDA`, `ORIGEN_NO_PERMITIDO`,
@@ -410,7 +493,8 @@ Estados: `VENTAS` (`alcance` `LOCAL` o `TODOS`) y `EVENTOS`, los dos con
 `ventas_resumen` (o `cajas_resumen` en caja y ventas por turno, o
 `stock_consulta` en stock) si es de un local, o N si es de todos (N = locales
 con esa capacidad hoy). Eventos y `NO_ENTIENDO` gastan solo la `mi_alcance`. Con 5 locales, una
-pregunta de "todos" gasta 6 del cupo de 120 por persona por minuto.
+pregunta de "todos" gasta 6 del cupo de 120 por persona por minuto. Pendientes
+(Tanda 9B) gasta como el botón: 1 + hasta 3 por local (16 con 5 locales).
 
 **El tope de gasto** (`src/server/ia/consumo.ts`, tabla `ConsumoIa`, una fila
 por mes de Argentina). Antes de llamar se reserva el peor caso de una pregunta
@@ -514,9 +598,10 @@ Los parámetros de la URL también son estrictos: uno de más o repetido es
 Pedido del dueño: "una vez que salgo y vuelvo a entrar no queda guardado".
 Cada pregunta contestada se guarda en la tabla `Pregunta`
 (`src/server/preguntas/guardadas.ts`) con exactamente la respuesta que vio la
-pantalla, en JSON versionado (`resultadoVersion` 3 desde la Tanda 8B, que agrega
-`STOCK`; la 2, de la Tanda 7B, había agregado `CAJA` y `VENTAS_TURNO`. Las de
-las versiones 1 y 2 se siguen leyendo, cada una solo con sus estados). POST preguntar contesta,
+pantalla, en JSON versionado (`resultadoVersion` 4 desde la Tanda 9B, que agrega
+`PENDIENTES`; la 3, de la Tanda 8B, había agregado `STOCK`, y la 2, de la Tanda
+7B, `CAJA` y `VENTAS_TURNO`. Las de las versiones 1, 2 y 3 se siguen leyendo,
+cada una solo con sus estados). POST preguntar contesta,
 además, `guardadaId`, para que la pantalla no la muestre dos veces cuando el
 historial ya la trae.
 
@@ -531,8 +616,9 @@ historial ya la trae.
   fue la respuesta.
 - **Fallo cerrado al mostrar.** Cada pregunta guarda sus `requisitos`: de qué
   locales trae datos y con qué capacidad (`ventas_resumen`, `cajas_resumen`
-  para caja y ventas por turno, `stock_consulta` para stock, o la del tipo de
-  evento). Para mostrarla, todos tienen que seguir anunciados hoy por
+  para caja y ventas por turno, `stock_consulta` para stock, en pendientes
+  `pedidos_pendientes` y `cajas_resumen` de cada local según lo que se
+  consultó, o la del tipo de evento). Para mostrarla, todos tienen que seguir anunciados hoy por
   `mi_alcance`; si uno no, se oculta (no se borra: si mañana vuelve, se ve).
   Un requisito ilegible también la oculta. Las que no traen datos de locales
   (no entendí, saldo, IA caída) se ven en su chat mientras la persona lo pueda

@@ -20,6 +20,8 @@ import type {
   RespuestaGeneral,
   RespuestaLeido,
   RespuestaLocal,
+  RespuestaPendientes,
+  RespuestaPendientesGeneral,
   RespuestaStock,
   RespuestaVentas,
 } from "../../shared/chats/api.ts";
@@ -35,6 +37,9 @@ const RUTA_VENTAS = "/api/chats/ventas";
 const RUTA_CAJA = "/api/chats/caja";
 /** Tanda 8B: los productos bajo mínimo de un local. */
 const RUTA_STOCK = "/api/chats/stock";
+/** Tanda 9B: lo pendiente de un local, y de todos. */
+const RUTA_PENDIENTES = "/api/chats/pendientes";
+const RUTA_PENDIENTES_GENERAL = "/api/chats/pendientes/general";
 /** Tanda 6A: una pregunta en lenguaje natural. */
 const RUTA_PREGUNTAR = "/api/chats/preguntar";
 /** Tanda 3B: el commit que sirve el servidor, para recargar una pestaña que quedó con el JS de otro despliegue. */
@@ -51,6 +56,8 @@ export const RUTAS_DEL_CLIENTE = Object.freeze({
   ventas: RUTA_VENTAS,
   caja: RUTA_CAJA,
   stock: RUTA_STOCK,
+  pendientes: RUTA_PENDIENTES,
+  pendientesGeneral: RUTA_PENDIENTES_GENERAL,
   preguntar: RUTA_PREGUNTAR,
 });
 
@@ -128,6 +135,17 @@ export function pedirCaja(localId: number, signal?: AbortSignal) {
 export function pedirStock(localId: number, signal?: AbortSignal) {
   const q = new URLSearchParams({ localId: String(localId) }).toString();
   return pedir<RespuestaStock>(() => fetch(`${RUTA_STOCK}?${q}`, { ...OPCIONES, signal: signal ?? null }), signal);
+}
+
+/** GET /api/chats/pendientes?localId=N: pedidos sin enviar y cajas a revisar (Tanda 9B). Solo cuando la persona toca "Pendientes". */
+export function pedirPendientes(localId: number, signal?: AbortSignal) {
+  const q = new URLSearchParams({ localId: String(localId) }).toString();
+  return pedir<RespuestaPendientes>(() => fetch(`${RUTA_PENDIENTES}?${q}`, { ...OPCIONES, signal: signal ?? null }), signal);
+}
+
+/** GET /api/chats/pendientes/general: lo mismo, de cada local (Tanda 9B). Solo cuando la persona toca "Pendientes" en General. */
+export function pedirPendientesGeneral(signal?: AbortSignal) {
+  return pedir<RespuestaPendientesGeneral>(() => fetch(RUTA_PENDIENTES_GENERAL, { ...OPCIONES, signal: signal ?? null }), signal);
 }
 
 /** POST /api/chats/leido: lo único que marca leído, y solo cuando una pantalla lo pide. */

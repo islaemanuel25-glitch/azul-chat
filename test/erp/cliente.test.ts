@@ -97,11 +97,11 @@ describe("cliente ERP: lo que viaja", () => {
     assert.equal(c.authorization, undefined);
   });
 
-  it("expone exactamente nueve operaciones: no hay forma de pedir otra ruta o capacidad", () => {
+  it("expone exactamente diez operaciones: no hay forma de pedir otra ruta o capacidad", () => {
     // `transferenciasEventos` entró en la Tanda 2 (fundación): un método específico, no un cliente genérico.
     // `pedidosEventos`, `enviosEventos` y `cancelacionesEventos` entraron en la Tanda 4B, uno por capacidad.
     // `cajasResumen`, en la Tanda 7B: también un método con su propio constructor de cuerpo.
-    // `stockConsulta`, en la Tanda 8B, igual.
+    // `stockConsulta`, en la Tanda 8B, igual. `pedidosPendientes`, en la Tanda 9B, igual.
     assert.deepEqual(Object.keys(cliente()).sort(), [
       "cajasResumen",
       "cancelacionesEventos",
@@ -109,6 +109,7 @@ describe("cliente ERP: lo que viaja", () => {
       "enviosEventos",
       "miAlcance",
       "pedidosEventos",
+      "pedidosPendientes",
       "stockConsulta",
       "transferenciasEventos",
       "ventasResumen",

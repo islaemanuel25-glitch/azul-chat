@@ -32,14 +32,28 @@
 // tarjeta al final del historial; no toca la lectura. General no lleva barra.
 // Tanda 7B: si anuncia `cajas_resumen`, al lado va "Caja": las cajas de hoy por
 // turno (Cajas.tsx), con los mismos estados que Ventas.
+// Tanda 9B: "Pendientes" (Pendientes.tsx) al final de la barra del Local y,
+// desde esta tanda, también en la de General: el primer chip de General.
 
 import { Fragment, useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState, type ReactNode } from "react";
 
 import type { EventoGeneral, EventoPublico } from "../../shared/chats/api.ts";
 import type { PreguntaGuardada } from "../../shared/chats/preguntas.ts";
 import { ShellMovil } from "../shell/ShellMovil.tsx";
-import { marcarLeido, pedirCaja, pedirGeneral, pedirLocal, pedirStock, pedirVentas, type FallaCliente, type Resultado } from "./clienteChats.ts";
+import {
+  marcarLeido,
+  pedirCaja,
+  pedirGeneral,
+  pedirLocal,
+  pedirPendientes,
+  pedirPendientesGeneral,
+  pedirStock,
+  pedirVentas,
+  type FallaCliente,
+  type Resultado,
+} from "./clienteChats.ts";
 import { ResultadoCaja } from "./Cajas.tsx";
+import { ResultadoPendientes } from "./Pendientes.tsx";
 import { ResultadoStock } from "./Stock.tsx";
 import { useEsperaTrasCupo } from "./esperaCupo.ts";
 import { diaDe, etiquetaDeDia } from "./formato.ts";
@@ -48,6 +62,7 @@ import {
   destinoDeFalla,
   elementosEnOrden,
   reducirCaja,
+  reducirPendientes,
   reducirStock,
   reducirConversacion,
   reducirVentas,
@@ -55,7 +70,9 @@ import {
   tituloDeLocal,
   type AccionConversacion,
   type EstadoCaja,
+  type EstadoPendientes,
   type EstadoStock,
+  type PendientesListos,
   type EstadoConversacion,
   type EstadoVentas,
   type InfoGeneral,
@@ -322,6 +339,7 @@ export function PantallaLocal({
             ventas: d.local.ventas,
             caja: d.local.caja,
             stock: d.local.stock,
+            pendientes: d.local.pendientes,
             preguntas: d.preguntas,
           },
         },
@@ -337,6 +355,7 @@ export function PantallaLocal({
   const ventas = useVentas(localId, alPerderSesion, espera.anotar);
   const caja = useCaja(localId, alPerderSesion, espera.anotar);
   const stock = useStock(localId, alPerderSesion, espera.anotar);
+  const pendientes = usePendientes(localId, alPerderSesion, espera.anotar);
   const preguntas = usePreguntas(localId, alPerderSesion, espera.anotar);
 
   return (
@@ -361,6 +380,7 @@ export function PantallaLocal({
         alPedir={ventas.pedir}
         caja={info?.caja === true ? { estado: caja.estado, alPedir: caja.pedir } : null}
         stock={info?.stock === true ? { estado: stock.estado, alPedir: stock.pedir } : null}
+        pendientes={info?.pendientes === true ? { estado: pendientes.estado, alPedir: pendientes.pedir } : null}
         enEspera={espera.enEspera}
         iaDisponible={info?.preguntas === true}
         preguntas={{ ...preguntas, preguntas: sinLasGuardadas(preguntas.preguntas, estado.fase === "LISTA" ? estado.guardadas : []) }}
@@ -451,6 +471,38 @@ function useStock(localId: number, alPerderSesion: AlPerderSesion, alFallar: (f:
   return { estado, pedir };
 }
 
+/**
+ * Lo pendiente (Tanda 9B): de un Local (`localId`) o, con null, de todos
+ * (General). Igual que useStock: una consulta por toque, se cancela al volver
+ * a pedir o al salir.
+ */
+function usePendientes(localId: number | null, alPerderSesion: AlPerderSesion, alFallar: (f: FallaCliente) => void) {
+  const [estado, despachar] = useReducer(reducirPendientes, { fase: "QUIETO" });
+  const enCurso = useRef<AbortController | null>(null);
+
+  useEffect(() => () => enCurso.current?.abort(), []);
+
+  const pedir = useCallback(() => {
+    enCurso.current?.abort();
+    const control = new AbortController();
+    enCurso.current = control;
+    despachar({ tipo: "PEDIR" });
+    const consulta: Promise<Resultado<PendientesListos>> =
+      localId === null
+        ? pedirPendientesGeneral(control.signal).then((r) => (r.ok ? { ok: true, datos: { tipo: "TODOS", locales: r.datos.locales } } : r))
+        : pedirPendientes(localId, control.signal).then((r) => (r.ok ? { ok: true, datos: { tipo: "LOCAL", datos: r.datos } } : r));
+    void consulta.then((resultado) => {
+      if (control.signal.aborted) return;
+      enCurso.current = null;
+      if (!resultado.ok && resultado.falla.estado === "SIN_SESION") return alPerderSesion(resultado.falla.motivo);
+      if (!resultado.ok) alFallar(resultado.falla);
+      despachar({ tipo: "RESPUESTA", resultado });
+    });
+  }, [localId, alPerderSesion, alFallar]);
+
+  return { estado, pedir };
+}
+
 /** Las preguntas de una pantalla, como las arma usePreguntas (Tanda 6A). */
 type PreguntasDeLaPantalla = Pick<ReturnType<typeof usePreguntas>, "preguntas" | "enviando" | "alEnviar" | "alReintentar">;
 
@@ -468,6 +520,7 @@ export function AccionesDelLocal({
   alPedir,
   caja = null,
   stock = null,
+  pendientes = null,
   enEspera = false,
   iaDisponible = false,
   preguntas: todasLasPreguntas = null,
@@ -479,6 +532,8 @@ export function AccionesDelLocal({
   caja?: { readonly estado: EstadoCaja; readonly alPedir: () => void } | null;
   /** Tanda 8B: con el anuncio de `stock_consulta`, el chip "Stock" y su tarjeta. Sin él, null: ni chip ni tarjeta. */
   stock?: { readonly estado: EstadoStock; readonly alPedir: () => void } | null;
+  /** Tanda 9B: con el anuncio de `pedidos_pendientes` o `cajas_resumen`, el chip "Pendientes" y su tarjeta. Sin él, null. */
+  pendientes?: { readonly estado: EstadoPendientes; readonly alPedir: () => void } | null;
   enEspera?: boolean;
   iaDisponible?: boolean;
   preguntas?: PreguntasDeLaPantalla | null;
@@ -489,18 +544,22 @@ export function AccionesDelLocal({
   const ultimaFase = preguntas?.preguntas.at(-1)?.estado.fase;
   const estadoCaja = caja?.estado;
   const estadoStock = stock?.estado;
+  const estadoPendientes = pendientes?.estado;
   // La tarjeta nueva queda a la vista, como un mensaje que llega al final del chat.
   useLayoutEffect(() => {
     const llego = (f: string | undefined) => f === "LISTA" || f === "FALLA";
-    if (llego(estado.fase) || llego(estadoCaja?.fase) || llego(estadoStock?.fase) || cantidadDePreguntas > 0) tarjeta.current?.scrollIntoView({ block: "end" });
-  }, [estado, estadoCaja, estadoStock, cantidadDePreguntas, ultimaFase]);
-  if (!anuncia && !caja && !stock && !preguntas) return null;
+    if (llego(estado.fase) || llego(estadoCaja?.fase) || llego(estadoStock?.fase) || llego(estadoPendientes?.fase) || cantidadDePreguntas > 0) {
+      tarjeta.current?.scrollIntoView({ block: "end" });
+    }
+  }, [estado, estadoCaja, estadoStock, estadoPendientes, cantidadDePreguntas, ultimaFase]);
+  if (!anuncia && !caja && !stock && !pendientes && !preguntas) return null;
   return (
     <>
       <div ref={tarjeta} className="ac-ventas-al-final">
         {anuncia && <ResultadoVentas estado={estado} alReintentar={alPedir} enEspera={enEspera} />}
         {caja && <ResultadoCaja estado={caja.estado} alReintentar={caja.alPedir} enEspera={enEspera} />}
         {stock && <ResultadoStock estado={stock.estado} alReintentar={stock.alPedir} enEspera={enEspera} />}
+        {pendientes && <ResultadoPendientes estado={pendientes.estado} alReintentar={pendientes.alPedir} enEspera={enEspera} />}
         {preguntas && <ListaDePreguntas preguntas={preguntas.preguntas} alReintentar={preguntas.alReintentar} enEspera={enEspera} />}
       </div>
       <BarraVentas
@@ -510,6 +569,7 @@ export function AccionesDelLocal({
         conVentas={anuncia}
         caja={caja ? { cargando: caja.estado.fase === "CARGANDO", alPedir: caja.alPedir } : null}
         stock={stock ? { cargando: stock.estado.fase === "CARGANDO", alPedir: stock.alPedir } : null}
+        pendientes={pendientes ? { cargando: pendientes.estado.fase === "CARGANDO", alPedir: pendientes.alPedir } : null}
       >
         {preguntas && <CajaPregunta texto={TEXTO_CAJA.local} enviando={preguntas.enviando} alEnviar={preguntas.alEnviar} />}
       </BarraVentas>
@@ -518,33 +578,44 @@ export function AccionesDelLocal({
 }
 
 /**
- * General (Tanda 6A): sin chip; con la IA disponible, las burbujas y la caja
- * "sobre tus locales"; sin ella, nada. Exportado para los tests.
+ * General (Tanda 6A): con la IA disponible, las burbujas y la caja "sobre tus
+ * locales". Tanda 9B: con algún local que lo anuncie, el chip "Pendientes" y su
+ * tarjeta. Sin ninguna de las dos, nada. Exportado para los tests.
  */
 export function AccionesDeGeneral({
   iaDisponible,
   preguntas: todasLasPreguntas,
+  pendientes = null,
   enEspera = false,
 }: {
   iaDisponible: boolean;
   preguntas: PreguntasDeLaPantalla;
+  /** Tanda 9B: con algún local que anuncie `pedidos_pendientes` o `cajas_resumen`, el chip "Pendientes" y su tarjeta, por local. */
+  pendientes?: { readonly estado: EstadoPendientes; readonly alPedir: () => void } | null;
   enEspera?: boolean;
 }) {
   const preguntas = iaDisponible ? todasLasPreguntas : null;
   const final = useRef<HTMLDivElement | null>(null);
   const cantidad = preguntas?.preguntas.length ?? 0;
   const ultimaFase = preguntas?.preguntas.at(-1)?.estado.fase;
+  const fasePendientes = pendientes?.estado.fase;
   useLayoutEffect(() => {
-    if (cantidad > 0) final.current?.scrollIntoView({ block: "end" });
-  }, [cantidad, ultimaFase]);
-  if (!preguntas) return null;
+    if (cantidad > 0 || fasePendientes === "LISTA" || fasePendientes === "FALLA") final.current?.scrollIntoView({ block: "end" });
+  }, [cantidad, ultimaFase, fasePendientes]);
+  if (!preguntas && !pendientes) return null;
   return (
     <>
       <div ref={final} className="ac-ventas-al-final">
-        <ListaDePreguntas preguntas={preguntas.preguntas} alReintentar={preguntas.alReintentar} enEspera={enEspera} />
+        {pendientes && <ResultadoPendientes estado={pendientes.estado} alReintentar={pendientes.alPedir} enEspera={enEspera} />}
+        {preguntas && <ListaDePreguntas preguntas={preguntas.preguntas} alReintentar={preguntas.alReintentar} enEspera={enEspera} />}
       </div>
-      <BarraVentas conVentas={false} etiqueta="Acciones de General">
-        <CajaPregunta texto={TEXTO_CAJA.general} enviando={preguntas.enviando} alEnviar={preguntas.alEnviar} />
+      <BarraVentas
+        conVentas={false}
+        enEspera={enEspera}
+        etiqueta="Acciones de General"
+        pendientes={pendientes ? { cargando: pendientes.estado.fase === "CARGANDO", alPedir: pendientes.alPedir } : null}
+      >
+        {preguntas && <CajaPregunta texto={TEXTO_CAJA.general} enviando={preguntas.enviando} alEnviar={preguntas.alEnviar} />}
       </BarraVentas>
     </>
   );
@@ -563,7 +634,7 @@ export function PantallaGeneral({ alVolver, alPerderSesion }: { alVolver: () => 
         eventos: d.eventos,
         guardadas: d.guardadas,
         siguiente: d.siguiente,
-        info: { tipo: "GENERAL", localesDemorados: d.localesDemorados, preguntas: d.preguntas },
+        info: { tipo: "GENERAL", localesDemorados: d.localesDemorados, preguntas: d.preguntas, pendientes: d.pendientes },
       },
     };
   }, []);
@@ -572,7 +643,9 @@ export function PantallaGeneral({ alVolver, alPerderSesion }: { alVolver: () => 
   const { estado, reintentar, cargarAnteriores } = useConversacion(pedirPagina, alPerderSesion, espera.anotar);
   const demorados = estado.fase === "LISTA" ? estado.info.localesDemorados.length : 0;
   const preguntas = usePreguntas(null, alPerderSesion, espera.anotar);
+  const pendientes = usePendientes(null, alPerderSesion, espera.anotar);
   const iaDisponible = estado.fase === "LISTA" && estado.info.preguntas;
+  const conPendientes = estado.fase === "LISTA" && estado.info.pendientes;
 
   return (
     <ShellMovil titulo="General" subtitulo="Eventos de todos los locales" volver={{ etiqueta: "Volver a chats", alVolver }}>
@@ -589,6 +662,7 @@ export function PantallaGeneral({ alVolver, alPerderSesion }: { alVolver: () => 
       <AccionesDeGeneral
         iaDisponible={iaDisponible}
         preguntas={{ ...preguntas, preguntas: sinLasGuardadas(preguntas.preguntas, estado.fase === "LISTA" ? estado.guardadas : []) }}
+        pendientes={conPendientes ? { estado: pendientes.estado, alPedir: pendientes.pedir } : null}
         enEspera={espera.enEspera}
       />
     </ShellMovil>

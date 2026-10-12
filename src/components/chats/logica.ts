@@ -8,7 +8,18 @@
 // Los ids de evento son BigInt en la base y viajan como TEXTO: acá se comparan
 // con BigInt y no se convierten nunca a Number.
 
-import type { EstadoSincronizacion, EventoGeneral, EventoPublico, LocalDeChats, RespuestaCaja, RespuestaChats, RespuestaStock, RespuestaVentas } from "../../shared/chats/api.ts";
+import type {
+  EstadoSincronizacion,
+  EventoGeneral,
+  EventoPublico,
+  LocalDeChats,
+  RespuestaCaja,
+  RespuestaChats,
+  RespuestaPendientes,
+  RespuestaPendientesGeneral,
+  RespuestaStock,
+  RespuestaVentas,
+} from "../../shared/chats/api.ts";
 import type { FallaCliente, RespuestaDePregunta, Resultado } from "./clienteChats.ts";
 import type { PreguntaGuardada } from "../../shared/chats/preguntas.ts";
 
@@ -149,11 +160,16 @@ export type InfoLocal = {
   readonly caja: boolean;
   /** Tanda 8B: lo mismo con `stock_consulta` y el chip "Stock". */
   readonly stock: boolean;
+  /** Tanda 9B: anuncia `pedidos_pendientes` o `cajas_resumen`: el chip "Pendientes". */
+  readonly pendientes: boolean;
   /** Hay preguntas en lenguaje natural (Tanda 6A): la caja se muestra. */
   readonly preguntas: boolean;
 };
-/** General no lleva lectura: en la Tanda 2C no marca leído (docs/INTERFAZ.md). Tanda 6A: sí preguntas. */
-export type InfoGeneral = { readonly tipo: "GENERAL"; readonly localesDemorados: readonly number[]; readonly preguntas: boolean };
+/**
+ * General no lleva lectura: en la Tanda 2C no marca leído (docs/INTERFAZ.md). Tanda 6A: sí preguntas.
+ * Tanda 9B: `pendientes`, algún local anuncia alguna de las dos fuentes: el chip "Pendientes".
+ */
+export type InfoGeneral = { readonly tipo: "GENERAL"; readonly localesDemorados: readonly number[]; readonly preguntas: boolean; readonly pendientes: boolean };
 
 export type EstadoConversacion<E extends EventoPublico, I extends InfoLocal | InfoGeneral> =
   | { readonly fase: "CARGANDO" }
@@ -335,6 +351,32 @@ export function reducirStock(estado: EstadoStock, accion: AccionStock): EstadoSt
   if (estado.fase !== "CARGANDO") return estado;
   const r = accion.resultado;
   if (r.ok) return { fase: "LISTA", stock: r.datos };
+  return trasFallaDeConsulta(r.falla);
+}
+
+// ── Pendientes (Tanda 9B) ───────────────────────────────────────────────────
+//
+// Igual que Ventas, Caja y Stock: una consulta por toque del chip
+// "Pendientes", nada se guarda, nada se refresca solo, reintentar es otro
+// toque. En un Local, la tarjeta de ese local; en General, una por local.
+
+export type PendientesListos =
+  | { readonly tipo: "LOCAL"; readonly datos: Extract<RespuestaPendientes, { estado: "OK" }> }
+  | { readonly tipo: "TODOS"; readonly locales: Extract<RespuestaPendientesGeneral, { estado: "OK" }>["locales"] };
+
+export type EstadoPendientes =
+  | { readonly fase: "QUIETO" }
+  | { readonly fase: "CARGANDO" }
+  | { readonly fase: "LISTA"; readonly pendientes: PendientesListos }
+  | { readonly fase: "FALLA"; readonly cupo: boolean };
+
+export type AccionPendientes = { readonly tipo: "PEDIR" } | { readonly tipo: "RESPUESTA"; readonly resultado: Resultado<PendientesListos> };
+
+export function reducirPendientes(estado: EstadoPendientes, accion: AccionPendientes): EstadoPendientes {
+  if (accion.tipo === "PEDIR") return { fase: "CARGANDO" };
+  if (estado.fase !== "CARGANDO") return estado;
+  const r = accion.resultado;
+  if (r.ok) return { fase: "LISTA", pendientes: r.datos };
   return trasFallaDeConsulta(r.falla);
 }
 

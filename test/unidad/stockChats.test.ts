@@ -109,6 +109,7 @@ describe("la intención de stock", () => {
       { localId: 1, grupoId: 1, nombre: "Centro" },
       { localId: 2, grupoId: 1, nombre: "Depósito" },
     ],
+    pendientes: [],
   };
   const salida = (o: Record<string, unknown>) => ({
     intencion: "stock",
@@ -178,7 +179,7 @@ describe("lo que se guarda pide stock_consulta para mostrarse", () => {
     const respuesta = { estado: "STOCK", modo: "bajo_minimo", alcance: "LOCAL", resultado: bajoMinimoDelFixture({ id: 3, nombre: "Casiano" }) } as const;
     const req = requisitosDe(intencion, respuesta);
     assert.deepEqual(req, [{ localId: 3, capacidad: "stock_consulta" }]);
-    const hoy = (conStock: number[]) => ({ autorizados: [], conVentas: [{ localId: 3 }], conCaja: [{ localId: 3 }], conStock: conStock.map((localId) => ({ localId })) });
+    const hoy = (conStock: number[]) => ({ autorizados: [], conVentas: [{ localId: 3 }], conCaja: [{ localId: 3 }], conStock: conStock.map((localId) => ({ localId })), conPendientes: [] });
     assert.equal(cumpleRequisitos(req, hoy([3])), true);
     assert.equal(cumpleRequisitos(req, hoy([])), false, "con ventas y caja pero sin stock_consulta, no");
   });

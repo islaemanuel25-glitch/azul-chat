@@ -896,3 +896,68 @@ export function esDatosStockConsulta(v: unknown): v is DatosStockConsulta {
   if (v.total < v.productos.length || v.hayMas !== v.total > v.productos.length) return false;
   return v.productos.every((p) => (p as ProductoDeStock).bajoMinimo === true);
 }
+
+// ── pedidos_pendientes (Tanda 9B) ────────────────────────────────────────────
+//
+// Contrato de erpmanual ccf2894 (PR #171), `lib/integraciones/azul-chat/
+// pedidosPendientes.js`. Fixture: `test/fixtures/erp-ccf2894.json`, copia sin
+// tocar de `docs/integraciones/azul-chat/erp-pedidos-pendientes.json` de ese
+// commit. Lo que importa para presentarlo:
+//
+//   · los pedidos que el local PIDIÓ (es el destino) y siguen en "Solicitado":
+//     ni el carrito, ni lo despachado, ni lo cancelado. Lo decide el ERP;
+//   · del más viejo al más nuevo (`solicitadoAt`, el id desempata);
+//   · `lineas` se cuenta al leer; `antiguedadHoras` son horas COMPLETAS desde
+//     `solicitadoAt` hasta la consulta. Los dos null solo si al pedido le
+//     faltara la fecha, que el ERP no escribe así.
+// Sin parámetros: el cuerpo lleva `parametros: {}`.
+
+export const CAPACIDAD_PEDIDOS_PENDIENTES = "pedidos_pendientes";
+
+export type PedidoPendienteErp = {
+  readonly id: number;
+  readonly solicitadoAt: string | null;
+  readonly origen: { readonly id: number; readonly nombre: string };
+  readonly lineas: number;
+  readonly antiguedadHoras: number | null;
+};
+
+/** `datos` de `pedidos_pendientes`, versión 1. */
+export type DatosPedidosPendientes = {
+  readonly capacidad: typeof CAPACIDAD_PEDIDOS_PENDIENTES;
+  readonly version: 1;
+  readonly local: { readonly id: number; readonly nombre: string };
+  readonly grupoId: number;
+  readonly pedidos: readonly PedidoPendienteErp[];
+};
+
+function esPedidoPendienteErp(v: unknown): v is PedidoPendienteErp {
+  if (!esObjeto(v) || !soloClaves(v, ["id", "solicitadoAt", "origen", "lineas", "antiguedadHoras"])) return false;
+  if (!esEnteroPositivo(v.id) || !esEnteroNoNegativo(v.lineas)) return false;
+  const { origen } = v;
+  if (!esObjeto(origen) || !soloClaves(origen, ["id", "nombre"]) || !esEnteroPositivo(origen.id) || !esTexto(origen.nombre)) return false;
+  // La fecha y la antigüedad van juntas: las dos o ninguna.
+  if (v.solicitadoAt === null) return v.antiguedadHoras === null;
+  return esInstanteIso(v.solicitadoAt) && esEnteroNoNegativo(v.antiguedadHoras);
+}
+
+/**
+ * La forma de `datos` de `pedidos_pendientes`. Lo que depende del pedido —el
+ * local y el grupo pedidos— lo mira quien pidió.
+ */
+export function esDatosPedidosPendientes(v: unknown): v is DatosPedidosPendientes {
+  if (!esObjeto(v) || !soloClaves(v, ["capacidad", "version", "local", "grupoId", "pedidos"])) return false;
+  if (v.capacidad !== CAPACIDAD_PEDIDOS_PENDIENTES || v.version !== 1) return false;
+  const { local } = v;
+  if (!esObjeto(local) || !soloClaves(local, ["id", "nombre"]) || !esEnteroPositivo(local.id) || !esTexto(local.nombre)) return false;
+  if (!esEnteroPositivo(v.grupoId) || !Array.isArray(v.pedidos) || !v.pedidos.every(esPedidoPendienteErp)) return false;
+  // Del más viejo al más nuevo, como los ordena el ERP; sin repetidos.
+  const ids = new Set<number>();
+  for (const [i, p] of (v.pedidos as PedidoPendienteErp[]).entries()) {
+    if (ids.has(p.id)) return false;
+    ids.add(p.id);
+    const antes = i > 0 ? (v.pedidos as PedidoPendienteErp[])[i - 1]! : null;
+    if (antes && antes.solicitadoAt !== null && p.solicitadoAt !== null && Date.parse(antes.solicitadoAt) > Date.parse(p.solicitadoAt)) return false;
+  }
+  return true;
+}

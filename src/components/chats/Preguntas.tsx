@@ -44,6 +44,7 @@ import {
 } from "./formato.ts";
 import { TarjetaCajas } from "./Cajas.tsx";
 import { ContenidoBajoMinimo, ContenidoProductos, TarjetaBajoMinimo, TarjetaProductos } from "./Stock.tsx";
+import { TarjetaPendientes, TarjetaPendientesTodos } from "./Pendientes.tsx";
 import { destinoDeFalla, hayPreguntaEnCurso, reducirPreguntas, type IntercambioDePregunta } from "./logica.ts";
 import { retenerRecarga } from "./version.ts";
 import { AvisoDeRespuesta, SubtituloDeTarjeta, TarjetaEvento, TarjetaVentas, TEXTO_CUPO_ERP } from "./Piezas.tsx";
@@ -166,6 +167,9 @@ export function RespuestaDePreguntaVista({
       return <RespuestaVentasDeTurno respuesta={respuesta} {...(zona ? { zona } : {})} />;
     case "STOCK":
       return <RespuestaDeStock respuesta={respuesta} />;
+    case "PENDIENTES":
+      // Tanda 9B: la misma tarjeta que el chip "Pendientes".
+      return respuesta.alcance === "LOCAL" ? <TarjetaPendientes datos={respuesta.resultado} /> : <TarjetaPendientesTodos locales={respuesta.locales} />;
     case "NO_ENTIENDO":
       return (
         <article className="ac-ventas">

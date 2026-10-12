@@ -10,6 +10,7 @@
 //   eventos  { tipoEvento, local: <nombre> | "todos", periodo }
 //   caja     { local: <nombre> | "todos", periodo de un día, turno? }   (Tanda 7B)
 //   stock    { local: <nombre> | "todos", modoStock, producto? }        (Tanda 8B)
+//   pendientes { local: <nombre> | "todos" }, periodo hoy             (Tanda 9B)
 //   no_entiendo
 //
 // Tanda 7B: `turno` es texto libre corto ("tarde"), o null. La IA no conoce
@@ -59,6 +60,7 @@ import {
 } from "../../shared/chats/preguntas.ts";
 import { MAX_DIAS_RANGO } from "../erp/ventasResumen.ts";
 import { esTextoDeStock } from "../erp/stockConsulta.ts";
+import type { LocalDePendientes } from "../chats/autorizacion.ts";
 
 /** La zona del ERP: los días de las preguntas son días de Argentina. */
 export const ZONA_ARGENTINA = "America/Argentina/Buenos_Aires";
@@ -131,7 +133,7 @@ export function esquemaDeIntencion(nombres: readonly string[]) {
   return {
     type: "OBJECT",
     properties: {
-      intencion: { type: "STRING", enum: ["ventas", "eventos", "caja", "stock", "no_entiendo"] },
+      intencion: { type: "STRING", enum: ["ventas", "eventos", "caja", "stock", "pendientes", "no_entiendo"] },
       tipoEvento: { type: "STRING", enum: [...TIPOS_DE_EVENTO_PREGUNTA], nullable: true },
       local: { type: "STRING", enum: opcionesDeLocal(nombres), nullable: true },
       periodo: { type: "STRING", enum: ["hoy", "ayer", "rango"], nullable: true },
@@ -160,6 +162,7 @@ export function instruccionesDeIntencion(e: { pregunta: string; hoy: string; loc
     "- eventos: transferencias recibidas (recibidas), recibidas con diferencias (recibidas_con_diferencias), transferencias enviadas al local (enviadas), pedidos solicitados (pedidos) o transferencias canceladas (cancelaciones). Va en tipoEvento.",
     "- caja: las cajas del día: cómo cerró la caja, si está correcta, faltantes o sobrantes, retiros (y a quién o por qué), lo que se cobró en efectivo o en débito por caja, cajas abiertas. Es de UN día: hoy, ayer o un rango de un solo día.",
     "- stock: cuánto hay de un producto en un local (modoStock = producto, y en producto el nombre o el código del producto tal como lo escribe la pregunta, sin agregar ni corregir nada), o qué productos están por debajo del mínimo, faltan o hay que reponer (modoStock = bajo_minimo, producto null). Es el stock de ahora: periodo hoy.",
+    "- pendientes: qué está pendiente o hay que resolver ahora: pedidos que el local hizo y todavía no le enviaron (pedidos sin enviar, pedidos pendientes) y cajas a revisar (con faltante, sobrante o sin verificar en Tesorería). Es de ahora: periodo hoy. Los pedidos que se hicieron en un período son eventos, no pendientes.",
     "turno: si la pregunta nombra un turno (\"turno tarde\", \"la mañana\", \"el de la noche\"), la palabra del turno tal como la dice (\"tarde\", \"mañana\", \"noche\"); si no nombra ninguno, null. Vale para ventas y para caja.",
     "local: uno de los nombres de la lista, o \"todos\" si pregunta por todos los locales. Si no nombra ninguno y hay local actual, el local actual; si no hay local actual, \"todos\".",
     "periodo: hoy, ayer o rango. Con rango, desde y hasta en AAAA-MM-DD, calculados desde la fecha de hoy (\"esta semana\" va del lunes a hoy; \"este mes\", del día 1 a hoy). Sin rango, desde y hasta son null. Si no dice cuándo, hoy.",
@@ -182,6 +185,8 @@ export type LocalesDeHoy = {
   readonly caja: readonly { readonly localId: number; readonly grupoId: number; readonly nombre: string }[];
   /** Tanda 8B: locales con `stock_consulta`, con el grupo que el ERP acepta. */
   readonly stock: readonly { readonly localId: number; readonly grupoId: number; readonly nombre: string }[];
+  /** Tanda 9B: locales con `pedidos_pendientes` o `cajas_resumen`, con cuál de las dos anuncian. */
+  readonly pendientes: readonly LocalDePendientes[];
 };
 
 /** Un período de UN día: hoy, ayer, o un rango que empieza y termina el mismo día. */
@@ -219,6 +224,12 @@ export type Intencion =
       readonly todos: boolean;
       readonly modo: "producto" | "bajo_minimo";
       readonly texto: string | null;
+    }
+  | {
+      /** Tanda 9B: lo pendiente de ahora: pedidos sin enviar y cajas a revisar. */
+      readonly tipo: "PENDIENTES";
+      readonly locales: LocalesDeHoy["pendientes"];
+      readonly todos: boolean;
     }
   | {
       readonly tipo: "EVENTOS";
@@ -294,6 +305,14 @@ export function validarIntencion(crudo: unknown, hoy: string, locales: LocalesDe
     if (elegidos.length === 0 || (!todos && elegidos.length !== 1)) return NO_ENTIENDO;
     const texto = o.modoStock === "producto" ? (o.producto as string).trim() : null;
     return { tipo: "STOCK", locales: elegidos, todos, modo: o.modoStock as "producto" | "bajo_minimo", texto };
+  }
+
+  if (o.intencion === "pendientes") {
+    // De ahora: sin tipo de evento, sin turno y sin período que no sea hoy.
+    if (o.tipoEvento !== null || turno !== null || periodo.tipo !== "hoy") return NO_ENTIENDO;
+    const elegidos = todos ? locales.pendientes : locales.pendientes.filter((l) => l.nombre === o.local);
+    if (elegidos.length === 0 || (!todos && elegidos.length !== 1)) return NO_ENTIENDO;
+    return { tipo: "PENDIENTES", locales: elegidos, todos };
   }
 
   if (o.intencion === "ventas") {
