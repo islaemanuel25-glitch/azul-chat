@@ -9,6 +9,11 @@
 //
 // El globo ocupa el centro: entra entero en la zona segura de un ícono
 // "maskable" (el círculo del 80 %), así que el mismo dibujo sirve para los dos.
+//
+// Tanda 16: y el BADGE de las notificaciones (public/badge-96.png), el mismo
+// globo en blanco sobre fondo TRANSPARENTE. Android dibuja el badge en la barra
+// de estado usando solo el canal alfa: con el ícono opaco de antes se veía un
+// círculo blanco vacío. Lo usa public/sw.js como `badge` de todos los avisos.
 
 import { writeFileSync } from "node:fs";
 import path from "node:path";
@@ -54,10 +59,16 @@ function trozo(tipo, datos) {
   return Buffer.concat([largo, cuerpo, crc]);
 }
 
-function png(lado) {
+/**
+ * El PNG de lado×lado. `transparente`: el globo en blanco con el fondo
+ * transparente (RGBA, la cobertura del globo es el alfa); si no, el globo
+ * blanco sobre el color de marca (RGB, opaco).
+ */
+function png(lado, transparente = false) {
+  const canales = transparente ? 4 : 3;
   const filas = [];
   for (let py = 0; py < lado; py++) {
-    const fila = Buffer.alloc(1 + lado * 3); // filtro 0 + RGB
+    const fila = Buffer.alloc(1 + lado * canales); // filtro 0 + RGB(A)
     for (let px = 0; px < lado; px++) {
       let dentro = 0;
       for (let sy = 0; sy < MUESTRAS; sy++) {
@@ -66,7 +77,12 @@ function png(lado) {
         }
       }
       const t = dentro / (MUESTRAS * MUESTRAS);
-      for (let c = 0; c < 3; c++) fila[1 + px * 3 + c] = Math.round(MARCA[c] * (1 - t) + SOBRE_MARCA[c] * t);
+      if (transparente) {
+        for (let c = 0; c < 3; c++) fila[1 + px * 4 + c] = SOBRE_MARCA[c];
+        fila[1 + px * 4 + 3] = Math.round(255 * t);
+      } else {
+        for (let c = 0; c < 3; c++) fila[1 + px * 3 + c] = Math.round(MARCA[c] * (1 - t) + SOBRE_MARCA[c] * t);
+      }
     }
     filas.push(fila);
   }
@@ -74,7 +90,7 @@ function png(lado) {
   ihdr.writeUInt32BE(lado, 0);
   ihdr.writeUInt32BE(lado, 4);
   ihdr[8] = 8; // bits por canal
-  ihdr[9] = 2; // RGB
+  ihdr[9] = transparente ? 6 : 2; // RGBA o RGB
   return Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     trozo("IHDR", ihdr),
@@ -83,11 +99,12 @@ function png(lado) {
   ]);
 }
 
-for (const [nombre, lado] of [
-  ["icono-192.png", 192],
-  ["icono-512.png", 512],
-  ["icono-maskable-512.png", 512],
+for (const [nombre, lado, transparente] of [
+  ["icono-192.png", 192, false],
+  ["icono-512.png", 512, false],
+  ["icono-maskable-512.png", 512, false],
+  ["badge-96.png", 96, true],
 ]) {
-  writeFileSync(path.join(RAIZ, "public", nombre), png(lado));
+  writeFileSync(path.join(RAIZ, "public", nombre), png(lado, transparente));
   console.log(`public/${nombre}: ${lado}×${lado}`);
 }
