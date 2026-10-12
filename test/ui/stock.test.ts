@@ -16,7 +16,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { pedirStock } from "../../src/components/chats/clienteChats.ts";
 import { AccionesDelLocal } from "../../src/components/chats/Conversacion.tsx";
-import { formatearCantidad, lineaDeBajoMinimo, nombreDeTurno, tituloDeVentasDeTurno } from "../../src/components/chats/formato.ts";
+import { formatearCantidad, formatearEquivalencia, lineaDeBajoMinimo, nombreDeTurno, tituloDeVentasDeTurno } from "../../src/components/chats/formato.ts";
 import { reducirStock, type EstadoStock } from "../../src/components/chats/logica.ts";
 import { TEXTO_CUPO_ERP } from "../../src/components/chats/Piezas.tsx";
 import { PreguntaGuardadaVista, RespuestaDePreguntaVista } from "../../src/components/chats/Preguntas.tsx";
@@ -84,7 +84,8 @@ describe("la tarjeta de productos", () => {
 
   it("uno, en kg y en bultos: la cantidad como la muestra la pantalla del ERP", () => {
     assert.equal(ver("unaPorCodigo"), "Stock de «7790001000029» · Casiano Leche Descremada 7790001000029 · 3 uds · mín. 10 ⚠ Bajo mínimo");
-    assert.ok(ver("enUnidadesYKg").includes("Queso Cremoso 2.350 kg"));
+    // Tanda 8C: el "2.350 kg" del ERP se lee en es-AR.
+    assert.ok(ver("enUnidadesYKg").includes("Queso Cremoso 2,35 kg"));
     assert.ok(ver("enBultosEnElDeposito").includes("Cerveza Quilmes 1 L 7790070000016 · 2 bultos + 6 uds"));
   });
 
@@ -225,5 +226,57 @@ describe("'Turno Turno': el título no repite la palabra", () => {
     const turno = { turno: { id: 1, nombre: "Turno Mañana" }, sinTurnoAsignado: false, totales: { cantidadVentas: 0, totalVendido: "0.00", ventasEfectivo: "0.00", ventasPorMedio: [], ventasNoCobradas: [] }, cajas: [] };
     const t = ver({ estado: "VENTAS_TURNO", alcance: "LOCAL", periodo: P, turnoPedido: "mañana", turnoNoEncontrado: false, noSeparaPor: [], cajas: { local: CASIANO, fecha: "2026-10-12", turnos: [turno], advertencias: [] } });
     assert.ok(t.startsWith("Turno Mañana · hoy · Casiano"), t);
+  });
+});
+
+describe("8C. los decimales de stock, en es-AR", () => {
+  it("los ejemplos reales: coma decimal y punto de miles; las unidades enteras y los bultos, igual que antes", () => {
+    for (const [del, se] of [
+      ["-613.826 kg", "-613,826 kg"],
+      ["-715.503 kg", "-715,503 kg"],
+      ["-0.775 kg", "-0,775 kg"],
+      ["-85 uds", "-85 uds"],
+      ["2 bultos + 6 uds", "2 bultos + 6 uds"],
+      ["1250.500 kg", "1.250,5 kg"],
+      ["2.350 kg", "2,35 kg"],
+      ["1250 uds", "1.250 uds"],
+      ["12 bultos + 1250 uds", "12 bultos + 1.250 uds"],
+      ["3 pzs", "3 pzs"],
+      ["1 bulto", "1 bulto"],
+    ] as const) {
+      assert.equal(formatearEquivalencia(del), se, del);
+    }
+  });
+
+  it("lo que no tiene la forma del ERP queda TAL CUAL", () => {
+    for (const raro of ["7 bultos y 3 uds", "1.5 uds", "1.000,5 kg", "613.826kg", "aprox. 3 kg", "3 cajas", "2 bultos + ", ""]) {
+      assert.equal(formatearEquivalencia(raro), raro, raro);
+    }
+  });
+
+  it("en la tarjeta de bajo mínimo, de producto, de todos y en la foto guardada; los negativos, en el orden del ERP", () => {
+    const base = BAJO.productos[0]!;
+    const negativos: BajoMinimoDelLocal = {
+      local: CASIANO,
+      sinMinimo: false,
+      total: 3,
+      hayMas: false,
+      productos: [
+        { ...base, productoId: 1, nombre: "Queso", cantidad: "-613.826", unidad: "Kg", equivalencia: "-613.826 kg", stockMinimo: "5.00" },
+        { ...base, productoId: 2, nombre: "Jamón", cantidad: "-0.775", unidad: "Kg", equivalencia: "-0.775 kg", stockMinimo: "2.50" },
+        { ...base, productoId: 3, nombre: "Gaseosa", cantidad: "-85.000", unidad: "Unidad", equivalencia: "-85 uds", stockMinimo: "10.00" },
+      ],
+    };
+    const esperado = "Queso · -613,826 kg · mín. 5 Jamón · -0,775 kg · mín. 2,5 Gaseosa · -85 uds · mín. 10";
+    assert.ok(texto(tarjetaBajo(negativos)).endsWith(esperado), texto(tarjetaBajo(negativos)));
+    const ver = (r: Parameters<typeof RespuestaDePreguntaVista>[0]["respuesta"]) => texto(dibujar(createElement(RespuestaDePreguntaVista, { respuesta: r, alReintentar: nada, zona: ZONA })));
+    assert.ok(ver({ estado: "STOCK", modo: "bajo_minimo", alcance: "TODOS", locales: [negativos], fallidos: [] }).endsWith(esperado));
+    const producto = { local: CASIANO, texto: "queso", productos: [{ ...negativos.productos[0]!, bajoMinimo: true }], hayMas: false };
+    assert.ok(texto(dibujar(createElement(TarjetaProductos, { datos: producto }))).includes("-613,826 kg · mín. 5"));
+    const g: PreguntaGuardada = { id: "9", pregunta: "¿Qué falta?", creadaEn: "2026-10-12T13:05:00.000Z", respuesta: { estado: "STOCK", modo: "bajo_minimo", alcance: "LOCAL", resultado: negativos } };
+    const foto = texto(dibujar(createElement(PreguntaGuardadaVista, { guardada: g, zona: ZONA })));
+    assert.ok(foto.includes(esperado), foto);
+    // Solo presentación: lo que vino del ERP (y lo que se guarda) no cambia.
+    assert.equal(negativos.productos[0]!.equivalencia, "-613.826 kg");
   });
 });
