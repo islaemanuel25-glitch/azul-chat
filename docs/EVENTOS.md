@@ -340,7 +340,13 @@ ids técnicos fuera del número del título.
 **El envío** (`src/server/push/`): Web Push estándar. El cifrado (RFC 8291,
 aes128gcm) y la firma VAPID (RFC 8292) los arma la librería `web-push`; el POST
 lo hace Azul Chat con `fetch`, sin reintentos, sin redirecciones, con corte a
-los 10 s y vencimiento de 12 horas en el servicio de push. Solo a endpoints de
+los 10 s y vencimiento de 12 horas en el servicio de push (6 horas los avisos
+del sistema del vigía). Desde la Tanda 13 todos salen con `Urgency: high`
+(`URGENCIA_PUSH` en `config.ts`): cada uno muestra una notificación visible, y
+con `normal` Android en reposo los retenía y entregaba ~20 minutos tarde y
+desordenados (prueba real del 12/10). Y cada aviso lleva `creadoEn`, la hora
+de la corrida que lo mandó, para que el teléfono no muestre uno viejo encima
+de uno nuevo (ver docs/INTERFAZ.md, "App instalable y service worker"). Solo a endpoints de
 los servicios de push de los navegadores (FCM, Mozilla, Apple, Windows): el
 servidor le pega a esa URL, y una lista cerrada impide usarlo para llegar a
 otro lado. Si el servicio contesta 404 o 410, la suscripción se borra; otro

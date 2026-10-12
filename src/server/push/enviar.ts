@@ -22,8 +22,10 @@ import "server-only";
 import type { ConfigPush, SuscripcionDestino } from "./config.ts";
 import { endpointPermitido } from "./suscripcion.ts";
 
-/** Cuánto guarda el servicio de push un aviso si el teléfono está apagado: 12 horas. Más tarde ya no es novedad. */
+/** Cuánto guarda el servicio de push un aviso de EVENTOS si el teléfono está apagado: 12 horas. Más tarde ya no es novedad. */
 export const TTL_AVISO_SEGUNDOS = 12 * 60 * 60;
+/** Lo mismo para un aviso del SISTEMA (el vigía, Tanda 13): 6 horas. Un "no se está actualizando" de hace más ya no dice nada. */
+export const TTL_AVISO_SISTEMA_SEGUNDOS = 6 * 60 * 60;
 /** Lo que se espera al servicio de push antes de abortar. */
 export const TIMEOUT_MS_PUSH = 10_000;
 
@@ -44,7 +46,16 @@ export type Aviso = {
   readonly url: string;
   /** Un aviso nuevo del mismo local (o del sistema) reemplaza al anterior en la bandeja. */
   readonly etiqueta: string;
+  /** Solo el de apertura del vigía (Tanda 13): qué incidente abre. Para rastrear; el orden lo decide `creadoEn`. */
+  readonly incidente?: string;
 };
+
+/**
+ * Lo que viaja de verdad: el aviso más su hora de creación en el servidor
+ * (ms, Tanda 13). Con ella el service worker descarta un aviso que llega
+ * DESPUÉS de uno más nuevo con la misma etiqueta (public/sw.js).
+ */
+export type AvisoFechado = Aviso & { readonly creadoEn: number };
 
 export type DependenciasEnvio = {
   readonly config: ConfigPush;
@@ -53,10 +64,10 @@ export type DependenciasEnvio = {
   readonly timeoutMs?: number;
 };
 
-export async function enviarAviso(deps: DependenciasEnvio, destino: SuscripcionDestino, aviso: Aviso): Promise<ResultadoEnvio> {
+export async function enviarAviso(deps: DependenciasEnvio, destino: SuscripcionDestino, aviso: AvisoFechado, ttlSegundos: number): Promise<ResultadoEnvio> {
   if (!endpointPermitido(destino.endpoint)) return { tipo: "FALLO", codigo: "ENDPOINT_NO_PERMITIDO" };
   const hacerFetch = deps.transporte ?? globalThis.fetch;
-  const armado = deps.config.armar(destino, JSON.stringify(aviso), { ttlSegundos: TTL_AVISO_SEGUNDOS });
+  const armado = deps.config.armar(destino, JSON.stringify(aviso), { ttlSegundos });
   const controlador = new AbortController();
   const temporizador = setTimeout(() => controlador.abort(), deps.timeoutMs ?? TIMEOUT_MS_PUSH);
   try {

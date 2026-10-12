@@ -182,7 +182,8 @@ no toca a los demás.
   mentira con estado; ningún test llama al ERP real. `test/ui/` dibuja los
   componentes con `react-dom/server`, sin navegador (los `.tsx` se cargan con
   `test/ayuda/tsx.mjs`).
-- `public/` — el service worker mínimo (solo push y el toque, sin caché) y los
+- `public/` — el service worker mínimo (solo push y el toque; desde la Tanda 13
+  guarda solo la hora del último aviso mostrado por etiqueta) y los
   íconos de la app instalable (Tanda 5A).
 - `ops/sincronizar/` — el script y las unidades de systemd del timer de
   sincronización (Tanda 5A).

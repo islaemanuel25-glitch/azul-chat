@@ -333,11 +333,16 @@ describe("los avisos push", () => {
       cuerpo: "Casiano: Transferencia #404 recibida con diferencias",
       url: "/?vista=local&localId=3",
       etiqueta: "local-3",
+      // Tanda 13: la hora de la corrida, para que el teléfono no muestre uno viejo encima.
+      creadoEn: reloj,
     });
     // Lo que viaja: cifrado (aes128gcm), firmado con VAPID, con vencimiento.
     assert.equal(enviados[0]!.headers["content-encoding"], "aes128gcm");
     assert.match(enviados[0]!.headers["authorization"] ?? "", /^vapid t=.+, k=/);
+    // Tanda 13: los de eventos conservan sus 12 h, y salen con urgencia alta
+    // (con "normal" Android los retenía en reposo).
     assert.equal(enviados[0]!.headers["ttl"], String(12 * 60 * 60));
+    assert.equal(enviados[0]!.headers["urgency"], "high");
     vencer();
     await sincronizar();
     assert.equal(enviados.length, 1, "una sola vez por evento");

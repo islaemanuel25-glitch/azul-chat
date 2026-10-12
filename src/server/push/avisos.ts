@@ -51,7 +51,7 @@ import type { PrismaClient, TipoEvento } from "@prisma/client";
 
 import { resumenDeEvento } from "../../shared/chats/textos.ts";
 import { aEventoPublico, SELECT_PUBLICO } from "../chats/historial.ts";
-import { enviarAviso, type Aviso, type DependenciasEnvio } from "./enviar.ts";
+import { enviarAviso, TTL_AVISO_SEGUNDOS, type Aviso, type DependenciasEnvio } from "./enviar.ts";
 
 export const TITULO_AVISO = "Azul Chat";
 
@@ -151,7 +151,7 @@ export async function avisarNovedades(
     if (titulos.length > 0) avisos.push(avisoDeLocal(local, titulos));
   }
   if (avisos.length === 0 || !envio) return { avisos: avisos.length, enviados: 0, fallidos: 0, borradas: 0 };
-  return { avisos: avisos.length, ...(await enviarAVinculo(db, vinculoId, avisos, envio, ahora)) };
+  return { avisos: avisos.length, ...(await enviarAVinculo(db, vinculoId, avisos, envio, ahora, TTL_AVISO_SEGUNDOS)) };
 }
 
 /**
@@ -159,6 +159,10 @@ export async function avisarNovedades(
  * anota el envío o el error en la suscripción y BORRA las que el servicio de
  * push dio por vencidas (404/410). Lo usan los avisos de novedades y, desde la
  * Tanda 12, los avisos del sistema (interno/vigia.ts). Sin reintentos.
+ *
+ * Desde la Tanda 13 cada aviso sale con `creadoEn` (la hora de esta corrida,
+ * en ms) para que el service worker no muestre uno viejo encima de uno nuevo,
+ * y con el TTL que diga quien llama: 12 h los de eventos, 6 h los del sistema.
  */
 export async function enviarAVinculo(
   db: Db,
@@ -166,6 +170,7 @@ export async function enviarAVinculo(
   avisos: readonly Aviso[],
   envio: DependenciasEnvio,
   ahora: Date,
+  ttlSegundos: number,
 ): Promise<{ enviados: number; fallidos: number; borradas: number; dispositivos: number }> {
   let enviados = 0;
   let fallidos = 0;
@@ -178,7 +183,7 @@ export async function enviarAVinculo(
   });
   for (const s of suscripciones) {
     for (const aviso of avisos) {
-      const r = await enviarAviso(envio, s, aviso);
+      const r = await enviarAviso(envio, s, { ...aviso, creadoEn: ahora.getTime() }, ttlSegundos);
       if (r.tipo === "VENCIDA") {
         await db.pushSuscripcion.deleteMany({ where: { id: s.id } });
         borradas += 1;

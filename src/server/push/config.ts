@@ -30,6 +30,14 @@ export const VARIABLE_VAPID_PUBLICA = "AZUL_CHAT_VAPID_PUBLICA";
 export const VARIABLE_VAPID_PRIVADA = "AZUL_CHAT_VAPID_PRIVADA";
 export const VARIABLE_VAPID_CONTACTO = "AZUL_CHAT_VAPID_CONTACTO";
 
+/**
+ * La urgencia de TODOS los push (RFC 8030 §5.3), avisos de eventos y del
+ * sistema. Cada push muestra una notificación visible, que es el uso de
+ * "high". Con "normal", Android en reposo los retenía y entregaba tarde y
+ * desordenados (prueba real del 12/10: la apertura llegó ~20 minutos tarde).
+ */
+export const URGENCIA_PUSH = "high";
+
 const PUBLICA = /^[A-Za-z0-9_-]{87}$/;
 const PRIVADA = /^[A-Za-z0-9_-]{43}$/;
 const CONTACTO = /^mailto:[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
@@ -86,7 +94,9 @@ export function leerConfigPush(entorno: Entorno = process.env): { ok: true; conf
         const d = webpush.generateRequestDetails(
           { endpoint: destino.endpoint, keys: { p256dh: destino.p256dh, auth: destino.auth } },
           contenido,
-          { vapidDetails, TTL: ttlSegundos, contentEncoding: "aes128gcm", urgency: "normal" },
+          // Urgency high (Tanda 13): cada push muestra una notificación visible, y
+          // con "normal" Android los retenía en reposo ~20 minutos.
+          { vapidDetails, TTL: ttlSegundos, contentEncoding: "aes128gcm", urgency: URGENCIA_PUSH },
         );
         const headers: Record<string, string> = {};
         for (const [k, v] of Object.entries(d.headers)) headers[k] = String(v);
