@@ -2,7 +2,7 @@
 //
 // Tres rutas propias, literales (lo exige secretoSoloServidor.test.ts):
 // leer la configuración, guardar el horario de silencio y cerrar las otras
-// sesiones. Nada se guarda en el navegador y no hay reintentos: si falla, la
+// sesiones. Y desde la Tanda 15 la de Accesos, solo para administradores. Nada se guarda en el navegador y no hay reintentos: si falla, la
 // persona vuelve a tocar.
 
 import type {
@@ -12,13 +12,16 @@ import type {
   RespuestaConfiguracion,
   RespuestaSilencio,
 } from "../../shared/sesion/configuracion.ts";
+import type { PedidoAccesos, RespuestaAccesos, RespuestaGuardarAccesos } from "../../shared/sesion/accesos.ts";
 import { anotarCommitDe } from "../chats/version.ts";
 
 const RUTA_CONFIGURACION = "/api/sesion/configuracion";
 const RUTA_SILENCIO = "/api/sesion/silencio";
 const RUTA_OTRAS = "/api/sesion/otras";
+/** Tanda 15: la sección Accesos, solo para administradores. */
+const RUTA_ACCESOS = "/api/sesion/accesos";
 
-export const RUTAS_DE_CONFIGURACION = Object.freeze({ configuracion: RUTA_CONFIGURACION, silencio: RUTA_SILENCIO, otras: RUTA_OTRAS });
+export const RUTAS_DE_CONFIGURACION = Object.freeze({ configuracion: RUTA_CONFIGURACION, silencio: RUTA_SILENCIO, otras: RUTA_OTRAS, accesos: RUTA_ACCESOS });
 
 /** La respuesta buena, o la falla de la API, o "RED" si no hubo respuesta. */
 export type ResultadoConfiguracion<T> = { readonly ok: true; readonly datos: T } | { readonly ok: false; readonly falla: FallaConfiguracion["estado"] | "RED" };
@@ -53,4 +56,21 @@ export function guardarSilencio(h: HorarioSilencio) {
 /** DELETE /api/sesion/otras: solo después de que la persona lo confirmó. */
 export function cerrarOtrasSesiones() {
   return pedir<RespuestaCerrarOtras>(() => fetch(RUTA_OTRAS, { ...OPCIONES, method: "DELETE" }));
+}
+
+/** Tanda 15: GET /api/sesion/accesos (solo administradores). */
+export function pedirAccesos() {
+  return pedir<RespuestaAccesos>(() => fetch(RUTA_ACCESOS, OPCIONES));
+}
+
+/** Tanda 15: PUT /api/sesion/accesos: los seis permisos de una persona, enteros, cada vez. */
+export function guardarAccesos(p: PedidoAccesos) {
+  return pedir<RespuestaGuardarAccesos>(() =>
+    fetch(RUTA_ACCESOS, {
+      ...OPCIONES,
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ personaId: p.personaId, entrar: p.entrar, ventas: p.ventas, caja: p.caja, stock: p.stock, pendientes: p.pendientes, ia: p.ia }),
+    }),
+  );
 }

@@ -115,7 +115,13 @@ export type FallaChats =
   /** La solicitud no tiene la forma esperada. */
   | { readonly estado: "SOLICITUD_INVALIDA" }
   /** POST desde un origen que no es Azul Chat. */
-  | { readonly estado: "ORIGEN_NO_PERMITIDO" };
+  | { readonly estado: "ORIGEN_NO_PERMITIDO" }
+  /**
+   * Tanda 15: la persona no tiene ese acceso en Azul Chat (lo decide el dueño,
+   * no el ERP). `motivo: "ENTRAR"`: no entra a la app; sin motivo, le falta solo
+   * esta sección (ventas, caja, stock, pendientes o IA).
+   */
+  | { readonly estado: "SIN_ACCESO"; readonly motivo?: "ENTRAR" };
 
 /** GET /api/chats */
 export type RespuestaChats =

@@ -51,7 +51,7 @@ import {
 import type { Periodo, ResultadoConsulta } from "../../shared/erp/contrato.ts";
 import { aEventoPublico, SELECT_PUBLICO } from "../chats/historial.ts";
 import { falla, fallaDeDelegacion, fallaDeRechazo } from "../chats/manejadores.ts";
-import { conAutorizacionViva } from "../chats/autorizacion.ts";
+import { conAutorizacionViva, type ResultadoAutorizado } from "../chats/autorizacion.ts";
 import { esFalloDeCupo } from "../chats/sincronizacion.ts";
 import { leerObjetoJson } from "../http/cuerpo.ts";
 import { origenPermitido } from "../http/origen.ts";
@@ -59,7 +59,6 @@ import { json } from "../http/respuestas.ts";
 import { ajustarPregunta, reservarPregunta } from "../ia/consumo.ts";
 import { consultarIa } from "../ia/gemini.ts";
 import { costoMicroUsd, reservaPorPregunta } from "../ia/tarifa.ts";
-import type { ResultadoDelegado } from "../sesion/delegacion.ts";
 import type { DependenciasSesion } from "../sesion/dependencias.ts";
 import { ventasResumenDeSesion } from "../ventas/ventasResumen.ts";
 import {
@@ -115,9 +114,9 @@ export async function manejarPreguntar(request: Request, deps: DependenciasSesio
   const db = deps.db;
 
   // 2. Autorización viva: una `mi_alcance`.
-  let autorizacion: ResultadoDelegado<Trabajo>;
+  let autorizacion: ResultadoAutorizado<Trabajo>;
   try {
-    autorizacion = await conAutorizacionViva(request.headers, deps, async (a): Promise<ResultadoConsulta<Trabajo>> => ({
+    autorizacion = await conAutorizacionViva(request.headers, deps, "ia", async (a): Promise<ResultadoConsulta<Trabajo>> => ({
       ok: true,
       requestId: "",
       datos: {

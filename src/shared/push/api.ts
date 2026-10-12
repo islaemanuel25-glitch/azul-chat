@@ -29,4 +29,6 @@ export type RespuestaSuscripcionPush =
   /** El cuerpo no es una suscripción de un servicio de push conocido. */
   | { readonly estado: "SOLICITUD_INVALIDA" }
   /** Sin claves VAPID en el servidor, o la base no responde. */
-  | { readonly estado: "NO_DISPONIBLE" };
+  | { readonly estado: "NO_DISPONIBLE" }
+  /** Tanda 15: la persona no tiene "entrar" en Azul Chat: no se suscribe a avisos. */
+  | { readonly estado: "SIN_ACCESO" };

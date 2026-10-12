@@ -45,7 +45,7 @@ import {
 import { TarjetaCajas } from "./Cajas.tsx";
 import { ContenidoBajoMinimo, ContenidoProductos, TarjetaBajoMinimo, TarjetaProductos } from "./Stock.tsx";
 import { TarjetaPendientes, TarjetaPendientesTodos } from "./Pendientes.tsx";
-import { destinoDeFalla, hayPreguntaEnCurso, reducirPreguntas, type IntercambioDePregunta } from "./logica.ts";
+import { destinoDeFalla, motivoDeSesion, pideSesion, hayPreguntaEnCurso, reducirPreguntas, type IntercambioDePregunta } from "./logica.ts";
 import { retenerRecarga } from "./version.ts";
 import { AvisoDeRespuesta, SubtituloDeTarjeta, TarjetaEvento, TarjetaVentas, TEXTO_CUPO_ERP } from "./Piezas.tsx";
 
@@ -456,7 +456,7 @@ export function usePreguntas(localId: number | null, alPerderSesion: (motivo?: "
         if (control.signal.aborted) return;
         enCurso.current = null;
         retenerRecarga(clave, false);
-        if (!resultado.ok && resultado.falla.estado === "SIN_SESION") return alPerderSesion(resultado.falla.motivo);
+        if (!resultado.ok && pideSesion(resultado.falla)) return alPerderSesion(motivoDeSesion(resultado.falla));
         if (!resultado.ok) alFallar(resultado.falla);
         despachar({ tipo: "RESPUESTA", id, resultado });
       });

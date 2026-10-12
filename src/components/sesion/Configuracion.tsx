@@ -10,6 +10,12 @@
 //   · Inteligencia artificial: lo gastado este mes contra el tope, las
 //     preguntas del mes y, si se llegó al tope, hasta cuándo. Sin IA
 //     configurada en el servidor, la sección no está;
+//   · Accesos (Tanda 15), SOLO para administradores: las personas que alguna
+//     vez se vincularon y un interruptor por permiso (Entrar, Ventas, Caja,
+//     Stock, Pendientes, IA). Sin "Entrar", los demás se ven deshabilitados;
+//     un administrador, con todo prendido y bloqueado. Cada toque se guarda
+//     entero, como el horario de silencio: si falla, vuelve atrás y lo dice.
+//     Las mismas piezas que el silencio (`ac-ajuste`, `ac-interruptor`);
 //   · Sesiones: los dispositivos con sesión abierta, "Cerrar las otras
 //     sesiones" y "Cerrar sesión", los dos con una confirmación PROPIA de la
 //     app (no `confirm()` del navegador). El 11/10 alguien tocó "Cerrar sesión"
@@ -25,9 +31,10 @@
 import { useCallback, useEffect, useState } from "react";
 
 import type { Dispositivo, HorarioSilencio, RespuestaConfiguracion, SaldoIa } from "../../shared/sesion/configuracion.ts";
+import { PERMISOS, type Permiso, type Permisos, type PersonaConAcceso } from "../../shared/sesion/accesos.ts";
 import { formatearHora } from "../chats/formato.ts";
 import { FilaNotificaciones } from "../push/FilaNotificaciones.tsx";
-import { cerrarOtrasSesiones, guardarSilencio, pedirConfiguracion } from "./clienteConfiguracion.ts";
+import { cerrarOtrasSesiones, guardarAccesos, guardarSilencio, pedirAccesos, pedirConfiguracion } from "./clienteConfiguracion.ts";
 
 type Configuracion = Extract<RespuestaConfiguracion, { estado: "OK" }>;
 
@@ -174,6 +181,112 @@ export function VistaIa({ ia }: { ia: SaldoIa | null }) {
   );
 }
 
+/** Tanda 15: el rótulo de cada interruptor de la sección Accesos (alcanceUi.test.ts los admite solo acá). */
+export const ROTULO_PERMISO: Readonly<Record<Permiso, string>> = Object.freeze({
+  entrar: "Entrar",
+  ventas: "Ventas",
+  caja: "Caja",
+  stock: "Stock",
+  pendientes: "Pendientes",
+  ia: "IA",
+});
+
+/** "Vinculado el 12/10 a las 21:02": el último vínculo de una persona. */
+export function vinculadoEl(iso: string, zona?: string): string {
+  const dia = new Intl.DateTimeFormat(IDIOMA, { timeZone: zona, day: "numeric", month: "numeric" }).format(new Date(iso));
+  return `Vinculado el ${dia} a las ${formatearHora(iso, zona)}`;
+}
+
+/**
+ * Tanda 15: los accesos de las personas, para un administrador. Sin red: cada
+ * interruptor avisa con los seis permisos de esa persona, ya cambiados.
+ */
+export function VistaAccesos({
+  personas,
+  guardando,
+  error,
+  alCambiar,
+  zona,
+}: {
+  personas: readonly PersonaConAcceso[];
+  /** El id de la persona cuyo cambio se está guardando: sus interruptores quedan quietos. */
+  guardando: number | null;
+  error?: string;
+  alCambiar: (personaId: number, permisos: Permisos) => void;
+  zona?: string;
+}) {
+  const cambiar = (p: PersonaConAcceso, permiso: Permiso) => alCambiar(p.personaId, { ...p.permisos, [permiso]: !p.permisos[permiso] });
+  return (
+    <section className="ac-ajustes" aria-labelledby="ac-ajustes-accesos">
+      <h3 id="ac-ajustes-accesos" className="ac-ajustes__seccion">
+        Accesos
+      </h3>
+      {personas.map((p) => (
+        <div key={p.personaId} className="ac-ajuste ac-ajuste--apilado">
+          <div className="ac-ajuste__texto">
+            <p className="ac-ajuste__titulo">{p.nombre}</p>
+            <p className="ac-ajuste__estado">{p.administrador ? `Administrador · ${vinculadoEl(p.vinculadoEn, zona)}` : vinculadoEl(p.vinculadoEn, zona)}</p>
+          </div>
+          {PERMISOS.map((permiso) => (
+            <div key={permiso} className="ac-ajuste__fila">
+              <div className="ac-ajuste__texto">
+                <p className="ac-ajuste__estado">{ROTULO_PERMISO[permiso]}</p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={p.permisos[permiso]}
+                aria-label={`${ROTULO_PERMISO[permiso]} de ${p.nombre}`}
+                className="ac-interruptor"
+                onClick={() => cambiar(p, permiso)}
+                disabled={p.administrador || guardando === p.personaId || (permiso !== "entrar" && !p.permisos.entrar)}
+              >
+                <span className="ac-interruptor__perilla" aria-hidden="true" />
+              </button>
+            </div>
+          ))}
+        </div>
+      ))}
+      {error && <p className="ac-ajustes__nota">{error}</p>}
+    </section>
+  );
+}
+
+/** Tanda 15: la sección Accesos con su red. Solo la monta un administrador (`config.administrador`); el servidor igual la niega a cualquier otro. */
+export function SeccionAccesos() {
+  const [personas, setPersonas] = useState<readonly PersonaConAcceso[] | null>(null);
+  const [guardando, setGuardando] = useState<number | null>(null);
+  const [error, setError] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    let vigente = true;
+    void pedirAccesos().then((r) => {
+      if (vigente && r.ok) setPersonas(r.datos.personas);
+    });
+    return () => {
+      vigente = false;
+    };
+  }, []);
+
+  const cambiar = async (personaId: number, permisos: Permisos) => {
+    if (!personas) return;
+    const antes = personas;
+    setPersonas(personas.map((p) => (p.personaId === personaId ? { ...p, permisos } : p)));
+    setGuardando(personaId);
+    setError(undefined);
+    const r = await guardarAccesos({ personaId, ...permisos });
+    setGuardando(null);
+    if (r.ok) setPersonas((actuales) => (actuales ?? antes).map((p) => (p.personaId === personaId ? r.datos.persona : p)));
+    else {
+      setPersonas(antes);
+      setError("No se pudo guardar. Probá de nuevo.");
+    }
+  };
+
+  if (!personas) return null;
+  return <VistaAccesos personas={personas} guardando={guardando} {...(error ? { error } : {})} alCambiar={(id, p) => void cambiar(id, p)} />;
+}
+
 /** Qué confirmación está abierta en Sesiones. */
 export type Confirmando = "OTRAS" | "ESTA" | null;
 
@@ -317,6 +430,7 @@ export function SeccionesDeConfiguracion({ alCerrarSesion, cerrando }: { alCerra
         {silencio && <VistaSilencio silencio={silencio} guardando={guardando} {...(errorSilencio ? { error: errorSilencio } : {})} alCambiar={(h) => void cambiarSilencio(h)} />}
       </FilaNotificaciones>
       <VistaIa ia={config?.ia ?? null} />
+      {config?.administrador && <SeccionAccesos />}
       <VistaSesiones
         dispositivos={config?.dispositivos ?? null}
         confirmando={confirmando}

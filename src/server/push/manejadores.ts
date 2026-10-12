@@ -20,6 +20,7 @@ import type { RespuestaClavePush, RespuestaEstadoPush, RespuestaSuscripcionPush 
 import { leerObjetoJson } from "../http/cuerpo.ts";
 import { origenPermitido } from "../http/origen.ts";
 import { json } from "../http/respuestas.ts";
+import { accesoDelContexto } from "../chats/autorizacion.ts";
 import { sesionDeLaSolicitud } from "../sesion/delegacion.ts";
 import { dependenciasDeProduccion, type DependenciasSesion } from "../sesion/dependencias.ts";
 import { leerConfigPush, type ConfigPush } from "./config.ts";
@@ -40,6 +41,7 @@ const STATUS: Record<Exclude<RespuestaSuscripcionPush["estado"], "OK">, number> 
   ORIGEN_NO_PERMITIDO: 403,
   SOLICITUD_INVALIDA: 400,
   NO_DISPONIBLE: 503,
+  SIN_ACCESO: 403,
 };
 const responder = (r: RespuestaSuscripcionPush) => json(r, { status: r.estado === "OK" ? 200 : STATUS[r.estado] });
 
@@ -104,6 +106,8 @@ export async function manejarSuscribir(request: Request, deps: DependenciasPush)
   const { db, sesion } = leida.contexto;
   const ahora = new Date(deps.ahora());
   try {
+    // Tanda 15: los avisos de eventos son parte de "entrar".
+    if (!(await accesoDelContexto(leida.contexto, deps)).permisos.entrar) return responder({ estado: "SIN_ACCESO" });
     // El mismo endpoint es el mismo dispositivo: si ya estaba (de otra sesión,
     // o de antes de volver a vincular), pasa a esta sesión con las claves nuevas.
     await db.pushSuscripcion.upsert({

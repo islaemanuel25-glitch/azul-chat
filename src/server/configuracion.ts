@@ -17,6 +17,8 @@
 import "server-only";
 
 import { origenAceptable, type Entorno } from "./erp/config.ts";
+import { leerAdministradores } from "./accesos/accesos.ts";
+import type { ListaDePersonas } from "./personas.ts";
 import { crearCifradorToken, leerClaveToken, type CifradorToken, type MotivoClaveInvalida } from "./seguridad/cifradoToken.ts";
 
 export const VARIABLE_INSTALACION = "AZUL_CHAT_INSTALACION_ID";
@@ -37,6 +39,12 @@ export type ConfigAzulChat = {
   readonly cifrador: CifradorToken;
   /** Con true, la cookie de sesión lleva Secure. */
   readonly produccion: boolean;
+  /**
+   * Tanda 15: quién administra los accesos (AZUL_CHAT_ADMINISTRADORES, leída en
+   * accesos/accesos.ts). Vacía o mal escrita no rompe la configuración: nadie
+   * administra y todo queda cerrado para quien no tenga un acceso guardado.
+   */
+  readonly administradores: ListaDePersonas;
 };
 
 export function leerConfigAzulChat(
@@ -61,6 +69,7 @@ export function leerConfigAzulChat(
       origenPublico,
       cifrador: crearCifradorToken(clave.clave),
       produccion: entorno.NODE_ENV === "production",
+      administradores: leerAdministradores(entorno),
     }),
   };
 }

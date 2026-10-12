@@ -81,7 +81,19 @@ const CHIPS_NO_IMPLEMENTADOS = ["Transferencias", "Pedidos"];
  * existir: en cualquier otro archivo, rojo.
  */
 const FILTROS_DE_BUSCAR = { archivo: "src/components/chats/Buscar.tsx", textos: ["Transferencias", "Pedidos"] } as const;
-const comoTextoVisible = (t: string) => new RegExp(`["'\`>]\\s*${t}\\s*["'\`<]`);
+const comoTextoVisible = (t: string) => new RegExp(`["'\`>]\\s*${t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*["'\`<]`);
+/**
+ * Tanda 15: "Caja", "Stock" y "Pendientes" también son los rótulos de tres
+ * interruptores de la sección Accesos (Configuración, solo administradores),
+ * declarados en UN lugar de ese archivo. En cualquier otro, siguen siendo
+ * chips fuera de la barra.
+ */
+const ROTULOS_DE_ACCESOS = { archivo: "src/components/sesion/Configuracion.tsx", textos: ["Caja", "Stock", "Pendientes"] } as const;
+/** Tanda 15: textos nuevos, cada uno visible en un solo archivo: el título de la sección y lo que ve quien no tiene acceso. */
+const TEXTOS_VISIBLES_EN_UN_LUGAR: readonly { readonly texto: string; readonly archivo: string }[] = [
+  { texto: "Accesos", archivo: "src/components/sesion/Configuracion.tsx" },
+  { texto: "Todavía no tenés acceso a Azul Chat.", archivo: "src/components/sesion/PanelSesion.tsx" },
+];
 /** Tanda 7B: los chips que existen, cada uno como texto visible en un solo archivo: el de la barra. */
 const CHIPS_IMPLEMENTADOS: readonly { readonly texto: string; readonly archivo: string }[] = [
   { texto: "Caja", archivo: "src/components/chats/Piezas.tsx" },
@@ -172,7 +184,14 @@ function problemas(archivos: Record<string, string>): string[] {
       const filtroDeBuscar = archivo === FILTROS_DE_BUSCAR.archivo && (FILTROS_DE_BUSCAR.textos as readonly string[]).includes(t);
       if (comoTextoVisible(t).test(codigo) && !filtroDeBuscar) p.push(`${archivo}: chip "${t}"`);
     }
-    for (const c of CHIPS_IMPLEMENTADOS) if (comoTextoVisible(c.texto).test(codigo) && archivo !== c.archivo) p.push(`${archivo}: chip "${c.texto}" fuera de la barra`);
+    for (const c of CHIPS_IMPLEMENTADOS) {
+      const rotulo = archivo === ROTULOS_DE_ACCESOS.archivo && (ROTULOS_DE_ACCESOS.textos as readonly string[]).includes(c.texto);
+      if (comoTextoVisible(c.texto).test(codigo) && archivo !== c.archivo && !rotulo) p.push(`${archivo}: chip "${c.texto}" fuera de la barra`);
+    }
+    for (const t of TEXTOS_VISIBLES_EN_UN_LUGAR) {
+      if (comoTextoVisible(t.texto).test(codigo) && archivo !== t.archivo) p.push(`${archivo}: "${t.texto}" fuera de su lugar`);
+      if (archivo === t.archivo && !comoTextoVisible(t.texto).test(codigo)) p.push(`${archivo}: falta "${t.texto}"`);
+    }
     for (const permiso of TEXTOS_PERMITIDOS) {
       if (codigo.includes(permiso.texto) && archivo !== permiso.archivo) p.push(`${archivo}: "${permiso.texto}" fuera de su lugar`);
     }
@@ -244,6 +263,10 @@ describe("alcance de la interfaz de chats", () => {
       swEnOtroLado: `${conversacion}\nvoid navigator.serviceWorker.register("/sw.js");\n`,
       suscripcionEnOtroLado: `${conversacion}\nconst r = (x: { pushManager: unknown }) => x.pushManager;\n`,
       permisoEnOtroLado: `${conversacion}\nvoid Notification.requestPermission();\n`,
+      // Tanda 15: los textos de Accesos fuera de su lugar.
+      accesosEnOtroLado: `${conversacion}\nexport const T = () => <h3>Accesos</h3>;\n`,
+      sinAccesoEnOtroLado: `${conversacion}\nconst s = "Todavía no tenés acceso a Azul Chat.";\n`,
+      rotuloCajaEnOtroLado: `${conversacion}\nconst r2 = { caja: "Caja" };\n`,
     };
     for (const [nombre, codigo] of Object.entries(casos)) {
       assert.notEqual(codigo, conversacion, nombre);

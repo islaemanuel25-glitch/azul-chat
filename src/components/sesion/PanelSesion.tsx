@@ -59,6 +59,9 @@ export function VersionDeLaPagina({ commit }: { commit: string | null }) {
   return <p className="ac-version">Versión {commit.slice(0, 7)}</p>;
 }
 
+/** Tanda 15: lo único que ve una persona vinculada sin acceso a Azul Chat (además de cerrar sesión). */
+export const TEXTO_SIN_ACCESO = "Todavía no tenés acceso a Azul Chat.";
+
 export function PanelSesion({
   alVincular,
   alVerChats,
@@ -109,8 +112,10 @@ export function PanelSesion({
         setMensaje(r?.mensaje ?? `No se pudo vincular (error ${res.status}).`);
         return;
       }
-      await recargar();
-      alVincular?.();
+      const despues = await pedirEstado().catch((): EstadoSesion => ({ estado: "SERVICIO_NO_DISPONIBLE" }));
+      setEstado(despues);
+      // Tanda 15: sin acceso todavía, se queda acá: "Todavía no tenés acceso a Azul Chat."
+      if (despues.estado === "VINCULADO") alVincular?.();
     } catch {
       setMensaje("No hubo respuesta de Azul Chat.");
     } finally {
@@ -175,6 +180,34 @@ export function PanelSesion({
         <SeccionesDeConfiguracion alCerrarSesion={() => void cerrar()} cerrando={trabajando} />
         {mensaje && <p className="ac-mensaje">{mensaje}</p>}
         <VersionDeLaPagina commit={commit} />
+      </section>
+    );
+  }
+
+  // Tanda 15: vinculada, pero el dueño todavía no le dio acceso. Solo esto y cerrar sesión; sin avisos ni locales.
+  if (estado.estado === "SIN_ACCESO") {
+    return (
+      <section className="ac-tarjeta" aria-live="polite">
+        <p className="ac-tarjeta__texto">{TEXTO_SIN_ACCESO}</p>
+        {confirmandoCierre ? (
+          <Confirmacion
+            pregunta={PREGUNTA_CERRAR_SESION}
+            textoConfirmar="Cerrar sesión"
+            trabajando={trabajando}
+            alConfirmar={() => {
+              setConfirmandoCierre(false);
+              void cerrar();
+            }}
+            alCancelar={() => setConfirmandoCierre(false)}
+          />
+        ) : (
+          <div className="ac-acciones">
+            <button type="button" className="ac-boton ac-boton--secundario" onClick={() => setConfirmandoCierre(true)} disabled={trabajando}>
+              Cerrar sesión
+            </button>
+          </div>
+        )}
+        {mensaje && <p className="ac-mensaje">{mensaje}</p>}
       </section>
     );
   }

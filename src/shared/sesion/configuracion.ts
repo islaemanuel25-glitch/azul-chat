@@ -49,8 +49,10 @@ export type RespuestaConfiguracion =
   | {
       readonly estado: "OK";
       readonly silencio: HorarioSilencio;
-      /** null: la IA no está configurada en el servidor, y la sección no se muestra. */
+      /** null: la IA no está configurada en el servidor, o (Tanda 15) la persona no tiene el permiso "ia"; la sección no se muestra. */
       readonly ia: SaldoIa | null;
+      /** Tanda 15: administra los accesos (AZUL_CHAT_ADMINISTRADORES). Solo entonces se muestra la sección Accesos. */
+      readonly administrador: boolean;
       /** La de este navegador primero; las demás, de la más nueva a la más vieja. */
       readonly dispositivos: readonly Dispositivo[];
     }
@@ -64,6 +66,8 @@ export type RespuestaCerrarOtras = { readonly estado: "OK"; readonly cerradas: n
 
 export type FallaConfiguracion =
   | { readonly estado: "SIN_SESION" }
+  /** Tanda 15: la persona no tiene "entrar" en Azul Chat: tampoco su configuración. */
+  | { readonly estado: "SIN_ACCESO" }
   | { readonly estado: "ORIGEN_NO_PERMITIDO" }
   | { readonly estado: "SOLICITUD_INVALIDA" }
   | { readonly estado: "SERVICIO_NO_DISPONIBLE" };

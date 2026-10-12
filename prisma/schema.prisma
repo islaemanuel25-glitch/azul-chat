@@ -36,6 +36,7 @@ model Instalacion {
   vinculos Vinculo[]
   eventos  Evento[]
   cursores CursorIngesta[]
+  accesos  AccesoPersona[]
 }
 
 /// Por qué se invalidó un vínculo.
@@ -78,6 +79,10 @@ model Vinculo {
   /// consultas al ERP; si no entran todas, empieza por las que hace más que no
   /// les toca (null primero). Solo ordena turnos: no es autoridad ni dato del ERP.
   ultimoTurnoFondoEn DateTime?
+  /// Tanda 15: el nombre de la persona como lo dio el ERP la última vez
+  /// (`mi_alcance`, `usuario.nombre`), para la lista de Accesos. Solo se
+  /// muestra: no es autoridad. Sin nombre, la lista dice "Persona <id>".
+  erpNombre          String?
 
   instalacion   Instalacion       @relation(fields: [instalacionId], references: [id], onDelete: Restrict)
   sesiones      Sesion[]
@@ -317,4 +322,29 @@ model SaludSincronizacion {
   /// Las personas a las que todavía hay que avisarles que volvió (estaban en silencio al cerrarse).
   pendientesRecuperacion Int[]     @default([])
   actualizadoEn          DateTime  @default(now()) @updatedAt
+}
+
+/// Tanda 15: QUÉ PUEDE USAR CADA PERSONA EN AZUL CHAT. Una capa MÁS sobre lo que
+/// da el ERP: solo puede restar, nunca sumar. Por persona del ERP
+/// (`erpUsuarioId`), no por vínculo: volver a vincularse no la toca. Todo en
+/// false por defecto: una persona sin fila no entra. Los administradores
+/// (AZUL_CHAT_ADMINISTRADORES) no dependen de esta tabla: tienen todo.
+model AccesoPersona {
+  instalacionId           String
+  erpUsuarioId            Int
+  /// La app, la lista, los eventos, buscar, su configuración y los avisos. Sin esto, nada de lo demás vale.
+  entrar                  Boolean   @default(false)
+  ventas                  Boolean   @default(false)
+  caja                    Boolean   @default(false)
+  stock                   Boolean   @default(false)
+  pendientes              Boolean   @default(false)
+  /// Preguntar a la IA y ver sus preguntas guardadas.
+  ia                      Boolean   @default(false)
+  /// Quién lo cambió por última vez (un administrador, por su id del ERP) y cuándo. Juntos (CHECK).
+  cambiadoPorErpUsuarioId Int?
+  cambiadoEn              DateTime?
+
+  instalacion Instalacion @relation(fields: [instalacionId], references: [id], onDelete: Restrict)
+
+  @@id([instalacionId, erpUsuarioId])
 }

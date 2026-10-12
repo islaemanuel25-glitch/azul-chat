@@ -73,6 +73,7 @@ const ESTADOS_DE_FALLA: readonly FallaChats["estado"][] = [
   "SERVICIO_NO_DISPONIBLE",
   "SOLICITUD_INVALIDA",
   "ORIGEN_NO_PERMITIDO",
+  "SIN_ACCESO",
 ];
 
 /** Una falla que vio el navegador: la pública de la API, la red caída, o un pedido que se canceló a propósito. */
@@ -88,7 +89,12 @@ async function leer<T>(res: Response): Promise<Resultado<Ok<T>>> {
   if (res.ok && cuerpo?.estado === "OK") return { ok: true, datos: cuerpo as Ok<T> };
   const estado = ESTADOS_DE_FALLA.find((e) => e === cuerpo?.estado);
   if (!res.ok && estado) {
-    const falla: FallaChats = estado === "SIN_SESION" && cuerpo?.motivo === "VINCULO_INVALIDO" ? { estado, motivo: "VINCULO_INVALIDO" } : ({ estado } as FallaChats);
+    const falla: FallaChats =
+      estado === "SIN_SESION" && cuerpo?.motivo === "VINCULO_INVALIDO"
+        ? { estado, motivo: "VINCULO_INVALIDO" }
+        : estado === "SIN_ACCESO" && cuerpo?.motivo === "ENTRAR"
+          ? { estado, motivo: "ENTRAR" }
+          : ({ estado } as FallaChats);
     return { ok: false, falla };
   }
   return { ok: false, falla: { estado: "SERVICIO_NO_DISPONIBLE" } };

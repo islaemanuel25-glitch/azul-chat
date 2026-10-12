@@ -45,6 +45,7 @@ import { json } from "../http/respuestas.ts";
 import { enviarAVinculo } from "../push/avisos.ts";
 import { TTL_AVISO_SISTEMA_SEGUNDOS, type Aviso } from "../push/enviar.ts";
 import { enSilencio } from "../push/silencio.ts";
+import { leerListaDePersonas, type ListaDePersonas } from "../personas.ts";
 import { dependenciasDeTareaProduccion, noExiste, type DependenciasTarea } from "./sincronizar.ts";
 
 export const VARIABLE_AVISOS_SISTEMA = "AZUL_CHAT_AVISOS_SISTEMA";
@@ -68,17 +69,11 @@ export const MOTIVO_EN_PALABRAS: Readonly<Record<MotivoIncidente, string>> = Obj
 export const TEXTO_RECUPERACION = "Azul Chat volvió a actualizarse.";
 
 /** Los destinatarios de AZUL_CHAT_AVISOS_SISTEMA. */
-export type Destinatarios = { readonly tipo: "OK"; readonly ids: readonly number[] } | { readonly tipo: "VACIA" } | { readonly tipo: "INVALIDA" };
-
-const LISTA_DE_IDS = /^\s*[1-9][0-9]{0,9}\s*(,\s*[1-9][0-9]{0,9}\s*)*$/;
+export type Destinatarios = ListaDePersonas;
 
 /** "9, 11" → [9, 11]. Vacía o ausente: VACIA. Cualquier otra cosa: INVALIDA (no se adivina a quién avisar). */
 export function leerDestinatarios(entorno: Entorno = process.env): Destinatarios {
-  const crudo = entorno[VARIABLE_AVISOS_SISTEMA];
-  if (crudo === undefined || crudo.trim() === "") return { tipo: "VACIA" };
-  if (!LISTA_DE_IDS.test(crudo)) return { tipo: "INVALIDA" };
-  const ids = [...new Set(crudo.split(",").map((x) => Number(x.trim())))];
-  return ids.every((n) => Number.isSafeInteger(n) && n <= 2_147_483_647) ? { tipo: "OK", ids } : { tipo: "INVALIDA" };
+  return leerListaDePersonas(entorno[VARIABLE_AVISOS_SISTEMA]);
 }
 
 export type DependenciasVigia = DependenciasTarea & { readonly destinatarios: Destinatarios };

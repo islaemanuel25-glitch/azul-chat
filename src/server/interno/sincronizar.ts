@@ -62,7 +62,7 @@ import type { DependenciasSesion } from "../sesion/dependencias.ts";
 import { dependenciasDeProduccion } from "../sesion/dependencias.ts";
 import { delegarConContexto } from "../sesion/delegacion.ts";
 import { anotarTurnoDeFondo, sesionesParaSegundoPlano } from "../sesion/repositorio.ts";
-import { autorizacionViva, tiposVisibles } from "../chats/autorizacion.ts";
+import { accesoDelContexto, autorizacionViva, tiposVisibles } from "../chats/autorizacion.ts";
 import { esFalloDeCupo, PRESUPUESTO_FONDO_POR_CORRIDA, PRESUPUESTO_FONDO_POR_PERSONA, sincronizarAutorizados } from "../chats/sincronizacion.ts";
 import { json } from "../http/respuestas.ts";
 import { leerConfigPush, type ConfigPush } from "../push/config.ts";
@@ -115,6 +115,8 @@ export type ResumenTarea = {
   readonly consultasErp: number;
   /** Tanda 14: personas que no entraron en esta corrida (tope total o corte por cupo). Van primero en la siguiente. */
   readonly personasPospuestas: number;
+  /** Tanda 15: personas vinculadas sin "entrar" en Azul Chat: no se les consulta nada ni se les avisa. */
+  readonly personasSinAcceso: number;
 };
 
 /** El 404 de una ruta interna sin su puerta: igual al de una que no existe. Tanda 12: lo usa también el vigía. */
@@ -155,22 +157,31 @@ export async function manejarSincronizar(request: Request, deps: DependenciasTar
     personasConPendientes: 0,
     consultasErp: 0,
     personasPospuestas: 0,
+    personasSinAcceso: 0,
   };
   try {
     resumen.suscripcionesBorradas += await borrarSuscripcionesSinSesion(db, ahora);
     // Tanda 6C: la retención de las preguntas guardadas. Solo esa tabla.
     resumen.preguntasBorradas += await borrarPreguntasVencidas(db, ahora);
     const sesiones = await sesionesParaSegundoPlano(db, config.instalacionId, ahora);
+    let atendidas = 0;
     for (const sesion of sesiones) {
+      // Tanda 15: sin "entrar" en Azul Chat, la persona no gasta ninguna consulta del ERP ni recibe avisos.
+      const acceso = await accesoDelContexto({ config, db, sesion }, deps);
+      if (!acceso.permisos.entrar) {
+        resumen.personasSinAcceso += 1;
+        continue;
+      }
       // Tanda 14: el tope de la corrida. Lo que esta persona podría gastar tiene que entrar entero.
       if (resumen.consultasErp + PRESUPUESTO_FONDO_POR_PERSONA > PRESUPUESTO_FONDO_POR_CORRIDA) break;
       resumen.personas += 1;
+      atendidas += 1;
       let r;
       try {
         await anotarTurnoDeFondo(db, sesion.vinculo.id, ahora);
         r = await delegarConContexto<DeUnaPersona>({ config, db, sesion }, deps, async (token, contexto): Promise<ResultadoConsulta<DeUnaPersona>> => {
           resumen.consultasErp += 1; // mi_alcance, también cuando falla
-          const a = await autorizacionViva(deps, token, contexto);
+          const a = await autorizacionViva(deps, token, contexto, acceso);
           if (!a.ok) return a;
           // `mi_alcance` ya gastó una del presupuesto de esta persona.
           const s = await sincronizarAutorizados(deps, a.datos, a.datos.autorizados, PRESUPUESTO_FONDO_POR_PERSONA - 1);
@@ -229,7 +240,7 @@ export async function manejarSincronizar(request: Request, deps: DependenciasTar
       }
       if (resumen.cortadaPorCupo) break;
     }
-    resumen.personasPospuestas = sesiones.length - resumen.personas;
+    resumen.personasPospuestas = sesiones.length - resumen.personasSinAcceso - atendidas;
   } catch {
     deps.registrar({ evento: "sesion.falla_local", etapa: "base" });
     // Tanda 12: la falla también se anota, si la base deja; si no, el vigía la ve por el tiempo sin éxitos.

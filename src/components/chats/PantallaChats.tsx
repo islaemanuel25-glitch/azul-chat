@@ -18,7 +18,7 @@ import { ShellMovil } from "../shell/ShellMovil.tsx";
 import { pedirChats, type FallaCliente } from "./clienteChats.ts";
 import { useEsperaTrasCupo } from "./esperaCupo.ts";
 import { formatearMomento, resumenDeEvento } from "./formato.ts";
-import { destinoDeFalla, filasDeChats, type FilaDeChats, type Filtro, type Vista } from "./logica.ts";
+import { destinoDeFalla, motivoDeSesion, pideSesion, filasDeChats, type FilaDeChats, type Filtro, type Vista } from "./logica.ts";
 import { Avatar, AvisoDemorada, BadgeNoLeidos, EstadoChat, EstadoCupoErp, EstadoErpNoDisponible } from "./Piezas.tsx";
 
 type RespuestaOk = Extract<RespuestaChats, { estado: "OK" }>;
@@ -115,7 +115,7 @@ export function PantallaChats({ alAbrir, alPerderSesion, alVerSesion }: { alAbri
     void pedirChats(control.signal).then((r) => {
       if (control.signal.aborted) return;
       if (r.ok) return setEstado({ fase: "LISTA", datos: r.datos });
-      if (r.falla.estado === "SIN_SESION") return alPerderSesion(r.falla.motivo);
+      if (pideSesion(r.falla)) return alPerderSesion(motivoDeSesion(r.falla));
       anotar(r.falla);
       setEstado({ fase: "FALLA", falla: r.falla });
     });

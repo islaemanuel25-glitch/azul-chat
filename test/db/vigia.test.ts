@@ -32,6 +32,7 @@ import type { DependenciasSesion } from "../../src/server/sesion/dependencias.ts
 import { manejarVincular } from "../../src/server/sesion/vincular.ts";
 import type { DatosMiAlcance } from "../../src/shared/erp/contrato.ts";
 import { crearBaseDescartable, type BaseDescartable } from "../ayuda/baseDescartable.ts";
+import { ADMINISTRADORES_DE_PRUEBA } from "../ayuda/accesos.ts";
 import { levantarErpConEstado, type ErpConEstado } from "../ayuda/erpConEstado.ts";
 import { FIXTURES_ERP_25172FE, SECRETO_PRUEBA, type Rompible } from "../ayuda/servidorErp.ts";
 
@@ -49,7 +50,7 @@ const DEL_TIMER = { host: "127.0.0.1:3100", "x-forwarded-proto": "http", [CABECE
 const ENTORNO = {
   AZUL_CHAT_INSTALACION_ID: "instalacion-prueba",
   AZUL_CHAT_ORIGEN_PUBLICO: ORIGEN,
-  AZUL_CHAT_TOKEN_ENCRYPTION_KEY: CLAVE,
+  AZUL_CHAT_TOKEN_ENCRYPTION_KEY: CLAVE, AZUL_CHAT_ADMINISTRADORES: ADMINISTRADORES_DE_PRUEBA,
   AZUL_CHAT_INTEGRACION_SECRET: SECRETO_PRUEBA,
   AZUL_CHAT_TAREA_SECRET: SECRETO_TAREA,
   AZUL_CHAT_VAPID_PUBLICA: VAPID.publicKey,

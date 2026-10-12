@@ -770,6 +770,69 @@ nada.
 del VPS, por 127.0.0.1 y con su secreto; a todo lo demás le contesta 404
 (`docs/DEPLOY.md`).
 
+## Accesos: quién entra y a qué (Tanda 15)
+
+Desde la Tanda 15, generar un código en el ERP ya no alcanza para ver nada:
+el dueño decide, persona por persona, quién entra a Azul Chat y a qué partes.
+Es una capa MÁS, que solo puede RESTAR: la sesión, la delegación y
+`mi_alcance` en cada pedido siguen igual. Si el ERP no le da Caja a una
+persona, prenderle "Caja" acá no se la da.
+
+**Quién administra.** Las personas de la variable `AZUL_CHAT_ADMINISTRADORES`
+(ids de persona del ERP; en producción, el dueño). Tienen todo, siempre, y son
+las únicas que ven la sección "Accesos". Nadie puede quitarse acceso a sí
+mismo ni a otro administrador. **Sin esa variable (o mal escrita) nadie
+administra y nadie entra**, salvo quien ya tenga un acceso guardado.
+
+**Los seis permisos** (tabla `AccesoPersona`, por persona del ERP: volver a
+vincularse no los cambia; todos apagados al principio):
+
+- **Entrar**: la app, la lista de locales, los eventos, buscar, su propia
+  configuración y los avisos de eventos. Sin esto, nada de lo demás vale.
+- **Ventas**, **Caja**, **Stock**, **Pendientes**: cada sección y su ruta.
+  La parte de cajas de Pendientes es de Caja: sin "Caja", Pendientes muestra
+  solo los pedidos.
+- **IA**: preguntar y ver sus preguntas guardadas (también al buscar).
+
+**En el servidor, en cada pedido.** Cada ruta pide su permiso antes de
+consultar al ERP; si falta, `403` con `{ estado: "SIN_ACCESO" }` (y
+`motivo: "ENTRAR"` si falta entrar), nunca datos. Lo que el ERP anuncia se
+CRUZA con estos permisos, así que la interfaz oculta lo que no está habilitado
+(los chips, la caja de preguntas, la sección de IA). Un cambio rige desde el
+pedido siguiente de esa persona, sin cerrar su sesión. La sincronización de
+fondo no gasta consultas en quien no tiene "Entrar" ni le manda avisos
+(`personasSinAcceso`). Los avisos del vigía siguen yendo a
+`AZUL_CHAT_AVISOS_SISTEMA`.
+
+**Una persona nueva** canjea su código igual (así aparece en la lista del
+dueño) y ve solo "Todavía no tenés acceso a Azul Chat." y "Cerrar sesión".
+
+**El dueño la habilita** en ☰ → Configuración → Accesos: ahí están todas las
+personas que alguna vez se vincularon, con su nombre (el que da el ERP en
+`mi_alcance`; si todavía no dio ninguno, "Persona <id>") y cuándo se
+vincularon por última vez, y un interruptor por permiso. Con "Entrar"
+apagado, los otros se ven deshabilitados; los administradores, con todo
+prendido y bloqueado. Cada toque se guarda solo; si no se pudo, vuelve atrás
+y lo dice.
+
+**Las rutas** (`src/server/sesion/accesos.ts`, solo administradores; a
+cualquier otro, `403 SIN_ACCESO`):
+
+- `GET /api/sesion/accesos`: `{ estado: "OK", personas: [{ personaId,
+  nombre, vinculadoEn, administrador, permisos }] }`.
+- `PUT /api/sesion/accesos`: exactamente `{ personaId, entrar, ventas, caja,
+  stock, pendientes, ia }`, con sesión y Origin. Responde la persona como
+  quedó. `ES_ADMINISTRADOR` (409) si es un administrador,
+  `PERSONA_DESCONOCIDA` (404) si nunca se vinculó, `SOLICITUD_INVALIDA` (400)
+  con otra forma.
+
+Candados: `test/db/accesos.test.ts` (un administrador y dos personas comunes:
+cada ruta con y sin su permiso, el fondo, los avisos, el ERP que manda, el
+cambio que rige en el pedido siguiente, la sección solo para administradores,
+la variable vacía o mal escrita, volver a vincularse),
+`test/frontera/rutas.test.ts`, `secretoSoloServidor.test.ts`,
+`alcanceUi.test.ts` y `test/ui/configuracion.test.ts`.
+
 ## Varias personas: otros dueños (Tanda 14)
 
 Azul Chat no es de una sola persona. Cada dueño (o encargado) del negocio usa
@@ -792,7 +855,10 @@ hay mensajes entre personas.
    `https://chat.operix.cloud`. Si no tiene sesión, aparece "Vinculá Azul
    Chat con el ERP": pega el código en **"Código del ERP"** y toca
    **"Vincular"**.
-5. Listo. Ve sus locales. Si quiere avisos en el teléfono, los activa en
+5. Va a ver "Todavía no tenés acceso a Azul Chat." (Tanda 15). El dueño la
+   habilita desde su teléfono: ☰ → **Configuración → Accesos**, prende
+   **Entrar** y lo que quiera que vea (ver "Accesos", arriba).
+6. Listo. Ve sus locales. Si quiere avisos en el teléfono, los activa en
    **Configuración → Notificaciones** (cada persona los suyos), y ahí mismo
    elige su **horario de silencio**.
 
