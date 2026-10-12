@@ -57,6 +57,28 @@ grande se centra en una columna de 480 px; no hay un diseño de escritorio.
   del chat la descarta. Sin refresco automático, sin almacenamiento del
   navegador, y no toca la lectura (`useVentas` y `AccionesDelLocal`, en
   `Conversacion.tsx`; `reducirVentas`, en `logica.ts`).
+- **Cajas de hoy (Tanda 7B).** Si `chats/local` trae `local.caja: true`, la
+  barra lleva un segundo chip, "Caja", al lado de "Ventas" (Figma nodo 1:144);
+  sin el anuncio no está, y un local puede tener uno solo de los dos. Tocarlo
+  pide `GET /api/chats/caja` y aparece al final del historial la tarjeta
+  "Cajas de hoy · {local}". El Figma no la dibuja: está armada con las MISMAS
+  piezas y tokens que la de Ventas (`ac-ventas`, `SubtituloDeTarjeta`, las
+  líneas de medio), sin colores nuevos. Una sección por turno operativo con
+  "{turno} · {total vendido del turno}"; dentro, cada caja como fila PLEGADA
+  (`<details>`): "{operador} · Abierta | Correcta | Falta $ X | Sobra $ X" y su
+  total vendido. Al tocarla se despliega: una línea por medio (Efectivo,
+  Débito…), el fiado aparte con "· no cobrado"; "Retiros", una línea por retiro
+  "monto · motivo · a quién · hora" (a quién solo si viene) o "Sin retiros";
+  "Ingresos" si hay; y "Cierre": Efectivo esperado, Efectivo contado, Retirado
+  al cierre y Fondo que quedó. Una caja abierta no tiene cierre: dice "Caja
+  abierta". "Tesorería: Verificada" o "Tesorería: Falta verificar" solo cuando
+  aplica, como dato aparte. "Sin turno asignado" va al final, en el tono suave.
+  La diferencia es de CADA caja: no hay diferencia por turno ni por local, y
+  nada la compensa. Los estados son los de Ventas: "Consultando cajas…" en el
+  chip, la tarjeta de error con "Reintentar" a mano y el texto del cupo con su
+  espera (`TarjetaCajas` y `ResultadoCaja`, en `Cajas.tsx`; `useCaja`, en
+  `Conversacion.tsx`; `reducirCaja`, en `logica.ts`; los textos, en
+  `formato.ts`).
 
 - **Preguntas (Tanda 6A).** Si `chats/local` o `chats/general` traen
   `preguntas: true` (el servidor tiene la IA configurada), hay una caja de texto
@@ -77,6 +99,15 @@ grande se centra en una columna de 480 px; no hay un diseño de escritorio.
     nuevos (`SubtituloDeTarjeta`, `.ac-ventas__subtitulo`). Si alguno no se
     pudo consultar, lo dice y NO muestra total ni medios (serían de una suma
     parcial): solo "Por local" y cuáles faltan;
+  - caja (Tanda 7B): la misma tarjeta de cajas del día ("Cajas de hoy",
+    "Cajas de ayer" o "Cajas del 11/10 · {local}"), una por local si es de
+    todos, con cuáles no se pudieron consultar;
+  - ventas de un turno (Tanda 7B): "Turno {turno} · {período} · {local}", el
+    total del turno por medio y debajo sus cajas; de todos, la suma por medio
+    y una sección por local, sin total si falta alguno. Si el turno no está
+    entre los del día, arriba el aviso fijo "No encontré el turno «{texto}».
+    Estos son los turnos del día." (`avisoTurnoNoEncontrado`) y todos los
+    turnos;
   - eventos: "{local o Todos los locales} · {período}", la cantidad en palabras
     ("3 transferencias recibidas con diferencias"), hasta 10 eventos con el
     mismo resumen de la lista de chats y "y N más";
@@ -361,7 +392,8 @@ estaba. No hay scroll infinito ni refresco automático.
   plural, advertencias), el error con "Reintentar" y la consulta que reemplaza.
 - `test/frontera/alcanceUi.test.ts`: la interfaz no muestra "Ver diferencias",
   "Abrir en ERP", "Última transferencia", "Ver detalle", "Comparar" ni los chips
-  Caja, Transferencias, Pedidos o Stock; "Ventas de hoy" y "Ventas de ayer" se
+  Transferencias, Pedidos o Stock —"Caja" existe desde la Tanda 7B y solo en
+  `Piezas.tsx`—; "Ventas de hoy" y "Ventas de ayer" se
   admiten SOLO como títulos de la tarjeta, en `formato.ts`; "Preguntá" y el
   único `<input>`, SOLO en la caja de `Preguntas.tsx` (Tanda 6A); no tiene refresco
   automático —salvo la recarga por versión, con cada pieza en su único archivo:
@@ -412,6 +444,15 @@ estaba. No hay scroll infinito ni refresco automático.
   guardadas sin "Reintentar", un chat solo con preguntas no vacío, cargar
   anteriores sin repetir, y que una recién hecha no se repita.
 
+- `test/ui/cajas.test.ts` (Tanda 7B): el chip con y sin el anuncio y su carga;
+  la tarjeta sobre el fixture del ERP: turnos en orden con "Sin turno
+  asignado" al final y suave, la fila plegada y desplegada, abierta, correcta,
+  falta, sobra, sin retiros, retiros con y sin a quién, el fiado aparte, la
+  Tesorería, y que las diferencias no se compensan; las respuestas de caja y de
+  ventas por turno, el aviso de turno no encontrado, todos con un local
+  faltante y la foto guardada. `test/frontera/alcanceUi.test.ts`: el chip
+  "Caja" solo en `Piezas.tsx`.
+
 ## Fuera de alcance
 
 No existen todavía, y la interfaz no los muestra ni los insinúa: Pendientes,
@@ -421,8 +462,8 @@ ERP"), las notificaciones y cualquier actualización en vivo (WebSocket, SSE o
 refresco periódico). La recarga por versión no es eso: no trae datos, solo
 reemplaza el JS de un despliegue viejo, y solo en los dos momentos de arriba.
 
-De las acciones rápidas del diseño existe solo "Ventas", y solo para hoy; otros
-períodos (ayer, rango) y las ventas de todos los locales se piden con una
-pregunta (Tanda 6A), no con un chip. No existen: los chips Caja,
+De las acciones rápidas del diseño existen "Ventas" y "Caja" (Tanda 7B), y solo
+para hoy; otros períodos (ayer, rango), los turnos y todos los locales se piden
+con una pregunta (Tanda 6A), no con un chip. No existen: los chips
 Transferencias, Pedidos y Stock; "Ver detalle" y "Comparar" en la tarjeta de
 ventas; y el chip "Ventas" en General.

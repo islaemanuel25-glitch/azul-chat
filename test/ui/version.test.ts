@@ -10,7 +10,7 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 
-import { ESPERA_VERSION_MS, marcarLeido, pedirChats, pedirGeneral, pedirLocal, pedirVentas, pedirVersion, preguntar } from "../../src/components/chats/clienteChats.ts";
+import { ESPERA_VERSION_MS, marcarLeido, pedirCaja, pedirChats, pedirGeneral, pedirLocal, pedirVentas, pedirVersion, preguntar } from "../../src/components/chats/clienteChats.ts";
 import type { Vista } from "../../src/components/chats/logica.ts";
 import {
   alLiberarRecarga,
@@ -374,7 +374,7 @@ describe("6D. cada respuesta trae el commit: quien se queda adentro de un chat t
       globalThis.fetch = original;
     });
 
-    it("6D-6. chats, local, general, ventas, leído, preguntar y versión: todas, buenas o con falla", async () => {
+    it("6D-6. chats, local, general, ventas, caja, leído, preguntar y versión: todas, buenas o con falla", async () => {
       const vistos: string[] = [];
       const d = escucharCommitDeRespuestas((c) => vistos.push(c));
       for (const [status, cuerpo] of [
@@ -387,10 +387,11 @@ describe("6D. cada respuesta trae el commit: quien se queda adentro de un chat t
         await pedirLocal(3, null);
         await pedirGeneral(null);
         await pedirVentas(3);
+        await pedirCaja(3); // Tanda 7B
         await marcarLeido({ marcas: [{ localId: 3, hastaEventoId: "1" }] });
         await preguntar({ pregunta: "hola" });
         await pedirVersion();
-        assert.deepEqual(vistos, Array(7).fill(B), `status ${status}`);
+        assert.deepEqual(vistos, Array(8).fill(B), `status ${status}`);
       }
       // Sin red no hay respuesta: nada que comparar.
       globalThis.fetch = (async () => Promise.reject(new TypeError("failed to fetch"))) as typeof fetch;

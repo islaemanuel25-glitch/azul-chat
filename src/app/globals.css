@@ -787,3 +787,62 @@ body {
   font-size: var(--ac-letra-chica);
   font-weight: 600;
 }
+
+/* ── Tanda 7B: la tarjeta de cajas (Figma tiene el chip 1:144; la tarjeta se
+   arma con las piezas de la de ventas). Solo tokens: ningún color nuevo. ── */
+
+.ac-cajas {
+  width: 88%;
+}
+
+.ac-turno {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ac-espacio-1);
+  width: 100%;
+  padding-top: var(--ac-espacio-2);
+  border-top: 1px solid var(--ac-color-borde);
+}
+
+.ac-cajas .ac-turno__titulo {
+  font-size: var(--ac-letra-chica);
+  font-weight: 600;
+}
+
+/* "Sin turno asignado": al final y secundario. */
+.ac-turno--sin-turno {
+  color: var(--ac-color-texto-suave);
+}
+
+.ac-caja {
+  width: 100%;
+}
+
+.ac-caja__fila {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--ac-espacio-2);
+  min-height: var(--ac-alto-toque);
+  font-size: var(--ac-letra-mini);
+  cursor: pointer;
+}
+
+.ac-caja__total {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ac-caja__detalle {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ac-espacio-1);
+  padding: 0 0 var(--ac-espacio-2) var(--ac-espacio-3);
+}
+
+/* Varias tarjetas de cajas en una respuesta (todos los locales). */
+.ac-respuesta-cajas {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ac-espacio-2);
+}

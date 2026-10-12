@@ -15,6 +15,12 @@ export const CODIGOS_ERROR_ERP = Object.freeze([
   "SOLICITUD_INVALIDA",
   "PERIODO_INVALIDO",
   "PERIODO_DEMASIADO_LARGO",
+  /**
+   * Tanda 7B (erpmanual 14ae247): `cajas_resumen` con un turno operativo que el
+   * local no tiene. Azul Chat no manda turno (lo resuelve sobre el día entero),
+   * así que no debería llegar; si llega, es un código conocido y no se inventa.
+   */
+  "TURNO_OPERATIVO_INVALIDO",
   "SOLICITUD_NO_AUTENTICADA",
   "CAPACIDAD_NO_DISPONIBLE",
   "VINCULO_NO_VALIDO",
@@ -593,4 +599,204 @@ export function esDatosEnviosEventos(v: unknown): v is DatosEnviosEventos {
 }
 export function esDatosCancelacionesEventos(v: unknown): v is DatosCancelacionesEventos {
   return esDatosEventosDe(CONTRATO_CANCELACIONES_EVENTOS, v);
+}
+
+// ── cajas_resumen (Tanda 7B) ─────────────────────────────────────────────────
+//
+// Contrato de erpmanual 14ae247 (PR #169), `lib/integraciones/azul-chat/
+// cajasResumen.js` y `cajasResumenServer.js`. Fixture: `test/fixtures/
+// erp-14ae247.json`, copia sin tocar de `docs/integraciones/azul-chat/
+// erp-cajas-resumen.json` de ese commit. Lo que importa para presentarlo:
+//
+//   · UN día argentino (`periodo.fecha`), por turno operativo, con "Sin turno
+//     asignado" al final (`sinTurnoAsignado`, `turnoOperativo.id` null);
+//   · los totales del turno son las ventas de sus cajas: NO llevan diferencia
+//     ni contado, que son de cada caja y no se compensan;
+//   · `ventasPorMedio` son los medios cobrados; `ventasNoCobradas`, el fiado;
+//   · la diferencia es null salvo en CORRECTA (NINGUNA) y CON_DIFERENCIA
+//     (FALTA o SOBRA); `verificacionTesoreria` es aparte y no la toca.
+// El ERP calcula todo; Azul Chat valida la forma y presenta.
+
+export const CAPACIDAD_CAJAS_RESUMEN = "cajas_resumen";
+
+export const ESTADOS_CAJA = Object.freeze(["ABIERTA", "CORRECTA", "CON_DIFERENCIA", "SIN_CONTEO", "ANULADA"] as const);
+export type EstadoCaja = (typeof ESTADOS_CAJA)[number];
+export const TIPOS_DIFERENCIA = Object.freeze(["FALTA", "SOBRA", "NINGUNA"] as const);
+export type TipoDiferencia = (typeof TIPOS_DIFERENCIA)[number];
+export const VERIFICACIONES_TESORERIA = Object.freeze(["VERIFICADA", "FALTA_VERIFICAR", "NO_APLICA"] as const);
+export type VerificacionTesoreria = (typeof VERIFICACIONES_TESORERIA)[number];
+export const TIPOS_RETIRO = Object.freeze(["RETIRO_RECAUDACION", "RETIRO_CIERRE", "PAGO_PROVEEDOR", "PAGO_GASTO", "RETIRO_MANUAL"] as const);
+export type TipoRetiro = (typeof TIPOS_RETIRO)[number];
+
+/** Un medio de pago de una caja o de un turno. `cobrado`: false solo en `ventasNoCobradas` (fiado). */
+export type MedioDeCaja = MedioDePago & { readonly cobrado: boolean };
+
+export type RetiroDeCaja = {
+  readonly tipo: TipoRetiro;
+  readonly monto: string;
+  readonly motivo: string | null;
+  /** A quién o adónde fue: el destino, el proveedor, el beneficiario. null si el ERP no lo registra. */
+  readonly aQuien: string | null;
+  readonly recibidoPor: string | null;
+  readonly hora: string | null;
+  readonly registradoPor: string | null;
+};
+
+export type IngresoDeCaja = {
+  readonly monto: string;
+  readonly motivo: string | null;
+  readonly hora: string | null;
+  readonly registradoPor: string | null;
+};
+
+export type DiferenciaDeCaja = { readonly monto: string; readonly tipo: TipoDiferencia };
+
+export type CajaErp = {
+  readonly id: number;
+  readonly etiqueta: string;
+  readonly operador: string | null;
+  readonly apertura: string;
+  readonly cierre: string | null;
+  readonly estado: EstadoCaja;
+  readonly montoInicial: string | null;
+  readonly cantidadVentas: number;
+  readonly totalVendido: string;
+  readonly ventasEfectivo: string;
+  readonly ventasPorMedio: readonly MedioDeCaja[];
+  readonly ventasNoCobradas: readonly MedioDeCaja[];
+  readonly retiros: readonly RetiroDeCaja[];
+  readonly ingresos: readonly IngresoDeCaja[];
+  readonly efectivoEsperado: string | null;
+  readonly efectivoContado: string | null;
+  readonly diferencia: DiferenciaDeCaja | null;
+  readonly efectivoRetiradoCierre: string | null;
+  readonly fondoDejadoCierre: string | null;
+  readonly verificacionTesoreria: VerificacionTesoreria;
+};
+
+export type TotalesDeTurno = {
+  readonly cantidadVentas: number;
+  readonly totalVendido: string;
+  readonly ventasEfectivo: string;
+  readonly ventasPorMedio: readonly MedioDeCaja[];
+  readonly ventasNoCobradas: readonly MedioDeCaja[];
+};
+
+export type TurnoOperativoErp = {
+  readonly turnoOperativo: { readonly id: number | null; readonly nombre: string };
+  readonly sinTurnoAsignado: boolean;
+  readonly totales: TotalesDeTurno;
+  readonly cajas: readonly CajaErp[];
+};
+
+/** Las advertencias de `cajas_resumen` pueden nombrar la caja (`cajaId`). */
+export type AdvertenciaDeCajas = Advertencia & { readonly cajaId?: number };
+
+/** El período de `cajas_resumen`: un día, pedido como hoy, ayer o una fecha. */
+export type PeriodoCajas = { readonly tipo: "hoy" } | { readonly tipo: "ayer" } | { readonly tipo: "fecha"; readonly fecha: string };
+
+/** `datos` de `cajas_resumen`, versión 1. */
+export type DatosCajasResumen = {
+  readonly capacidad: typeof CAPACIDAD_CAJAS_RESUMEN;
+  readonly version: 1;
+  readonly local: { readonly id: number; readonly nombre: string };
+  readonly grupoId: number;
+  readonly periodo: { readonly tipo: "hoy" | "ayer" | "fecha"; readonly fecha: string; readonly zonaHoraria: string };
+  readonly turnoOperativoPedido: { readonly id: number; readonly nombre: string } | null;
+  readonly turnosOperativos: readonly TurnoOperativoErp[];
+  readonly advertencias: readonly AdvertenciaDeCajas[];
+};
+
+const esDecimal = (v: unknown): v is string => esTexto(v) && DECIMAL.test(v);
+const esDecimalONulo = (v: unknown): v is string | null => v === null || esDecimal(v);
+const esTextoONulo = (v: unknown): v is string | null => v === null || esTexto(v);
+const esInstanteONulo = (v: unknown): v is string | null => v === null || esInstanteIso(v);
+const deLista = <T extends string>(lista: readonly T[], v: unknown): v is T => esTexto(v) && (lista as readonly string[]).includes(v);
+
+function esMedioDeCaja(v: unknown, cobrado: boolean): v is MedioDeCaja {
+  return esMedioDePago(v) && (v as Record<string, unknown>).cobrado === cobrado;
+}
+
+function esRetiro(v: unknown): v is RetiroDeCaja {
+  return (
+    esObjeto(v) &&
+    deLista(TIPOS_RETIRO, v.tipo) &&
+    esDecimal(v.monto) &&
+    esTextoONulo(v.motivo) &&
+    esTextoONulo(v.aQuien) &&
+    esTextoONulo(v.recibidoPor) &&
+    esInstanteONulo(v.hora) &&
+    esTextoONulo(v.registradoPor)
+  );
+}
+
+function esIngreso(v: unknown): v is IngresoDeCaja {
+  return esObjeto(v) && esDecimal(v.monto) && esTextoONulo(v.motivo) && esInstanteONulo(v.hora) && esTextoONulo(v.registradoPor);
+}
+
+/** Los medios: cobrados en una lista, el fiado en la otra. */
+function sonMediosDe(v: Record<string, unknown>): boolean {
+  return (
+    Array.isArray(v.ventasPorMedio) &&
+    v.ventasPorMedio.every((m) => esMedioDeCaja(m, true)) &&
+    Array.isArray(v.ventasNoCobradas) &&
+    v.ventasNoCobradas.every((m) => esMedioDeCaja(m, false))
+  );
+}
+
+/** La diferencia tiene que decir lo mismo que el estado: si no, no se sabe cuál creer. */
+function diferenciaCoherente(estado: EstadoCaja, d: unknown): boolean {
+  if (estado === "CORRECTA") return esObjeto(d) && d.tipo === "NINGUNA" && d.monto === "0.00";
+  if (estado === "CON_DIFERENCIA") return esObjeto(d) && (d.tipo === "FALTA" || d.tipo === "SOBRA") && esDecimal(d.monto);
+  return d === null;
+}
+
+function esCaja(v: unknown): v is CajaErp {
+  if (!esObjeto(v)) return false;
+  if (!esEnteroPositivo(v.id) || !esTexto(v.etiqueta) || !esTextoONulo(v.operador)) return false;
+  if (!esInstanteIso(v.apertura) || !esInstanteONulo(v.cierre)) return false;
+  if (!deLista(ESTADOS_CAJA, v.estado) || !diferenciaCoherente(v.estado, v.diferencia)) return false;
+  if (!esDecimalONulo(v.montoInicial) || !esEnteroNoNegativo(v.cantidadVentas)) return false;
+  if (!esDecimal(v.totalVendido) || !esDecimal(v.ventasEfectivo) || !sonMediosDe(v)) return false;
+  if (!Array.isArray(v.retiros) || !v.retiros.every(esRetiro)) return false;
+  if (!Array.isArray(v.ingresos) || !v.ingresos.every(esIngreso)) return false;
+  if (!esDecimalONulo(v.efectivoEsperado) || !esDecimalONulo(v.efectivoContado)) return false;
+  if (!esDecimalONulo(v.efectivoRetiradoCierre) || !esDecimalONulo(v.fondoDejadoCierre)) return false;
+  return deLista(VERIFICACIONES_TESORERIA, v.verificacionTesoreria);
+}
+
+function esTurnoOperativoErp(v: unknown): v is TurnoOperativoErp {
+  if (!esObjeto(v) || typeof v.sinTurnoAsignado !== "boolean") return false;
+  const t = v.turnoOperativo;
+  if (!esObjeto(t) || !esTexto(t.nombre)) return false;
+  // Sin turno asignado ⇔ sin id: el grupo de las cajas anteriores a los turnos.
+  if (v.sinTurnoAsignado ? t.id !== null : !esEnteroPositivo(t.id)) return false;
+  const tot = v.totales;
+  if (!esObjeto(tot) || !esEnteroNoNegativo(tot.cantidadVentas) || !esDecimal(tot.totalVendido) || !esDecimal(tot.ventasEfectivo) || !sonMediosDe(tot)) return false;
+  return Array.isArray(v.cajas) && v.cajas.every(esCaja);
+}
+
+/**
+ * La forma de `datos` de `cajas_resumen`. Lo que depende del pedido —que sea
+ * el local, el grupo y el día pedidos— lo mira quien pidió.
+ */
+export function esDatosCajasResumen(v: unknown): v is DatosCajasResumen {
+  if (!esObjeto(v)) return false;
+  if (v.capacidad !== CAPACIDAD_CAJAS_RESUMEN || v.version !== 1) return false;
+  const { local, periodo } = v;
+  if (!esObjeto(local) || !esEnteroPositivo(local.id) || !esTexto(local.nombre)) return false;
+  if (!esEnteroPositivo(v.grupoId)) return false;
+  if (!esObjeto(periodo) || !deLista(["hoy", "ayer", "fecha"] as const, periodo.tipo) || !esTexto(periodo.fecha) || !FECHA.test(periodo.fecha) || !esTexto(periodo.zonaHoraria)) {
+    return false;
+  }
+  const pedido = v.turnoOperativoPedido;
+  if (pedido !== null && (!esObjeto(pedido) || !esEnteroPositivo(pedido.id) || !esTexto(pedido.nombre))) return false;
+  if (!Array.isArray(v.turnosOperativos) || !v.turnosOperativos.every(esTurnoOperativoErp)) return false;
+  // "Sin turno asignado" va al final, una sola vez.
+  const sinTurno = v.turnosOperativos.map((t) => (t as TurnoOperativoErp).sinTurnoAsignado);
+  if (sinTurno.filter(Boolean).length > 1 || sinTurno.slice(0, -1).some(Boolean)) return false;
+  return (
+    Array.isArray(v.advertencias) &&
+    v.advertencias.every((a) => esAdvertencia(a) && ((a as Record<string, unknown>).cajaId === undefined || esEnteroPositivo((a as Record<string, unknown>).cajaId)))
+  );
 }

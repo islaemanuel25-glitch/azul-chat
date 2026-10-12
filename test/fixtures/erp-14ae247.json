@@ -1,0 +1,890 @@
+{
+  "_origen": {
+    "generadoPor": "scripts/pruebas-db/azulChatCajasResumen.mjs",
+    "commit": "b6190d5937509bcf5bc14fd03233c76a258a9ad5",
+    "nota": "Pedidos y respuestas reales de la puerta del ERP (atenderSolicitudAzulChat) contra una base descartable. Un día con dos turnos operativos, cajas correctas, con falta y con sobra, una abierta y una sin turno asignado. No se edita a mano: se regenera."
+  },
+  "ahora": "2026-10-11T23:39:13.647Z",
+  "dia": {
+    "hoy": {
+      "pedido": {
+        "capacidad": "cajas_resumen",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 1
+        },
+        "parametros": {
+          "periodo": {
+            "tipo": "hoy"
+          }
+        }
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "cajas_resumen",
+            "version": 1,
+            "local": {
+              "id": 1,
+              "nombre": "Local Centro"
+            },
+            "grupoId": 1,
+            "periodo": {
+              "tipo": "hoy",
+              "fecha": "2026-10-11",
+              "zonaHoraria": "America/Argentina/Cordoba"
+            },
+            "turnoOperativoPedido": null,
+            "turnosOperativos": [
+              {
+                "turnoOperativo": {
+                  "id": 1,
+                  "nombre": "Mañana"
+                },
+                "sinTurnoAsignado": false,
+                "totales": {
+                  "cantidadVentas": 6,
+                  "totalVendido": "83000.00",
+                  "ventasEfectivo": "65000.00",
+                  "ventasPorMedio": [
+                    {
+                      "medio": "EFECTIVO",
+                      "etiqueta": "Efectivo",
+                      "total": "65000.00",
+                      "cantidadPagos": 3,
+                      "cobrado": true
+                    },
+                    {
+                      "medio": "DEBITO",
+                      "etiqueta": "Débito",
+                      "total": "8000.00",
+                      "cantidadPagos": 1,
+                      "cobrado": true
+                    },
+                    {
+                      "medio": "MERCADOPAGO",
+                      "etiqueta": "Mercado Pago",
+                      "total": "7000.00",
+                      "cantidadPagos": 1,
+                      "cobrado": true
+                    }
+                  ],
+                  "ventasNoCobradas": [
+                    {
+                      "medio": "FIADO",
+                      "etiqueta": "Fiado",
+                      "total": "3000.00",
+                      "cantidadPagos": 1,
+                      "cobrado": false
+                    }
+                  ]
+                },
+                "cajas": [
+                  {
+                    "id": 2,
+                    "etiqueta": "Caja de Ana",
+                    "operador": "Ana",
+                    "apertura": "2026-10-11T23:39:11.572Z",
+                    "cierre": "2026-10-11T23:39:12.192Z",
+                    "estado": "CORRECTA",
+                    "montoInicial": "1000.00",
+                    "cantidadVentas": 4,
+                    "totalVendido": "68000.00",
+                    "ventasEfectivo": "50000.00",
+                    "ventasPorMedio": [
+                      {
+                        "medio": "EFECTIVO",
+                        "etiqueta": "Efectivo",
+                        "total": "50000.00",
+                        "cantidadPagos": 1,
+                        "cobrado": true
+                      },
+                      {
+                        "medio": "DEBITO",
+                        "etiqueta": "Débito",
+                        "total": "8000.00",
+                        "cantidadPagos": 1,
+                        "cobrado": true
+                      },
+                      {
+                        "medio": "MERCADOPAGO",
+                        "etiqueta": "Mercado Pago",
+                        "total": "7000.00",
+                        "cantidadPagos": 1,
+                        "cobrado": true
+                      }
+                    ],
+                    "ventasNoCobradas": [
+                      {
+                        "medio": "FIADO",
+                        "etiqueta": "Fiado",
+                        "total": "3000.00",
+                        "cantidadPagos": 1,
+                        "cobrado": false
+                      }
+                    ],
+                    "retiros": [
+                      {
+                        "tipo": "RETIRO_RECAUDACION",
+                        "monto": "30000.00",
+                        "motivo": "Retiro de recaudación #1",
+                        "aQuien": null,
+                        "recibidoPor": null,
+                        "hora": "2026-10-11T23:39:12.084Z",
+                        "registradoPor": "cuenta-del-mostrador"
+                      },
+                      {
+                        "tipo": "PAGO_PROVEEDOR",
+                        "monto": "5000.00",
+                        "motivo": "Pago a proveedor: Panadería La Espiga (compra #1)",
+                        "aQuien": "Panadería La Espiga",
+                        "recibidoPor": null,
+                        "hora": "2026-10-11T23:39:12.130Z",
+                        "registradoPor": "cuenta-del-mostrador"
+                      },
+                      {
+                        "tipo": "RETIRO_CIERRE",
+                        "monto": "15000.00",
+                        "motivo": "Retiro de cierre de caja (turno #2)",
+                        "aQuien": null,
+                        "recibidoPor": null,
+                        "hora": "2026-10-11T23:39:12.200Z",
+                        "registradoPor": "cuenta-del-mostrador"
+                      }
+                    ],
+                    "ingresos": [],
+                    "efectivoEsperado": "16000.00",
+                    "efectivoContado": "16000.00",
+                    "diferencia": {
+                      "monto": "0.00",
+                      "tipo": "NINGUNA"
+                    },
+                    "efectivoRetiradoCierre": "15000.00",
+                    "fondoDejadoCierre": "1000.00",
+                    "verificacionTesoreria": "VERIFICADA"
+                  },
+                  {
+                    "id": 3,
+                    "etiqueta": "Caja de Bruno",
+                    "operador": "Bruno",
+                    "apertura": "2026-10-11T23:39:12.241Z",
+                    "cierre": "2026-10-11T23:39:12.425Z",
+                    "estado": "CON_DIFERENCIA",
+                    "montoInicial": "1000.00",
+                    "cantidadVentas": 1,
+                    "totalVendido": "10000.00",
+                    "ventasEfectivo": "10000.00",
+                    "ventasPorMedio": [
+                      {
+                        "medio": "EFECTIVO",
+                        "etiqueta": "Efectivo",
+                        "total": "10000.00",
+                        "cantidadPagos": 1,
+                        "cobrado": true
+                      }
+                    ],
+                    "ventasNoCobradas": [],
+                    "retiros": [
+                      {
+                        "tipo": "RETIRO_MANUAL",
+                        "monto": "2000.00",
+                        "motivo": "Compra de bolsas",
+                        "aQuien": null,
+                        "recibidoPor": null,
+                        "hora": "2026-10-11T23:39:12.346Z",
+                        "registradoPor": "cuenta-del-mostrador"
+                      },
+                      {
+                        "tipo": "RETIRO_CIERRE",
+                        "monto": "7500.00",
+                        "motivo": "Retiro de cierre de caja (turno #3)",
+                        "aQuien": null,
+                        "recibidoPor": null,
+                        "hora": "2026-10-11T23:39:12.435Z",
+                        "registradoPor": "cuenta-del-mostrador"
+                      }
+                    ],
+                    "ingresos": [
+                      {
+                        "monto": "500.00",
+                        "motivo": "Cambio que trajo el encargado",
+                        "hora": "2026-10-11T23:39:12.364Z",
+                        "registradoPor": "cuenta-del-mostrador"
+                      }
+                    ],
+                    "efectivoEsperado": "9500.00",
+                    "efectivoContado": "8500.00",
+                    "diferencia": {
+                      "monto": "1000.00",
+                      "tipo": "FALTA"
+                    },
+                    "efectivoRetiradoCierre": "7500.00",
+                    "fondoDejadoCierre": "1000.00",
+                    "verificacionTesoreria": "FALTA_VERIFICAR"
+                  },
+                  {
+                    "id": 4,
+                    "etiqueta": "Caja de Carla",
+                    "operador": "Carla",
+                    "apertura": "2026-10-11T23:39:12.466Z",
+                    "cierre": "2026-10-11T23:39:12.604Z",
+                    "estado": "CON_DIFERENCIA",
+                    "montoInicial": "1000.00",
+                    "cantidadVentas": 1,
+                    "totalVendido": "5000.00",
+                    "ventasEfectivo": "5000.00",
+                    "ventasPorMedio": [
+                      {
+                        "medio": "EFECTIVO",
+                        "etiqueta": "Efectivo",
+                        "total": "5000.00",
+                        "cantidadPagos": 1,
+                        "cobrado": true
+                      }
+                    ],
+                    "ventasNoCobradas": [],
+                    "retiros": [
+                      {
+                        "tipo": "RETIRO_CIERRE",
+                        "monto": "6000.00",
+                        "motivo": "Retiro de cierre de caja (turno #4)",
+                        "aQuien": null,
+                        "recibidoPor": null,
+                        "hora": "2026-10-11T23:39:12.619Z",
+                        "registradoPor": "cuenta-del-mostrador"
+                      }
+                    ],
+                    "ingresos": [],
+                    "efectivoEsperado": "6000.00",
+                    "efectivoContado": "7000.00",
+                    "diferencia": {
+                      "monto": "1000.00",
+                      "tipo": "SOBRA"
+                    },
+                    "efectivoRetiradoCierre": "6000.00",
+                    "fondoDejadoCierre": "1000.00",
+                    "verificacionTesoreria": "FALTA_VERIFICAR"
+                  }
+                ]
+              },
+              {
+                "turnoOperativo": {
+                  "id": 2,
+                  "nombre": "Tarde"
+                },
+                "sinTurnoAsignado": false,
+                "totales": {
+                  "cantidadVentas": 4,
+                  "totalVendido": "26000.00",
+                  "ventasEfectivo": "21000.00",
+                  "ventasPorMedio": [
+                    {
+                      "medio": "EFECTIVO",
+                      "etiqueta": "Efectivo",
+                      "total": "21000.00",
+                      "cantidadPagos": 2,
+                      "cobrado": true
+                    },
+                    {
+                      "medio": "CREDITO",
+                      "etiqueta": "Crédito",
+                      "total": "4000.00",
+                      "cantidadPagos": 1,
+                      "cobrado": true
+                    },
+                    {
+                      "medio": "MERCADOPAGO",
+                      "etiqueta": "Mercado Pago",
+                      "total": "1000.00",
+                      "cantidadPagos": 1,
+                      "cobrado": true
+                    }
+                  ],
+                  "ventasNoCobradas": []
+                },
+                "cajas": [
+                  {
+                    "id": 5,
+                    "etiqueta": "Caja de Diego",
+                    "operador": "Diego",
+                    "apertura": "2026-10-11T23:39:12.685Z",
+                    "cierre": "2026-10-11T23:39:12.883Z",
+                    "estado": "CON_DIFERENCIA",
+                    "montoInicial": "1000.00",
+                    "cantidadVentas": 2,
+                    "totalVendido": "16000.00",
+                    "ventasEfectivo": "12000.00",
+                    "ventasPorMedio": [
+                      {
+                        "medio": "EFECTIVO",
+                        "etiqueta": "Efectivo",
+                        "total": "12000.00",
+                        "cantidadPagos": 1,
+                        "cobrado": true
+                      },
+                      {
+                        "medio": "CREDITO",
+                        "etiqueta": "Crédito",
+                        "total": "4000.00",
+                        "cantidadPagos": 1,
+                        "cobrado": true
+                      }
+                    ],
+                    "ventasNoCobradas": [],
+                    "retiros": [
+                      {
+                        "tipo": "RETIRO_CIERRE",
+                        "monto": "11500.00",
+                        "motivo": "Retiro de cierre del turno #5 — Caja fuerte",
+                        "aQuien": "Caja fuerte",
+                        "recibidoPor": "Encargada Laura",
+                        "hora": "2026-10-11T23:39:12.903Z",
+                        "registradoPor": "cuenta-del-mostrador"
+                      }
+                    ],
+                    "ingresos": [],
+                    "efectivoEsperado": "13000.00",
+                    "efectivoContado": "12500.00",
+                    "diferencia": {
+                      "monto": "500.00",
+                      "tipo": "FALTA"
+                    },
+                    "efectivoRetiradoCierre": "11500.00",
+                    "fondoDejadoCierre": "1000.00",
+                    "verificacionTesoreria": "FALTA_VERIFICAR"
+                  },
+                  {
+                    "id": 6,
+                    "etiqueta": "Caja de Eva",
+                    "operador": "Eva",
+                    "apertura": "2026-10-11T23:39:12.928Z",
+                    "cierre": null,
+                    "estado": "ABIERTA",
+                    "montoInicial": "2000.00",
+                    "cantidadVentas": 2,
+                    "totalVendido": "10000.00",
+                    "ventasEfectivo": "9000.00",
+                    "ventasPorMedio": [
+                      {
+                        "medio": "EFECTIVO",
+                        "etiqueta": "Efectivo",
+                        "total": "9000.00",
+                        "cantidadPagos": 1,
+                        "cobrado": true
+                      },
+                      {
+                        "medio": "MERCADOPAGO",
+                        "etiqueta": "Mercado Pago",
+                        "total": "1000.00",
+                        "cantidadPagos": 1,
+                        "cobrado": true
+                      }
+                    ],
+                    "ventasNoCobradas": [],
+                    "retiros": [
+                      {
+                        "tipo": "PAGO_GASTO",
+                        "monto": "1500.00",
+                        "motivo": "Pago de gasto: Arreglo de canilla (gasto #1)",
+                        "aQuien": "Plomero Juan",
+                        "recibidoPor": null,
+                        "hora": "2026-10-11T23:39:13.098Z",
+                        "registradoPor": "cuenta-del-mostrador"
+                      }
+                    ],
+                    "ingresos": [],
+                    "efectivoEsperado": "9500.00",
+                    "efectivoContado": null,
+                    "diferencia": null,
+                    "efectivoRetiradoCierre": null,
+                    "fondoDejadoCierre": null,
+                    "verificacionTesoreria": "NO_APLICA"
+                  }
+                ]
+              },
+              {
+                "turnoOperativo": {
+                  "id": null,
+                  "nombre": "Sin turno asignado"
+                },
+                "sinTurnoAsignado": true,
+                "totales": {
+                  "cantidadVentas": 2,
+                  "totalVendido": "23000.00",
+                  "ventasEfectivo": "20000.00",
+                  "ventasPorMedio": [
+                    {
+                      "medio": "EFECTIVO",
+                      "etiqueta": "Efectivo",
+                      "total": "20000.00",
+                      "cantidadPagos": 1,
+                      "cobrado": true
+                    },
+                    {
+                      "medio": "DEBITO",
+                      "etiqueta": "Débito",
+                      "total": "3000.00",
+                      "cantidadPagos": 1,
+                      "cobrado": true
+                    }
+                  ],
+                  "ventasNoCobradas": []
+                },
+                "cajas": [
+                  {
+                    "id": 1,
+                    "etiqueta": "Caja de Sofía",
+                    "operador": "Sofía",
+                    "apertura": "2026-10-11T23:39:11.183Z",
+                    "cierre": "2026-10-11T23:39:11.515Z",
+                    "estado": "CORRECTA",
+                    "montoInicial": "1000.00",
+                    "cantidadVentas": 2,
+                    "totalVendido": "23000.00",
+                    "ventasEfectivo": "20000.00",
+                    "ventasPorMedio": [
+                      {
+                        "medio": "EFECTIVO",
+                        "etiqueta": "Efectivo",
+                        "total": "20000.00",
+                        "cantidadPagos": 1,
+                        "cobrado": true
+                      },
+                      {
+                        "medio": "DEBITO",
+                        "etiqueta": "Débito",
+                        "total": "3000.00",
+                        "cantidadPagos": 1,
+                        "cobrado": true
+                      }
+                    ],
+                    "ventasNoCobradas": [],
+                    "retiros": [
+                      {
+                        "tipo": "RETIRO_CIERRE",
+                        "monto": "20000.00",
+                        "motivo": "Retiro de cierre de caja (turno #1)",
+                        "aQuien": null,
+                        "recibidoPor": null,
+                        "hora": "2026-10-11T23:39:11.524Z",
+                        "registradoPor": "cuenta-del-mostrador"
+                      }
+                    ],
+                    "ingresos": [],
+                    "efectivoEsperado": "21000.00",
+                    "efectivoContado": "21000.00",
+                    "diferencia": {
+                      "monto": "0.00",
+                      "tipo": "NINGUNA"
+                    },
+                    "efectivoRetiradoCierre": "20000.00",
+                    "fondoDejadoCierre": "1000.00",
+                    "verificacionTesoreria": "FALTA_VERIFICAR"
+                  }
+                ]
+              }
+            ],
+            "advertencias": [
+              {
+                "codigo": "DIA_EN_CURSO",
+                "mensaje": "El día consultado es hoy y todavía no terminó: las cajas pueden cambiar."
+              }
+            ]
+          }
+        }
+      }
+    },
+    "turnoTarde": {
+      "pedido": {
+        "capacidad": "cajas_resumen",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 1
+        },
+        "parametros": {
+          "periodo": {
+            "tipo": "hoy"
+          },
+          "turnoOperativo": "Tarde"
+        }
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "cajas_resumen",
+            "version": 1,
+            "local": {
+              "id": 1,
+              "nombre": "Local Centro"
+            },
+            "grupoId": 1,
+            "periodo": {
+              "tipo": "hoy",
+              "fecha": "2026-10-11",
+              "zonaHoraria": "America/Argentina/Cordoba"
+            },
+            "turnoOperativoPedido": {
+              "id": 2,
+              "nombre": "Tarde"
+            },
+            "turnosOperativos": [
+              {
+                "turnoOperativo": {
+                  "id": 2,
+                  "nombre": "Tarde"
+                },
+                "sinTurnoAsignado": false,
+                "totales": {
+                  "cantidadVentas": 4,
+                  "totalVendido": "26000.00",
+                  "ventasEfectivo": "21000.00",
+                  "ventasPorMedio": [
+                    {
+                      "medio": "EFECTIVO",
+                      "etiqueta": "Efectivo",
+                      "total": "21000.00",
+                      "cantidadPagos": 2,
+                      "cobrado": true
+                    },
+                    {
+                      "medio": "CREDITO",
+                      "etiqueta": "Crédito",
+                      "total": "4000.00",
+                      "cantidadPagos": 1,
+                      "cobrado": true
+                    },
+                    {
+                      "medio": "MERCADOPAGO",
+                      "etiqueta": "Mercado Pago",
+                      "total": "1000.00",
+                      "cantidadPagos": 1,
+                      "cobrado": true
+                    }
+                  ],
+                  "ventasNoCobradas": []
+                },
+                "cajas": [
+                  {
+                    "id": 5,
+                    "etiqueta": "Caja de Diego",
+                    "operador": "Diego",
+                    "apertura": "2026-10-11T23:39:12.685Z",
+                    "cierre": "2026-10-11T23:39:12.883Z",
+                    "estado": "CON_DIFERENCIA",
+                    "montoInicial": "1000.00",
+                    "cantidadVentas": 2,
+                    "totalVendido": "16000.00",
+                    "ventasEfectivo": "12000.00",
+                    "ventasPorMedio": [
+                      {
+                        "medio": "EFECTIVO",
+                        "etiqueta": "Efectivo",
+                        "total": "12000.00",
+                        "cantidadPagos": 1,
+                        "cobrado": true
+                      },
+                      {
+                        "medio": "CREDITO",
+                        "etiqueta": "Crédito",
+                        "total": "4000.00",
+                        "cantidadPagos": 1,
+                        "cobrado": true
+                      }
+                    ],
+                    "ventasNoCobradas": [],
+                    "retiros": [
+                      {
+                        "tipo": "RETIRO_CIERRE",
+                        "monto": "11500.00",
+                        "motivo": "Retiro de cierre del turno #5 — Caja fuerte",
+                        "aQuien": "Caja fuerte",
+                        "recibidoPor": "Encargada Laura",
+                        "hora": "2026-10-11T23:39:12.903Z",
+                        "registradoPor": "cuenta-del-mostrador"
+                      }
+                    ],
+                    "ingresos": [],
+                    "efectivoEsperado": "13000.00",
+                    "efectivoContado": "12500.00",
+                    "diferencia": {
+                      "monto": "500.00",
+                      "tipo": "FALTA"
+                    },
+                    "efectivoRetiradoCierre": "11500.00",
+                    "fondoDejadoCierre": "1000.00",
+                    "verificacionTesoreria": "FALTA_VERIFICAR"
+                  },
+                  {
+                    "id": 6,
+                    "etiqueta": "Caja de Eva",
+                    "operador": "Eva",
+                    "apertura": "2026-10-11T23:39:12.928Z",
+                    "cierre": null,
+                    "estado": "ABIERTA",
+                    "montoInicial": "2000.00",
+                    "cantidadVentas": 2,
+                    "totalVendido": "10000.00",
+                    "ventasEfectivo": "9000.00",
+                    "ventasPorMedio": [
+                      {
+                        "medio": "EFECTIVO",
+                        "etiqueta": "Efectivo",
+                        "total": "9000.00",
+                        "cantidadPagos": 1,
+                        "cobrado": true
+                      },
+                      {
+                        "medio": "MERCADOPAGO",
+                        "etiqueta": "Mercado Pago",
+                        "total": "1000.00",
+                        "cantidadPagos": 1,
+                        "cobrado": true
+                      }
+                    ],
+                    "ventasNoCobradas": [],
+                    "retiros": [
+                      {
+                        "tipo": "PAGO_GASTO",
+                        "monto": "1500.00",
+                        "motivo": "Pago de gasto: Arreglo de canilla (gasto #1)",
+                        "aQuien": "Plomero Juan",
+                        "recibidoPor": null,
+                        "hora": "2026-10-11T23:39:13.098Z",
+                        "registradoPor": "cuenta-del-mostrador"
+                      }
+                    ],
+                    "ingresos": [],
+                    "efectivoEsperado": "9500.00",
+                    "efectivoContado": null,
+                    "diferencia": null,
+                    "efectivoRetiradoCierre": null,
+                    "fondoDejadoCierre": null,
+                    "verificacionTesoreria": "NO_APLICA"
+                  }
+                ]
+              }
+            ],
+            "advertencias": [
+              {
+                "codigo": "DIA_EN_CURSO",
+                "mensaje": "El día consultado es hoy y todavía no terminó: las cajas pueden cambiar."
+              }
+            ]
+          }
+        }
+      }
+    },
+    "ayerSinCajas": {
+      "pedido": {
+        "capacidad": "cajas_resumen",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 1
+        },
+        "parametros": {
+          "periodo": {
+            "tipo": "ayer"
+          }
+        }
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "cajas_resumen",
+            "version": 1,
+            "local": {
+              "id": 1,
+              "nombre": "Local Centro"
+            },
+            "grupoId": 1,
+            "periodo": {
+              "tipo": "ayer",
+              "fecha": "2026-10-10",
+              "zonaHoraria": "America/Argentina/Cordoba"
+            },
+            "turnoOperativoPedido": null,
+            "turnosOperativos": [],
+            "advertencias": []
+          }
+        }
+      }
+    }
+  },
+  "rechazos": {
+    "turnoInexistente": {
+      "pedido": {
+        "capacidad": "cajas_resumen",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 1
+        },
+        "parametros": {
+          "periodo": {
+            "tipo": "hoy"
+          },
+          "turnoOperativo": "Noche"
+        }
+      },
+      "respuesta": {
+        "status": 400,
+        "cuerpo": {
+          "ok": false,
+          "codigo": "TURNO_OPERATIVO_INVALIDO",
+          "error": "El local no tiene ese turno operativo. Sus turnos son: Mañana, Tarde."
+        }
+      }
+    },
+    "periodoInvalido": {
+      "pedido": {
+        "capacidad": "cajas_resumen",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 1
+        },
+        "parametros": {
+          "periodo": {
+            "tipo": "rango",
+            "desde": "2026-01-01",
+            "hasta": "2026-01-02"
+          }
+        }
+      },
+      "respuesta": {
+        "status": 400,
+        "cuerpo": {
+          "ok": false,
+          "codigo": "PERIODO_INVALIDO",
+          "error": "El período tiene que ser hoy, ayer o fecha: un solo día."
+        }
+      }
+    },
+    "sinPermiso": {
+      "pedido": {
+        "capacidad": "cajas_resumen",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 1
+        },
+        "parametros": {
+          "periodo": {
+            "tipo": "hoy"
+          }
+        }
+      },
+      "respuesta": {
+        "status": 403,
+        "cuerpo": {
+          "ok": false,
+          "codigo": "NO_AUTORIZADO",
+          "error": "El usuario no está autorizado para esta consulta."
+        }
+      }
+    }
+  },
+  "miAlcance": {
+    "tesoreria": {
+      "pedido": {
+        "capacidad": "mi_alcance",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "parametros": {}
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "mi_alcance",
+            "version": 1,
+            "usuario": {
+              "id": 2,
+              "nombre": "tesorera"
+            },
+            "alcance": {
+              "modo": "LOCAL"
+            },
+            "locales": [
+              {
+                "id": 1,
+                "nombre": "Local Centro",
+                "grupoId": 1,
+                "esDeposito": false,
+                "activo": true,
+                "capacidades": [
+                  "cajas_resumen"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    "encargado": {
+      "pedido": {
+        "capacidad": "mi_alcance",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "parametros": {}
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "mi_alcance",
+            "version": 1,
+            "usuario": {
+              "id": 3,
+              "nombre": "encargado"
+            },
+            "alcance": {
+              "modo": "LOCAL"
+            },
+            "locales": [
+              {
+                "id": 1,
+                "nombre": "Local Centro",
+                "grupoId": 1,
+                "esDeposito": false,
+                "activo": true,
+                "capacidades": [
+                  "ventas_resumen",
+                  "transferencias_eventos",
+                  "pedidos_eventos",
+                  "envios_eventos",
+                  "cancelaciones_eventos"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

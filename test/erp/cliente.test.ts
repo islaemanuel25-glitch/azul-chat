@@ -10,6 +10,7 @@ import {
   CODIGO_PRUEBA,
   DATOS_ERP,
   ENTRADA_HOY,
+  ERRORES_ERP,
   FIXTURES_ERP,
   SECRETO_PRUEBA,
   TOKEN_PRUEBA,
@@ -96,10 +97,12 @@ describe("cliente ERP: lo que viaja", () => {
     assert.equal(c.authorization, undefined);
   });
 
-  it("expone exactamente siete operaciones: no hay forma de pedir otra ruta o capacidad", () => {
+  it("expone exactamente ocho operaciones: no hay forma de pedir otra ruta o capacidad", () => {
     // `transferenciasEventos` entró en la Tanda 2 (fundación): un método específico, no un cliente genérico.
     // `pedidosEventos`, `enviosEventos` y `cancelacionesEventos` entraron en la Tanda 4B, uno por capacidad.
+    // `cajasResumen`, en la Tanda 7B: también un método con su propio constructor de cuerpo.
     assert.deepEqual(Object.keys(cliente()).sort(), [
+      "cajasResumen",
       "cancelacionesEventos",
       "canjear",
       "enviosEventos",
@@ -243,7 +246,8 @@ describe("cliente ERP: respuestas", () => {
   });
 
   it("el contrato local tiene exactamente los códigos públicos del ERP desplegado", () => {
-    assert.deepEqual([...CODIGOS_ERROR_ERP].sort(), Object.keys(FIXTURES_ERP.errores).sort());
+    // Tanda 7B: el ERP en producción es 14ae247, que sumó TURNO_OPERATIVO_INVALIDO (ver ERRORES_ERP).
+    assert.deepEqual([...CODIGOS_ERROR_ERP].sort(), Object.keys(ERRORES_ERP).sort());
   });
 
   it("cada código público del ERP llega sin perderse, con su status real", async () => {
@@ -252,7 +256,7 @@ describe("cliente ERP: respuestas", () => {
       const r = await cliente().ventasResumen(TOKEN_PRUEBA, ENTRADA_HOY);
       assert.ok(!r.ok && r.origen === "erp", codigo);
       assert.equal(!r.ok && r.codigo, codigo);
-      assert.equal(!r.ok && r.origen === "erp" && r.status, FIXTURES_ERP.errores[codigo]!.status, codigo);
+      assert.equal(!r.ok && r.origen === "erp" && r.status, ERRORES_ERP[codigo]!.status, codigo);
     }
   });
 

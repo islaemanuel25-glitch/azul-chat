@@ -26,6 +26,9 @@
 //     4B): como el ERP 76b9a71, el mismo portón por capacidad (si el local no
 //     la anuncia, el NO_AUTORIZADO real de `sinPermiso` del fixture
 //     erp-76b9a71.json) y la misma paginación sobre lo que cargó el test;
+//   · `cajas_resumen` (Tanda 7B): como el ERP 14ae247, el portón (si el
+//     local no la anuncia, el NO_AUTORIZADO real de `sinPermiso` del fixture
+//     erp-14ae247.json) y el día del fixture con el local y el grupo pedidos;
 //   · modos para simular caída (503 del ERP) y cuelgue (no contesta);
 //   · Tanda 5B: el CUPO del ERP, apagado salvo que el test lo prenda
 //     (`cupo.activar()`). Es el de erpmanual lib/integraciones/azul-chat/
@@ -42,7 +45,7 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 import type { CursorTransferencias, EventoTransferenciaRecibida } from "../../src/shared/erp/contrato.ts";
 import { paginarEventos, paginarEventos4a } from "./paginadorErp.ts";
-import { DATOS_ERP, FIXTURES_ERP, FIXTURES_ERP_25172FE, FIXTURES_ERP_76B9A71, SECRETO_PRUEBA, levantarServidorErp, responderErrorErp, responderJson, type ServidorErp } from "./servidorErp.ts";
+import { DATOS_ERP, FIXTURES_ERP, FIXTURES_ERP_14AE247, FIXTURES_ERP_25172FE, FIXTURES_ERP_76B9A71, SECRETO_PRUEBA, levantarServidorErp, responderErrorErp, responderJson, type ServidorErp } from "./servidorErp.ts";
 
 const RUTA_CANJEAR = "/api/integraciones/azul-chat/vinculo/canjear";
 const RUTA_CONSULTAR = "/api/integraciones/azul-chat/consultar";
@@ -79,6 +82,12 @@ export type ErpConEstado = ServidorErp & {
   readonly eventosPorCapacidad: Map<string, object[]>;
   /** Tanda 4B: una respuesta fija para `"<capacidad>:<localId>"`, mientras esté cargada (una capacidad que falla y otras que no). */
   readonly respuestaParaCapacidad: Map<string, { status: number; cuerpo: unknown }>;
+  /**
+   * Tanda 7B: lo que contesta `cajas_resumen`, en orden; `colgar`: esa no
+   * contesta. Vacía: el portón y el día del fixture erp-14ae247.json. Una fija
+   * por local va en `respuestaParaCapacidad` con `"cajas_resumen:<localId>"`.
+   */
+  readonly respuestasCajas: RespuestaVentasCargada[];
   /** Lo que la persona hace en el ERP: generar un código. */
   emitirCodigo(usuarioId: number): string;
   /** Lo que la persona (o un admin) hace en el ERP: desvincular. */
@@ -117,6 +126,7 @@ export async function levantarErpConEstado(): Promise<ErpConEstado> {
   const respuestasVentas: RespuestaVentasCargada[] = [];
   const eventosPorCapacidad = new Map<string, object[]>();
   const respuestaParaCapacidad = new Map<string, { status: number; cuerpo: unknown }>();
+  const respuestasCajas: RespuestaVentasCargada[] = [];
 
   const estado = { modo: "normal" as ModoErp };
 
@@ -241,6 +251,33 @@ export async function levantarErpConEstado(): Promise<ErpConEstado> {
         });
         return responderJson(res, 200, { ok: true, datos });
       }
+      if (cuerpo.capacidad === "cajas_resumen") {
+        // Tanda 7B: lo que hace el ERP 14ae247. Una respuesta cargada por el
+        // test va primero (por local, o en orden); si no, el portón —el local
+        // anuncia `cajas_resumen`— y el día del fixture: hoy (dos turnos y
+        // una caja sin turno) o ayer (sin cajas), con el local y el grupo
+        // pedidos, como los devuelve el ERP.
+        const pedido = cuerpo.alcance as { grupoId?: unknown; localId?: unknown } | undefined;
+        const fija = typeof pedido?.localId === "number" ? respuestaParaCapacidad.get(`cajas_resumen:${pedido.localId}`) : undefined;
+        if (fija) return responderJson(res, fija.status, fija.cuerpo);
+        const r = respuestasCajas.shift();
+        if (r && "colgar" in r) return;
+        if (r) return responderJson(res, r.status, r.cuerpo);
+        const locales = (alcances.get(v.usuarioId)?.locales ?? []) as { id: number; nombre: string; grupoId: number; capacidades?: unknown }[];
+        const local = locales.find((l) => l.id === pedido?.localId && l.grupoId === pedido?.grupoId);
+        if (!local || !Array.isArray(local.capacidades) || !local.capacidades.includes("cajas_resumen")) {
+          const negado = FIXTURES_ERP_14AE247.rechazos.sinPermiso.respuesta;
+          return responderJson(res, negado.status, negado.cuerpo);
+        }
+        const parametros = (cuerpo.parametros ?? {}) as { periodo?: { tipo?: string; fecha?: string } };
+        const tipo = parametros.periodo?.tipo;
+        const caso = tipo === "ayer" ? FIXTURES_ERP_14AE247.dia.ayerSinCajas : FIXTURES_ERP_14AE247.dia.hoy;
+        const datos = structuredClone(caso.respuesta.cuerpo.datos) as Record<string, unknown> & { periodo: Record<string, unknown> };
+        datos.local = { id: local.id, nombre: local.nombre };
+        datos.grupoId = local.grupoId;
+        if (tipo === "fecha") datos.periodo = { ...datos.periodo, tipo: "fecha", fecha: parametros.periodo?.fecha };
+        return responderJson(res, 200, { ok: true, datos });
+      }
       return responderErrorErp(res, "CAPACIDAD_NO_DISPONIBLE");
     }
 
@@ -269,6 +306,7 @@ export async function levantarErpConEstado(): Promise<ErpConEstado> {
     respuestasVentas,
     eventosPorCapacidad,
     respuestaParaCapacidad,
+    respuestasCajas,
     emitirCodigo(usuarioId: number) {
       // Como autorizarVinculo: revoca el vigente y crea otro, en el mismo paso.
       for (const x of vinculos) if (x.usuarioId === usuarioId) x.revocado = true;

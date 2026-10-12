@@ -23,7 +23,10 @@
 //          el código. Si alguno falla se dice cuál y NO hay total;
 //        · eventos: la base propia, de los locales autorizados hoy con esa
 //          capacidad, historia incluida, por día de Argentina. Cantidad y los
-//          primeros 10.
+//          primeros 10;
+//        · Tanda 7B — caja, y ventas de UN turno: 1 `cajas_resumen` del día
+//          por local (preguntas/cajas.ts). El turno lo elige el código sobre
+//          los nombres que devolvió el ERP; si no está, todos los del día.
 //
 // CUPO DEL ERP: una pregunta gasta 1 (`mi_alcance`) + 1 por local consultado
 // en ventas (como mucho 1 + la cantidad de locales con `ventas_resumen`);
@@ -72,6 +75,7 @@ import {
 } from "./intencion.ts";
 import { guardarPregunta } from "./guardadas.ts";
 import { sumarVentas, ventasDeUnLocal } from "./ventas.ts";
+import { cajasDePregunta, ventasPorTurnoDePregunta } from "./cajas.ts";
 
 /** El cuerpo: 300 caracteres de hasta 4 bytes, más las claves. */
 const MAX_BYTES_PREGUNTA = 2 * 1024;
@@ -121,6 +125,7 @@ export async function manejarPreguntar(request: Request, deps: DependenciasSesio
         locales: {
           eventos: a.autorizados.map((l) => ({ localId: l.localId, nombre: l.nombre, capacidades: l.capacidades })),
           ventas: a.conVentas.map((l) => ({ localId: l.localId, grupoId: l.grupoId, nombre: l.nombre })),
+          caja: a.conCaja.map((l) => ({ localId: l.localId, grupoId: l.grupoId, nombre: l.nombre })),
         },
       },
     }));
@@ -146,10 +151,10 @@ export async function manejarPreguntar(request: Request, deps: DependenciasSesio
     const guardadaId = await guardar(respuesta, intencion);
     return json(guardadaId === null ? respuesta : { ...respuesta, guardadaId }, { status });
   };
-  const nombres = [...new Set([...locales.eventos.map((l) => l.nombre), ...locales.ventas.map((l) => l.nombre)])];
+  const nombres = [...new Set([...locales.eventos.map((l) => l.nombre), ...locales.ventas.map((l) => l.nombre), ...locales.caja.map((l) => l.nombre)])];
   let localActual: string | null = null;
   if (pedido.localId !== null) {
-    const actual = [...locales.eventos, ...locales.ventas].find((l) => l.localId === pedido.localId);
+    const actual = [...locales.eventos, ...locales.ventas, ...locales.caja].find((l) => l.localId === pedido.localId);
     if (!actual) return falla({ estado: "NO_AUTORIZADO" }, request, deps);
     localActual = actual.nombre;
   }
@@ -198,8 +203,15 @@ export async function manejarPreguntar(request: Request, deps: DependenciasSesio
         return await contestarGuardando(NO_ENTENDIDA, intencion);
       case "EVENTOS":
         return await contestarGuardando(await eventosDePregunta(db, instalacionId, intencion), intencion);
+      case "CAJA":
       case "VENTAS": {
-        const v = await ventasDePregunta(request.headers, deps, intencion);
+        // Tanda 7B: caja, y ventas de un turno, salen de `cajas_resumen` (preguntas/cajas.ts).
+        const v =
+          intencion.tipo === "CAJA"
+            ? await cajasDePregunta(request.headers, deps, intencion)
+            : intencion.porTurno
+              ? await ventasPorTurnoDePregunta(request.headers, deps, intencion)
+              : await ventasDePregunta(request.headers, deps, intencion);
         if ("falla" in v) {
           await guardar(v.falla, intencion); // solo se guardan ERP_NO_DISPONIBLE y ERP_CUPO_EXCEDIDO
           return falla(v.falla, request, deps);

@@ -138,6 +138,7 @@ export function BarraVentas({
   alPedir,
   enEspera = false,
   conVentas = true,
+  caja = null,
   etiqueta = "Acciones del local",
   children,
 }: {
@@ -145,6 +146,8 @@ export function BarraVentas({
   alPedir?: () => void;
   enEspera?: boolean;
   conVentas?: boolean;
+  /** Tanda 7B: el chip "Caja", al lado de "Ventas" (Figma 1:144), si el local anuncia `cajas_resumen`. */
+  caja?: { readonly cargando: boolean; readonly alPedir: () => void } | null;
   etiqueta?: string;
   children?: ReactNode;
 }) {
@@ -153,6 +156,17 @@ export function BarraVentas({
       {conVentas && (
         <button type="button" className="ac-chip ac-chip--accion" onClick={alPedir} disabled={cargando || enEspera} aria-busy={cargando || undefined}>
           {cargando ? "Consultando ventas…" : "Ventas"}
+        </button>
+      )}
+      {caja && (
+        <button
+          type="button"
+          className="ac-chip ac-chip--accion"
+          onClick={caja.alPedir}
+          disabled={caja.cargando || enEspera}
+          aria-busy={caja.cargando || undefined}
+        >
+          {caja.cargando ? "Consultando cajas…" : "Caja"}
         </button>
       )}
       {children}

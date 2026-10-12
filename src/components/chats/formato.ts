@@ -234,6 +234,71 @@ export function lineaDeMedioDePago(m: { readonly etiqueta: string; readonly tota
   return `${m.etiqueta} · ${formatearMonto(m.total)}`;
 }
 
+// ── Cajas (Tanda 7B) ────────────────────────────────────────────────────────
+//
+// Los textos de la tarjeta de cajas. Los montos, con `formatearMonto` sobre el
+// texto del ERP. Lo que el ERP no registró (null) no se escribe: ni "$ 0,00"
+// ni "a nadie".
+
+/** "Cajas de hoy · Casiano", "Cajas de ayer · Casiano", "Cajas del 5/10 · Casiano". */
+export function tituloDeCajas(p: { readonly tipo: "hoy" | "ayer" | "rango"; readonly desde: string; readonly hasta: string }, nombre: string): string {
+  if (p.tipo === "hoy") return `Cajas de hoy · ${nombre}`;
+  if (p.tipo === "ayer") return `Cajas de ayer · ${nombre}`;
+  return `Cajas del ${diaCorto(p.desde)} · ${nombre}`;
+}
+
+/** Tanda 7B: "Turno Tarde · hoy · Casiano": las ventas de un turno. */
+export function tituloDeVentasDeTurno(turno: string, p: { readonly tipo: "hoy" | "ayer" | "rango"; readonly desde: string; readonly hasta: string }, nombre: string): string {
+  return `Turno ${turno} · ${etiquetaDePeriodo(p)} · ${nombre}`;
+}
+
+/** El aviso fijo de un turno que no está entre los del día. El texto entre comillas es el de la pregunta. */
+export function avisoTurnoNoEncontrado(texto: string): string {
+  return `No encontré el turno «${texto}». Estos son los turnos del día.`;
+}
+
+/** El estado de una caja en la fila plegada: "Abierta", "Correcta", "Falta $ 500,00", "Sobra $ 1.000,00". */
+export function estadoDeCaja(c: {
+  readonly estado: "ABIERTA" | "CORRECTA" | "CON_DIFERENCIA" | "SIN_CONTEO" | "ANULADA";
+  readonly diferencia: { readonly monto: string; readonly tipo: "FALTA" | "SOBRA" | "NINGUNA" } | null;
+}): string {
+  switch (c.estado) {
+    case "ABIERTA":
+      return "Abierta";
+    case "CORRECTA":
+      return "Correcta";
+    case "SIN_CONTEO":
+      return "Cerrada sin contar";
+    case "ANULADA":
+      return "Anulada";
+    case "CON_DIFERENCIA":
+      if (!c.diferencia || c.diferencia.tipo === "NINGUNA") return "Con diferencia";
+      return `${c.diferencia.tipo === "FALTA" ? "Falta" : "Sobra"} ${formatearMonto(c.diferencia.monto)}`;
+  }
+}
+
+/** "Ana · Falta $ 500,00": la fila plegada. Sin operador, la etiqueta del ERP ("Caja del turno #4"). */
+export function filaDeCaja(c: Parameters<typeof estadoDeCaja>[0] & { readonly operador: string | null; readonly etiqueta: string }): string {
+  return `${c.operador ?? c.etiqueta} · ${estadoDeCaja(c)}`;
+}
+
+/** Un retiro: "$ 30.000,00 · Retiro de recaudación #1 · Caja fuerte · 20:39". Lo que no vino, no va. */
+export function lineaDeRetiro(r: { readonly monto: string; readonly motivo: string | null; readonly aQuien: string | null; readonly hora: string | null }, zona?: string): string {
+  return [formatearMonto(r.monto), r.motivo, r.aQuien, r.hora ? formatearHora(r.hora, zona) : null].filter((x): x is string => !!x).join(" · ");
+}
+
+/** Un medio no cobrado (el fiado): "Fiado · $ 3.000,00 · no cobrado". */
+export function lineaDeNoCobrado(m: { readonly etiqueta: string; readonly total: string }): string {
+  return `${lineaDeMedioDePago(m)} · no cobrado`;
+}
+
+/** Tesorería: solo cuando aplica. */
+export function verificacionDeTesoreria(v: "VERIFICADA" | "FALTA_VERIFICAR" | "NO_APLICA"): string | null {
+  if (v === "VERIFICADA") return "Tesorería: Verificada";
+  if (v === "FALTA_VERIFICAR") return "Tesorería: Falta verificar";
+  return null;
+}
+
 /** Dos letras para el avatar: "Casiano Casas" → "CC", "Casiano" → "CA". */
 export function iniciales(nombre: string): string {
   const palabras = nombre.trim().split(/\s+/).filter(Boolean);

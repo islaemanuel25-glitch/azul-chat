@@ -6,9 +6,14 @@
 // que se pregunta (si hay) y los NOMBRES de los locales que `mi_alcance`
 // autoriza hoy. Contesta UNA intención con una salida estructurada:
 //
-//   ventas   { local: <nombre> | "todos", periodo }
+//   ventas   { local: <nombre> | "todos", periodo, turno? }
 //   eventos  { tipoEvento, local: <nombre> | "todos", periodo }
+//   caja     { local: <nombre> | "todos", periodo de un día, turno? }   (Tanda 7B)
 //   no_entiendo
+//
+// Tanda 7B: `turno` es texto libre corto ("tarde"), o null. La IA no conoce
+// los nombres de los turnos del local: el código los compara con los que
+// devuelve `cajas_resumen` del día (preguntas/cajas.ts).
 //
 // con periodo = hoy | ayer | rango { desde, hasta }.
 //
@@ -93,8 +98,16 @@ export const EVENTO_DE_PREGUNTA: Readonly<Record<TipoEventoPregunta, { tipo: Tip
 
 export const TODOS = "todos";
 
-/** Las claves de la salida de la IA: exactamente estas, ni una más. */
-const CLAVES = ["intencion", "tipoEvento", "local", "periodo", "desde", "hasta", "restriccionesNoSoportadas"] as const;
+/** Las claves de la salida de la IA: exactamente estas, ni una más. Tanda 7B: `turno`. */
+const CLAVES = ["intencion", "tipoEvento", "local", "periodo", "desde", "hasta", "turno", "restriccionesNoSoportadas"] as const;
+
+/**
+ * Tanda 7B: el turno, como lo dijo la pregunta ("tarde", "turno mañana"). Texto
+ * libre y corto: la IA NO recibe los nombres de los turnos del local (son datos
+ * del negocio). El código lo compara con los nombres que devuelve
+ * `cajas_resumen` (preguntas/cajas.ts).
+ */
+export const MAX_LARGO_TURNO = 40;
 
 /** Lo que la IA puede elegir como local: los nombres de hoy, sin repetir, y "todos". */
 export function opcionesDeLocal(nombres: readonly string[]): string[] {
@@ -111,12 +124,13 @@ export function esquemaDeIntencion(nombres: readonly string[]) {
   return {
     type: "OBJECT",
     properties: {
-      intencion: { type: "STRING", enum: ["ventas", "eventos", "no_entiendo"] },
+      intencion: { type: "STRING", enum: ["ventas", "eventos", "caja", "no_entiendo"] },
       tipoEvento: { type: "STRING", enum: [...TIPOS_DE_EVENTO_PREGUNTA], nullable: true },
       local: { type: "STRING", enum: opcionesDeLocal(nombres), nullable: true },
       periodo: { type: "STRING", enum: ["hoy", "ayer", "rango"], nullable: true },
       desde: { type: "STRING", description: "AAAA-MM-DD, solo con periodo rango", nullable: true },
       hasta: { type: "STRING", description: "AAAA-MM-DD, solo con periodo rango", nullable: true },
+      turno: { type: "STRING", description: "el turno que nombra la pregunta, tal como lo dice; null si no nombra uno", nullable: true },
       restriccionesNoSoportadas: { type: "ARRAY", items: { type: "STRING", enum: [...RESTRICCIONES_NO_SOPORTADAS] } },
     },
     required: [...CLAVES],
@@ -135,6 +149,8 @@ export function instruccionesDeIntencion(e: { pregunta: string; hoy: string; loc
     "No respondés la pregunta: la clasificás en UNA intención del esquema. Si no encaja, intencion = no_entiendo.",
     "- ventas: cuánto se vendió (total, cantidad de ventas, medios de pago).",
     "- eventos: transferencias recibidas (recibidas), recibidas con diferencias (recibidas_con_diferencias), transferencias enviadas al local (enviadas), pedidos solicitados (pedidos) o transferencias canceladas (cancelaciones). Va en tipoEvento.",
+    "- caja: las cajas del día: cómo cerró la caja, si está correcta, faltantes o sobrantes, retiros (y a quién o por qué), lo que se cobró en efectivo o en débito por caja, cajas abiertas. Es de UN día: hoy, ayer o un rango de un solo día.",
+    "turno: si la pregunta nombra un turno (\"turno tarde\", \"la mañana\", \"el de la noche\"), la palabra del turno tal como la dice (\"tarde\", \"mañana\", \"noche\"); si no nombra ninguno, null. Vale para ventas y para caja.",
     "local: uno de los nombres de la lista, o \"todos\" si pregunta por todos los locales. Si no nombra ninguno y hay local actual, el local actual; si no hay local actual, \"todos\".",
     "periodo: hoy, ayer o rango. Con rango, desde y hasta en AAAA-MM-DD, calculados desde la fecha de hoy (\"esta semana\" va del lunes a hoy; \"este mes\", del día 1 a hoy). Sin rango, desde y hasta son null. Si no dice cuándo, hoy.",
     "restriccionesNoSoportadas: lista de lo que la pregunta pide separar o filtrar y no es local ni período: turno (mañana, tarde, noche), hora, vendedor (o cajero), producto, categoria, medio_de_pago (efectivo, tarjeta…) o cliente. Si no pide nada de eso, lista vacía. No cambia la intención: \"cuánto vendió el turno tarde\" es ventas con [\"turno\"].",
@@ -152,7 +168,12 @@ export type LocalesDeHoy = {
   readonly eventos: readonly { readonly localId: number; readonly nombre: string; readonly capacidades: readonly CapacidadEventos[] }[];
   /** Locales con `ventas_resumen`, con el grupo que el ERP acepta. */
   readonly ventas: readonly { readonly localId: number; readonly grupoId: number; readonly nombre: string }[];
+  /** Tanda 7B: locales con `cajas_resumen`, con el grupo que el ERP acepta. */
+  readonly caja: readonly { readonly localId: number; readonly grupoId: number; readonly nombre: string }[];
 };
+
+/** Un período de UN día: hoy, ayer, o un rango que empieza y termina el mismo día. */
+export const esDeUnDia = (p: PeriodoPregunta): boolean => p.desde === p.hasta;
 
 /** Una intención ya validada contra lo que la persona puede ver hoy, con el período resuelto. */
 export type Intencion =
@@ -163,6 +184,21 @@ export type Intencion =
       readonly periodo: PeriodoPregunta;
       /** Lo pedido que la respuesta no separa (ver NO_SEPARA). */
       readonly noSeparaPor: readonly RestriccionNoSoportada[];
+      /**
+       * Tanda 7B: ventas de UN turno. Solo si la pregunta nombra un turno, el
+       * período es de un día y cada local consultado anuncia `cajas_resumen`
+       * (de donde salen las ventas del turno). Si no, null y se contesta con
+       * `ventas_resumen` y el aviso de que no separa por turno, como antes.
+       */
+      readonly porTurno: { readonly turno: string; readonly locales: LocalesDeHoy["caja"] } | null;
+    }
+  | {
+      /** Tanda 7B: las cajas de un día, por turno operativo; `turno`, el que nombró la pregunta. */
+      readonly tipo: "CAJA";
+      readonly locales: LocalesDeHoy["caja"];
+      readonly todos: boolean;
+      readonly periodo: PeriodoPregunta;
+      readonly turno: string | null;
     }
   | {
       readonly tipo: "EVENTOS";
@@ -207,7 +243,7 @@ function resolverPeriodo(o: Record<string, unknown>, hoy: string): PeriodoPregun
 
 /**
  * La salida cruda de la IA → una intención que se puede ejecutar, o
- * NO_ENTIENDO. Estricta: exactamente las siete claves, valores del catálogo,
+ * NO_ENTIENDO. Estricta: exactamente las ocho claves, valores del catálogo,
  * un local que la persona puede ver hoy CON la capacidad que la intención
  * necesita (un nombre repetido entre dos locales no se adivina) y un período
  * de calendario de hasta 31 días.
@@ -225,12 +261,24 @@ export function validarIntencion(crudo: unknown, hoy: string, locales: LocalesDe
   const periodo = resolverPeriodo(o, hoy);
   if (!periodo) return NO_ENTIENDO;
   const todos = o.local === TODOS;
+  // Tanda 7B: el turno es texto libre corto, o null.
+  if (o.turno !== null && (typeof o.turno !== "string" || o.turno.trim().length === 0 || [...o.turno.trim()].length > MAX_LARGO_TURNO)) return NO_ENTIENDO;
+  const turno = o.turno === null ? null : o.turno.trim();
 
   if (o.intencion === "ventas") {
     if (o.tipoEvento !== null) return NO_ENTIENDO;
     const elegidos = todos ? locales.ventas : locales.ventas.filter((l) => l.nombre === o.local);
     if (elegidos.length === 0 || (!todos && elegidos.length !== 1)) return NO_ENTIENDO;
-    return { tipo: "VENTAS", locales: elegidos, todos, periodo, noSeparaPor: noSeparaPor("VENTAS") };
+    // Por turno: de un día, y de locales con `cajas_resumen` (todos: los que la anuncian; uno: ese).
+    const conCaja = todos ? locales.caja : locales.caja.filter((l) => l.localId === elegidos[0]!.localId);
+    const porTurno = turno !== null && esDeUnDia(periodo) && conCaja.length > 0 ? { turno, locales: conCaja } : null;
+    return { tipo: "VENTAS", locales: elegidos, todos, periodo, noSeparaPor: noSeparaPor("VENTAS"), porTurno };
+  }
+  if (o.intencion === "caja") {
+    if (o.tipoEvento !== null || !esDeUnDia(periodo)) return NO_ENTIENDO;
+    const elegidos = todos ? locales.caja : locales.caja.filter((l) => l.nombre === o.local);
+    if (elegidos.length === 0 || (!todos && elegidos.length !== 1)) return NO_ENTIENDO;
+    return { tipo: "CAJA", locales: elegidos, todos, periodo, turno };
   }
   if (o.intencion === "eventos") {
     if (typeof o.tipoEvento !== "string" || !(TIPOS_DE_EVENTO_PREGUNTA as readonly string[]).includes(o.tipoEvento)) return NO_ENTIENDO;

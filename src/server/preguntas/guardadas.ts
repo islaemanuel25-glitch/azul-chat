@@ -27,10 +27,19 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 import { ESTADOS_GUARDADOS, type PreguntaGuardada, type RespuestaGuardada, type RespuestaPregunta } from "../../shared/chats/preguntas.ts";
 import type { PosicionHistorial } from "../chats/historial.ts";
 import { CAPACIDAD_VENTAS_RESUMEN } from "../erp/ventasResumen.ts";
+import { CAPACIDAD_CAJAS_RESUMEN } from "../erp/cajasResumen.ts";
 import { EVENTO_DE_PREGUNTA, type Intencion } from "./intencion.ts";
 
-/** La forma del `resultado` que se guarda. Cambiarla es subir este número y saber leer los dos. */
-export const VERSION_RESULTADO = 1;
+/**
+ * La forma del `resultado` que se guarda. Cambiarla es subir este número y
+ * saber leer los dos. Tanda 7B: la 2 agrega los estados CAJA y VENTAS_TURNO;
+ * los de la 1 no cambiaron, así que una fila de la 1 se sigue leyendo igual.
+ */
+export const VERSION_RESULTADO = 2;
+/** Las versiones que se saben leer. */
+export const VERSIONES_LEGIBLES: readonly number[] = Object.freeze([1, 2]);
+/** Los estados que existían en la versión 1: una fila v1 con otro estado no se muestra. */
+const ESTADOS_V1: readonly string[] = ["VENTAS", "EVENTOS", "NO_ENTIENDO", "SALDO_AGOTADO", "IA_NO_DISPONIBLE", "ERP_NO_DISPONIBLE", "ERP_CUPO_EXCEDIDO"];
 /** Cuántos días se guarda una pregunta. */
 export const DIAS_DE_RETENCION = 90;
 const UN_DIA_MS = 24 * 60 * 60 * 1000;
@@ -44,6 +53,8 @@ export type Requisito = { readonly localId: number; readonly capacidad: string }
 export type AlcanceDeHoy = {
   readonly autorizados: readonly { readonly localId: number; readonly capacidades: readonly string[] }[];
   readonly conVentas: readonly { readonly localId: number }[];
+  /** Tanda 7B: los locales con `cajas_resumen` hoy. */
+  readonly conCaja: readonly { readonly localId: number }[];
 };
 
 const esGuardable = (r: RespuestaPregunta): r is RespuestaGuardada => (ESTADOS_GUARDADOS as readonly string[]).includes(r.estado);
@@ -56,7 +67,12 @@ const esGuardable = (r: RespuestaPregunta): r is RespuestaGuardada => (ESTADOS_G
 export function requisitosDe(intencion: Intencion | null, respuesta: RespuestaGuardada): Requisito[] {
   if (!intencion || intencion.tipo === "NO_ENTIENDO") return [];
   if (respuesta.estado === "NO_ENTIENDO" || respuesta.estado === "SALDO_AGOTADO" || respuesta.estado === "IA_NO_DISPONIBLE") return [];
-  if (intencion.tipo === "VENTAS") return intencion.locales.map((l) => ({ localId: l.localId, capacidad: CAPACIDAD_VENTAS_RESUMEN }));
+  // Tanda 7B: caja y ventas de un turno salen de `cajas_resumen`; para mostrarlas hoy hace falta esa capacidad.
+  if (intencion.tipo === "CAJA") return intencion.locales.map((l) => ({ localId: l.localId, capacidad: CAPACIDAD_CAJAS_RESUMEN }));
+  if (intencion.tipo === "VENTAS") {
+    if (intencion.porTurno) return intencion.porTurno.locales.map((l) => ({ localId: l.localId, capacidad: CAPACIDAD_CAJAS_RESUMEN }));
+    return intencion.locales.map((l) => ({ localId: l.localId, capacidad: CAPACIDAD_VENTAS_RESUMEN }));
+  }
   const { capacidad } = EVENTO_DE_PREGUNTA[intencion.tipoEvento];
   return intencion.locales.map((l) => ({ localId: l.localId, capacidad }));
 }
@@ -69,6 +85,7 @@ export function cumpleRequisitos(requisitos: unknown, hoy: AlcanceDeHoy): boolea
     const { localId, capacidad } = r as Record<string, unknown>;
     if (typeof localId !== "number" || typeof capacidad !== "string") return false;
     if (capacidad === CAPACIDAD_VENTAS_RESUMEN) return hoy.conVentas.some((l) => l.localId === localId);
+    if (capacidad === CAPACIDAD_CAJAS_RESUMEN) return hoy.conCaja.some((l) => l.localId === localId);
     return hoy.autorizados.some((l) => l.localId === localId && l.capacidades.includes(capacidad));
   });
 }
@@ -107,10 +124,11 @@ export async function guardarPregunta(
 
 /** Una fila → lo que ve la pantalla, o null si no se puede leer (no se muestra a medias). */
 function aPreguntaGuardada(f: { id: bigint; texto: string; creadaEn: Date; resultadoVersion: number; resultado: Prisma.JsonValue }): PreguntaGuardada | null {
-  if (f.resultadoVersion !== VERSION_RESULTADO) return null;
+  if (!VERSIONES_LEGIBLES.includes(f.resultadoVersion)) return null;
   const r = f.resultado;
   if (r === null || typeof r !== "object" || Array.isArray(r)) return null;
-  if (!(ESTADOS_GUARDADOS as readonly unknown[]).includes((r as Record<string, unknown>).estado)) return null;
+  const estados: readonly unknown[] = f.resultadoVersion === 1 ? ESTADOS_V1 : ESTADOS_GUARDADOS;
+  if (!estados.includes((r as Record<string, unknown>).estado)) return null;
   return { id: f.id.toString(), pregunta: f.texto, creadaEn: f.creadaEn.toISOString(), respuesta: r as unknown as RespuestaGuardada };
 }
 

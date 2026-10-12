@@ -137,7 +137,14 @@ export type RespuestaLocal =
        * este local. Es un anuncio para mostrar el botón, no una autorización:
        * GET /api/chats/ventas lo vuelve a decidir con el ERP.
        */
-      readonly local: { readonly localId: number; readonly nombre: string; readonly esDeposito: boolean; readonly ventas: boolean };
+      readonly local: {
+        readonly localId: number;
+        readonly nombre: string;
+        readonly esDeposito: boolean;
+        readonly ventas: boolean;
+        /** Tanda 7B: lo mismo para `cajas_resumen` y el chip "Caja". GET /api/chats/caja lo vuelve a decidir. */
+        readonly caja: boolean;
+      };
       readonly sincronizacion: EstadoSincronizacion;
       /**
        * Tanda 6A: hay preguntas en lenguaje natural (la IA está configurada).
@@ -208,6 +215,91 @@ export type RespuestaVentas =
     }
   | FallaChats;
 
+// ── Las cajas de un día (Tanda 7B) ─────────────────────────────────────────
+//
+// Lo que `cajas_resumen` del ERP contestó, copiado campo por campo. Montos en
+// el decimal en texto del ERP. Las diferencias son de CADA caja: el turno no
+// lleva una (no se compensan entre operadores). La verificación de Tesorería
+// es aparte y no toca la diferencia de caja.
+
+/** Un medio de pago de una caja o de un turno. `cobrado`: false en el fiado. */
+export type MedioDeCajaPublico = {
+  readonly medio: string;
+  readonly etiqueta: string;
+  readonly total: string;
+  readonly cantidadPagos: number;
+  readonly cobrado: boolean;
+};
+
+export type RetiroPublico = {
+  readonly tipo: "RETIRO_RECAUDACION" | "RETIRO_CIERRE" | "PAGO_PROVEEDOR" | "PAGO_GASTO" | "RETIRO_MANUAL";
+  readonly monto: string;
+  readonly motivo: string | null;
+  /** A quién o adónde fue. null: el ERP no lo registra (no se inventa). */
+  readonly aQuien: string | null;
+  readonly recibidoPor: string | null;
+  readonly hora: string | null;
+  readonly registradoPor: string | null;
+};
+
+export type IngresoPublico = { readonly monto: string; readonly motivo: string | null; readonly hora: string | null; readonly registradoPor: string | null };
+
+export type CajaPublica = {
+  readonly id: number;
+  readonly etiqueta: string;
+  /** El nombre que el ERP muestra; null si la caja no tiene operador. */
+  readonly operador: string | null;
+  readonly apertura: string;
+  readonly cierre: string | null;
+  readonly estado: "ABIERTA" | "CORRECTA" | "CON_DIFERENCIA" | "SIN_CONTEO" | "ANULADA";
+  readonly montoInicial: string | null;
+  readonly cantidadVentas: number;
+  readonly totalVendido: string;
+  readonly ventasEfectivo: string;
+  readonly ventasPorMedio: readonly MedioDeCajaPublico[];
+  readonly ventasNoCobradas: readonly MedioDeCajaPublico[];
+  readonly retiros: readonly RetiroPublico[];
+  readonly ingresos: readonly IngresoPublico[];
+  readonly efectivoEsperado: string | null;
+  readonly efectivoContado: string | null;
+  readonly diferencia: { readonly monto: string; readonly tipo: "FALTA" | "SOBRA" | "NINGUNA" } | null;
+  readonly efectivoRetiradoCierre: string | null;
+  readonly fondoDejadoCierre: string | null;
+  readonly verificacionTesoreria: "VERIFICADA" | "FALTA_VERIFICAR" | "NO_APLICA";
+};
+
+/** Los totales de un turno: las ventas de sus cajas, sumadas por el ERP. Sin diferencia ni contado. */
+export type TotalesDeTurnoPublico = {
+  readonly cantidadVentas: number;
+  readonly totalVendido: string;
+  readonly ventasEfectivo: string;
+  readonly ventasPorMedio: readonly MedioDeCajaPublico[];
+  readonly ventasNoCobradas: readonly MedioDeCajaPublico[];
+};
+
+export type TurnoDeCajas = {
+  /** id null: "Sin turno asignado" (cajas anteriores a los turnos operativos). */
+  readonly turno: { readonly id: number | null; readonly nombre: string };
+  readonly sinTurnoAsignado: boolean;
+  readonly totales: TotalesDeTurnoPublico;
+  readonly cajas: readonly CajaPublica[];
+};
+
+/** Las cajas de un local en un día, por turno operativo, con "Sin turno asignado" al final. */
+export type CajasDelDia = {
+  readonly local: { readonly id: number; readonly nombre: string };
+  /** El día argentino, "AAAA-MM-DD". */
+  readonly fecha: string;
+  readonly turnos: readonly TurnoDeCajas[];
+  readonly advertencias: readonly { readonly codigo: string; readonly mensaje: string }[];
+};
+
+/**
+ * GET /api/chats/caja?localId=… — las cajas de HOY de un local, como las
+ * calcula el ERP en esta solicitud. Nada se guarda.
+ */
+export type RespuestaCaja = ({ readonly estado: "OK" } & CajasDelDia) | FallaChats;
+
 /** Las rutas, para la interfaz. */
 export const RUTAS_CHATS = Object.freeze({
   chats: "/api/chats",
@@ -215,5 +307,6 @@ export const RUTAS_CHATS = Object.freeze({
   general: "/api/chats/general",
   leido: "/api/chats/leido",
   ventas: "/api/chats/ventas",
+  caja: "/api/chats/caja",
   preguntar: "/api/chats/preguntar",
 });

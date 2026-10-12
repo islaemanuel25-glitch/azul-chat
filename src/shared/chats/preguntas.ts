@@ -8,7 +8,7 @@
 // que se muestra lo arma el código con datos del ERP (ventas) o de la base
 // propia (eventos): ni un texto ni un número de la respuesta sale del modelo.
 
-import type { EventoGeneral, FallaChats } from "./api.ts";
+import type { CajasDelDia, EventoGeneral, FallaChats, TotalesDeTurnoPublico } from "./api.ts";
 
 /** Lo que manda el navegador. `localId`: desde qué Local se pregunta (sin él, desde General). */
 export type PedidoPregunta = { readonly pregunta: string; readonly localId?: number };
@@ -85,6 +85,61 @@ export type RespuestaPregunta =
       readonly eventos: readonly EventoGeneral[];
       readonly restantes: number;
     }
+  /**
+   * Tanda 7B: las cajas de un día de UN local, por turno operativo, como las
+   * dio el ERP. Con `turnoPedido`, solo ese turno; si no se encontró
+   * (`turnoNoEncontrado`), todos los del día y la interfaz lo avisa.
+   */
+  | {
+      readonly estado: "CAJA";
+      readonly alcance: "LOCAL";
+      readonly periodo: PeriodoPregunta;
+      readonly turnoPedido: string | null;
+      readonly turnoNoEncontrado: boolean;
+      readonly cajas: CajasDelDia;
+    }
+  /** Tanda 7B: las cajas de cada local con `cajas_resumen`. Sin sumas: cada caja es de su local. `fallidos`: los que no se pudieron consultar. */
+  | {
+      readonly estado: "CAJA";
+      readonly alcance: "TODOS";
+      readonly periodo: PeriodoPregunta;
+      readonly turnoPedido: string | null;
+      readonly turnoNoEncontrado: boolean;
+      readonly locales: readonly CajasDelDia[];
+      readonly fallidos: readonly { readonly id: number; readonly nombre: string }[];
+    }
+  /**
+   * Tanda 7B: ventas de UN turno de un local, de `cajas_resumen`: `cajas`
+   * trae solo ese turno (sus totales por medio y sus cajas) o, si no se
+   * encontró, todos los del día.
+   */
+  | {
+      readonly estado: "VENTAS_TURNO";
+      readonly alcance: "LOCAL";
+      readonly periodo: PeriodoPregunta;
+      readonly turnoPedido: string;
+      readonly turnoNoEncontrado: boolean;
+      readonly noSeparaPor: readonly RestriccionNoSoportada[];
+      readonly cajas: CajasDelDia;
+    }
+  /**
+   * Tanda 7B: ventas de ese turno en todos los locales con `cajas_resumen`.
+   * `total`: la suma por código de los turnos encontrados, null si algún local
+   * falló (no hay total parcial) o si no se encontró en ninguno. Cada local
+   * trae solo ese turno (vacío si no lo tuvo) o, si no se encontró en ninguno,
+   * todos los del día.
+   */
+  | {
+      readonly estado: "VENTAS_TURNO";
+      readonly alcance: "TODOS";
+      readonly periodo: PeriodoPregunta;
+      readonly turnoPedido: string;
+      readonly turnoNoEncontrado: boolean;
+      readonly noSeparaPor: readonly RestriccionNoSoportada[];
+      readonly total: TotalesDeTurnoPublico | null;
+      readonly locales: readonly CajasDelDia[];
+      readonly fallidos: readonly { readonly id: number; readonly nombre: string }[];
+    }
   /** No se entendió, o lo entendido no se puede contestar. Con ejemplos de lo que sí. */
   | { readonly estado: "NO_ENTIENDO"; readonly ejemplos: readonly string[] }
   /** Se alcanzó el tope de gasto del mes: no se llamó a la IA. */
@@ -99,7 +154,18 @@ export type RespuestaPregunta =
  * sin acceso, solicitud inválida, servicio caído) no se guardan: no hay a quién
  * ni dónde.
  */
-export const ESTADOS_GUARDADOS = ["VENTAS", "EVENTOS", "NO_ENTIENDO", "SALDO_AGOTADO", "IA_NO_DISPONIBLE", "ERP_NO_DISPONIBLE", "ERP_CUPO_EXCEDIDO"] as const;
+export const ESTADOS_GUARDADOS = [
+  "VENTAS",
+  "EVENTOS",
+  "NO_ENTIENDO",
+  "SALDO_AGOTADO",
+  "IA_NO_DISPONIBLE",
+  "ERP_NO_DISPONIBLE",
+  "ERP_CUPO_EXCEDIDO",
+  // Tanda 7B, versión 2 del resultado (preguntas/guardadas.ts).
+  "CAJA",
+  "VENTAS_TURNO",
+] as const;
 export type RespuestaGuardada = Extract<RespuestaPregunta, { readonly estado: (typeof ESTADOS_GUARDADOS)[number] }>;
 
 /**
@@ -119,4 +185,6 @@ export const EJEMPLOS_DE_PREGUNTAS: readonly string[] = Object.freeze([
   "¿Cuánto vendieron todos los locales ayer?",
   "¿Qué transferencias llegaron con diferencias esta semana?",
   "¿Qué pedidos se hicieron ayer?",
+  "¿Cómo cerró la caja hoy?",
+  "¿Cuánto vendió el turno tarde?",
 ]);

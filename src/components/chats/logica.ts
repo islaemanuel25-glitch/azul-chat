@@ -8,7 +8,7 @@
 // Los ids de evento son BigInt en la base y viajan como TEXTO: acá se comparan
 // con BigInt y no se convierten nunca a Number.
 
-import type { EstadoSincronizacion, EventoGeneral, EventoPublico, LocalDeChats, RespuestaChats, RespuestaVentas } from "../../shared/chats/api.ts";
+import type { EstadoSincronizacion, EventoGeneral, EventoPublico, LocalDeChats, RespuestaCaja, RespuestaChats, RespuestaVentas } from "../../shared/chats/api.ts";
 import type { FallaCliente, RespuestaDePregunta, Resultado } from "./clienteChats.ts";
 import type { PreguntaGuardada } from "../../shared/chats/preguntas.ts";
 
@@ -145,6 +145,8 @@ export type InfoLocal = {
   readonly noLeidos: number;
   /** El ERP anuncia `ventas_resumen` en este local, en esta respuesta: hay barra con "Ventas" (Tanda 3A). */
   readonly ventas: boolean;
+  /** Tanda 7B: lo mismo con `cajas_resumen` y el chip "Caja". */
+  readonly caja: boolean;
   /** Hay preguntas en lenguaje natural (Tanda 6A): la caja se muestra. */
   readonly preguntas: boolean;
 };
@@ -282,9 +284,34 @@ export function reducirVentas(estado: EstadoVentas, accion: AccionVentas): Estad
   if (estado.fase !== "CARGANDO") return estado;
   const r = accion.resultado;
   if (r.ok) return { fase: "LISTA", ventas: r.datos };
-  // Cancelada: la pantalla se fue o se volvió a pedir; no es una falla que mostrar.
-  if (r.falla.estado === "CANCELADA") return { fase: "QUIETO" };
-  return { fase: "FALLA", cupo: r.falla.estado === "ERP_CUPO_EXCEDIDO" };
+  return trasFallaDeConsulta(r.falla);
+}
+
+/** Una falla de una consulta de un toque (ventas, caja). Cancelada: la pantalla se fue o se volvió a pedir; no se muestra. */
+function trasFallaDeConsulta(f: FallaCliente): { readonly fase: "QUIETO" } | { readonly fase: "FALLA"; readonly cupo: boolean } {
+  if (f.estado === "CANCELADA") return { fase: "QUIETO" };
+  return { fase: "FALLA", cupo: f.estado === "ERP_CUPO_EXCEDIDO" };
+}
+
+// ── Cajas de hoy (Tanda 7B) ─────────────────────────────────────────────────
+//
+// Igual que Ventas: una consulta por toque del chip "Caja", nada se guarda,
+// nada se refresca solo, reintentar es otro toque.
+
+export type EstadoCaja =
+  | { readonly fase: "QUIETO" }
+  | { readonly fase: "CARGANDO" }
+  | { readonly fase: "LISTA"; readonly cajas: Extract<RespuestaCaja, { estado: "OK" }> }
+  | { readonly fase: "FALLA"; readonly cupo: boolean };
+
+export type AccionCaja = { readonly tipo: "PEDIR" } | { readonly tipo: "RESPUESTA"; readonly resultado: Resultado<Extract<RespuestaCaja, { estado: "OK" }>> };
+
+export function reducirCaja(estado: EstadoCaja, accion: AccionCaja): EstadoCaja {
+  if (accion.tipo === "PEDIR") return { fase: "CARGANDO" };
+  if (estado.fase !== "CARGANDO") return estado;
+  const r = accion.resultado;
+  if (r.ok) return { fase: "LISTA", cajas: r.datos };
+  return trasFallaDeConsulta(r.falla);
 }
 
 // ── Preguntas (Tanda 6A) ────────────────────────────────────────────────────

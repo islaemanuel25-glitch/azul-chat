@@ -117,7 +117,7 @@ export function cuerpoCanjeExitoso(token: string, extra: { usuarioId?: number; v
 
 /** Responde con el cuerpo y el status exactos de un código público del ERP. */
 export function responderErrorErp(res: ServerResponse, codigo: string): void {
-  const e = FIXTURES_ERP.errores[codigo];
+  const e = ERRORES_ERP[codigo];
   if (!e) throw new Error(`el fixture no tiene ${codigo}`);
   responderJson(res, e.status, e.cuerpo);
 }
@@ -177,3 +177,34 @@ export const FIXTURES_ERP_76B9A71 = JSON.parse(readFileSync(path.join(import.met
 export function pedidoConToken(i: IntercambioErp, token: string): string {
   return JSON.stringify(i.pedido).replace('"<token>"', JSON.stringify(token));
 }
+
+/** Las cajas de un día que el ERP grabó: el día con dos turnos, el filtro por turno y ayer sin cajas. */
+export type CasosCajasDelDia = Record<"hoy" | "turnoTarde" | "ayerSinCajas", IntercambioErp>;
+
+/**
+ * `cajas_resumen` y `mi_alcance` con esa capacidad, del ERP en producción
+ * (erpmanual 14ae247, PR #169, Tanda 7A). Es una COPIA SIN TOCAR de
+ * `docs/integraciones/azul-chat/erp-cajas-resumen.json` de ese commit (sha256
+ * c7c6470c…e292, el mismo byte a byte): lo generó
+ * `scripts/pruebas-db/azulChatCajasResumen.mjs` del ERP EJECUTANDO su puerta
+ * contra una base descartable, en b6190d5 (ver su `_origen`; el merge 14ae247
+ * no cambió el código de la capacidad). Un día con Mañana (correcta y
+ * verificada, falta, sobra, con fiado), Tarde (cerrada con destino y una
+ * abierta) y una caja sin turno asignado. No se edita a mano: se vuelve a copiar.
+ */
+export const FIXTURES_ERP_14AE247 = JSON.parse(readFileSync(path.join(import.meta.dirname, "../fixtures/erp-14ae247.json"), "utf8")) as {
+  ahora: string;
+  dia: CasosCajasDelDia;
+  rechazos: Record<"turnoInexistente" | "periodoInvalido" | "sinPermiso", IntercambioErp>;
+  miAlcance: Record<"tesoreria" | "encargado", IntercambioErp>;
+};
+
+/**
+ * Los códigos públicos del ERP en producción, con su status y su cuerpo
+ * reales: los de 8920516, más TURNO_OPERATIVO_INVALIDO, que agregó 14ae247
+ * (`respuestaPublica.js`), con la respuesta que grabó su fixture.
+ */
+export const ERRORES_ERP: Record<string, { status: number; cuerpo: Record<string, unknown> }> = {
+  ...FIXTURES_ERP.errores,
+  TURNO_OPERATIVO_INVALIDO: FIXTURES_ERP_14AE247.rechazos.turnoInexistente.respuesta,
+};
