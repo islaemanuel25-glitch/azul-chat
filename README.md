@@ -77,7 +77,7 @@ no toca a los demás.
 
 - `src/app/` — Next.js App Router. Las rutas `api/` solo delegan:
   `salud`, `version`, `sesion` (GET, DELETE), `sesion/vincular` (POST) y los
-  chats: `chats`, `chats/local`, `chats/general` y `chats/ventas` (GET),
+  chats: `chats`, `chats/local`, `chats/general`, `chats/ventas` y, desde la Tanda 7B, `chats/caja` (GET),
   `chats/leido` (POST) y, desde la Tanda 6A, `chats/preguntar` (POST),
   descritos en `docs/CHATS.md`; desde la Tanda 5A,
   `push/clave` (GET) y `push/suscribir` (POST, DELETE), y
@@ -91,7 +91,8 @@ no toca a los demás.
     por versión (`docs/INTERFAZ.md`).
 - `src/components/` — interfaz. **No pueden importar `src/server`.**
   - `chats/` — la app móvil (Tanda 2C): la lista de chats, un Local, General y
-    sus estados, el botón "Ventas" de un Local (Tanda 3A) y la recarga al
+    sus estados, el botón "Ventas" de un Local (Tanda 3A), el botón "Caja" y
+    la tarjeta de cajas por turno (`Cajas.tsx`, Tanda 7B) y la recarga al
     cambiar de versión (`version.ts`, Tanda 3B) y las preguntas en lenguaje
     natural (`Preguntas.tsx`, Tanda 6A), con un único cliente HTTP
     (`clienteChats.ts`) para las rutas de chats y `/api/version`.
@@ -102,7 +103,7 @@ no toca a los demás.
 - `src/shared/` — tipos y validaciones que puede usar la interfaz. Sin secretos ni red.
 - `src/server/` — solo servidor. Cada archivo importa `server-only`.
   - `erp/` — configuración, firma, constructores de cuerpo (`canje`,
-    `miAlcance`, `ventasResumen` y, uno común a las cuatro capacidades de
+    `miAlcance`, `ventasResumen`, `cajasResumen` (Tanda 7B) y, uno común a las cuatro capacidades de
     eventos, `eventos.ts`) y el cliente firmado, sin reintentos.
   - `seguridad/cifradoToken.ts` — AES-256-GCM del token.
   - `http/` — Origin, cupo, lectura del cuerpo y respuestas.
@@ -110,7 +111,7 @@ no toca a los demás.
     sesión al token (`delegacion.ts`).
   - `chats/` — autorización viva por capacidad, la sincronización (frecuencia
     mínima, presupuesto del cupo del ERP, orden por lo pendiente) y el estado
-    "Actualización demorada" desde los cursores, historial paginado y las cinco
+    "Actualización demorada" desde los cursores, historial paginado y las seis
     rutas de chats. Desde la Tanda 5B las rutas NO ingieren: una `mi_alcance`
     por pedido y la base propia.
   - `interno/` — la sincronización en segundo plano (Tanda 5A), la única que
@@ -123,12 +124,16 @@ no toca a los demás.
     (`docs/EVENTOS.md`).
   - `ventas/ventasResumen.ts` — "ventas" desde una sesión. Lo usan
     `GET /api/chats/ventas`, con período fijo "hoy", y las preguntas.
+  - `caja/cajasResumen.ts` — "cajas por turno" desde una sesión (Tanda 7B),
+    copiadas campo por campo. Lo usan `GET /api/chats/caja` y las preguntas.
   - `ia/` — la IA de las preguntas (Tanda 6A): configuración, la llamada a
     Gemini (una sola, por `fetch`, sin SDK), la tarifa con su fecha y el tope de
     gasto del mes.
   - `preguntas/` — la ruta de preguntas: la intención que devuelve la IA, su
     validación y la respuesta que arma el código (ventas del ERP, eventos de la
-    base propia). Desde la Tanda 6C, `guardadas.ts`: cada pregunta con su
+    base propia). Desde la Tanda 7B, `cajas.ts`: las preguntas de caja y de
+    ventas por turno, con el turno elegido por el código sobre los nombres
+    que da el ERP. Desde la Tanda 6C, `guardadas.ts`: cada pregunta con su
     respuesta, que vuelve en el historial si hoy todavía se puede ver.
   - `configuracion.ts`, `db.ts`, `log.ts`.
 - `prisma/` — esquema y migraciones de la base propia: `Instalacion`,
@@ -221,7 +226,7 @@ sobre bytes UTF-8, con `marca` = Unix timestamp en segundos y `cuerpo` =
   entrega push a la app instalada en la pantalla de inicio.
 - El cupo del ERP (30 por persona en 60 s) lo comparten la app y la
   sincronización de fondo. Desde la Tanda 5B la app gasta 1 consulta por
-  pantalla (Ventas, 2) y el fondo como mucho 18 por persona por corrida: una
+  pantalla (Ventas y Caja, 2) y el fondo como mucho 18 por persona por corrida: una
   navegación intensa de un minuto (12) entra con la corrida en cualquier orden.
   Lo nuevo llega a la app solo por el fondo, cada 2 minutos; con 5 locales
   cada capacidad se trae al menos cada 4. Con 9 o más locales por persona, o
@@ -230,7 +235,8 @@ sobre bytes UTF-8, con `marca` = Unix timestamp en segundos y `cuerpo` =
 
 - Cada pregunta en lenguaje natural (Tanda 6A) gasta del cupo del ERP 1 + N:
   una `mi_alcance` y, si es de ventas, una `ventas_resumen` por local (N = 1
-  para un local, o los locales con ventas para "todos"). Eventos, 1. La IA se
+  para un local, o los locales con ventas para "todos"); caja y ventas por
+  turno (Tanda 7B), igual con `cajas_resumen`. Eventos, 1. La IA se
   paga aparte, con tope mensual (`AZUL_CHAT_IA_TOPE_USD`); la tarifa y la
   cuenta por pregunta están en `docs/CHATS.md`. La IA solo interpreta la
   pregunta: no recibe ventas, eventos ni ids.

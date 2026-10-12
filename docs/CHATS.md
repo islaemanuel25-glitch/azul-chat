@@ -85,7 +85,8 @@ de 60 s. Las dos en el mismo minuto: 13 rechazos de la corrida, 10 de la app
 Lo que cuesta ahora cada pedido del navegador, medido contra el ERP de
 mentira (`test/db/chats.test.ts`, caso (a)): la lista, un local, una página
 anterior, General, marcar leído y "Actualizar", 1 consulta cada uno
-(`mi_alcance`); Ventas, 2 (`mi_alcance` y `ventas_resumen`). La corrida de
+(`mi_alcance`); Ventas, 2 (`mi_alcance` y `ventas_resumen`); Caja (Tanda 7B),
+2 (`mi_alcance` y `cajas_resumen`). La corrida de
 fondo gasta como mucho 18 por persona y le deja 12 a la app: el cupo y el
 presupuesto, con números, están en `docs/DEPLOY.md`.
 
@@ -141,7 +142,7 @@ evento es el más reciente entre ellos, con su local.
 ### GET /api/chats/local?localId=N[&cursor=C]
 
 El historial de un local, 30 eventos por página, del más reciente al más
-antiguo. Devuelve `{ estado: "OK", local: { localId, nombre, esDeposito, ventas },
+antiguo. Devuelve `{ estado: "OK", local: { localId, nombre, esDeposito, ventas, caja },
 sincronizacion, noLeidos, leidoHasta, eventos, guardadas, siguiente, preguntas }`. `siguiente` es el
 cursor de la página siguiente, o `null`.
 
@@ -149,6 +150,9 @@ cursor de la página siguiente, o `null`.
 `ventas_resumen` en el local. Es un anuncio para mostrar el botón "Ventas", no
 una autorización: `GET /api/chats/ventas` lo vuelve a decidir. Abrir el chat no
 consulta ventas.
+
+`local.caja` (Tanda 7B) es lo mismo para `cajas_resumen` y el botón "Caja":
+un anuncio, que `GET /api/chats/caja` vuelve a decidir.
 
 `preguntas` (Tanda 6A, también en General) es `true` si el servidor tiene la
 IA configurada: es el anuncio de la caja de preguntas, no una autorización.
@@ -220,6 +224,41 @@ sincroniza y no marca leído. Por solicitud: una `mi_alcance` y una
 `ventas_resumen`. Los candados están en `test/db/ventas.test.ts` y
 `test/unidad/ventasChats.test.ts`.
 
+### GET /api/chats/caja?localId=N
+
+Tanda 7B. Las cajas de HOY de un local, agrupadas por turno operativo, como las
+da `cajas_resumen` del ERP (14ae247). Mismo camino que ventas, con el mismo
+código (`consultarLocalHoy` en `manejadores.ts`): `localId` es el único
+parámetro; sesión y `mi_alcance` vivo; el local tiene que anunciar
+`cajas_resumen` (`conCaja`) o es `NO_AUTORIZADO` (403) sin consultar cajas; el
+`grupoId` sale de `mi_alcance`; `{ periodo: { tipo: "hoy" } }`, sin
+`turnoOperativo`. Sin reintentos, errores por código como en ventas
+(`LIMITE_EXCEDIDO` es `ERP_CUPO_EXCEDIDO`, 429); una respuesta de otro local,
+grupo o período no se muestra.
+
+Devuelve `{ estado: "OK", local: { id, nombre }, fecha, turnos, advertencias }`.
+Cada turno: `{ turno: { id, nombre }, sinTurnoAsignado, totales, cajas }`, con
+"Sin turno asignado" al final (`id` null), como lo ordena el ERP. Los totales
+del turno son los del ERP (suma de sus cajas). Cada caja trae operador,
+apertura, cierre o null, estado (`ABIERTA`, `CORRECTA`, `CON_DIFERENCIA`, y
+`SIN_CONTEO` / `ANULADA`, que el contrato del ERP también define), ventas por
+medio con el fiado aparte (`cobrado: false`, nunca dentro del total cobrado),
+cantidad de ventas, retiros `{ monto, motivo, aQuien, hora, registradoPor }`,
+ingresos, monto inicial, efectivo esperado y contado, diferencia
+`{ monto, tipo: FALTA | SOBRA | NINGUNA }`, retirado y fondo al cierre, y
+`verificacionTesoreria`. Todo copiado campo por campo; los montos, su decimal en
+texto tal cual.
+
+Las reglas del dueño que la forma sostiene: **la diferencia es de cada caja y
+no se compensa entre operadores** (no hay diferencia por turno ni por local, y
+el código no la suma nunca); digital no es efectivo; fiado no es cobrado; la
+verificación de Tesorería es un dato aparte y no se mezcla con la diferencia
+de caja.
+
+Nada se guarda. Candados: `test/db/caja.test.ts`,
+`test/unidad/cajasChats.test.ts` y `test/erp/cajasResumen.test.ts` (forma,
+contra el fixture del ERP `test/fixtures/erp-14ae247.json`).
+
 ### POST /api/chats/preguntar
 
 Tanda 6A. Una pregunta en lenguaje natural, desde un Local o desde General.
@@ -232,7 +271,8 @@ clave es `SOLICITUD_INVALIDA` (400). Exige sesión y el Origin exacto de
 nombre del local desde el que se pregunta y los NOMBRES de los locales
 autorizados hoy. Nada más: ni ventas, ni eventos, ni ids. Devuelve UNA
 intención por salida estructurada, contra un esquema cerrado:
-`ventas` (un local o "todos"; hoy, ayer o rango), `eventos` (recibidas,
+`ventas` (un local o "todos"; hoy, ayer o rango), `caja` (Tanda 7B: un local
+o "todos"; un solo día: hoy, ayer o una fecha), `eventos` (recibidas,
 recibidas con diferencias, enviadas, pedidos o cancelaciones; un local o
 "todos"; hoy, ayer o rango) o `no_entiendo`. Elige el local por su nombre, de
 una lista cerrada que el esquema le da (`enum`); el id lo pone el código. Todo
@@ -252,6 +292,28 @@ de lo pedido que esa respuesta no separa, en el orden del catálogo. En ventas,
 todo. La interfaz convierte `noSeparaPor` en un aviso fijo; viajan códigos, no
 textos. Un valor fuera del catálogo, o que no sea una lista, es `NO_ENTIENDO`.
 
+**Turnos (Tanda 7B).** El esquema trae `turno`: texto libre corto (hasta 40
+caracteres) o null. La IA lo copia de la pregunta ("tarde"); no conoce los
+nombres de los turnos del local, ni ningún monto. El código pide
+`cajas_resumen` del día entero y elige el turno contra los nombres que devolvió
+el ERP: sin acentos ni mayúsculas, el nombre exacto gana y si no "contiene" en
+los dos sentidos; "Sin turno asignado" no se elige por texto. Si no coincide
+ninguno, o más de uno, se muestran todos los turnos del día con el aviso fijo
+"No encontré el turno «{texto}». Estos son los turnos del día." (plantilla de la
+interfaz). Azul Chat no le manda `turnoOperativo` al ERP, así que
+`TURNO_OPERATIVO_INVALIDO` no llega por este camino; si llegara, es
+`ERP_NO_DISPONIBLE`.
+
+- `caja` con turno: la misma tarjeta de cajas del día, con solo ese turno.
+  "¿Hubo retiros hoy?" o "¿cómo cerró la caja?" son `caja`.
+- `ventas` con turno, de UN día y en locales con `cajas_resumen`: se contesta
+  con `cajas_resumen` (`VENTAS_TURNO`): el total del turno por medio y sus
+  cajas, y `turno` sale de `noSeparaPor` (o se separó, o el aviso de turno no
+  encontrado lo dice; en ese caso se muestran todos los turnos y no hay total). En "todos", una
+  consulta por local y la suma por código en centavos; si falta un local, se
+  dice cuál y no hay total. Con un rango de días, o un local sin
+  `cajas_resumen`, es ventas como antes con el aviso de que no separa por turno.
+
 En orden:
 
 1. Forma, Origin y cuerpo. Sin la clave de la IA (o mal configurada):
@@ -264,8 +326,9 @@ En orden:
 4. La IA (`src/server/ia/gemini.ts`), una sola llamada, sin reintentos. Si no
    contesta: `IA_NO_DISPONIBLE` (503).
 5. El código valida la intención (`src/server/preguntas/intencion.ts`): exactamente
-   las siete claves del esquema; el local, uno de los de hoy CON la capacidad que la
-   intención necesita (`ventas_resumen` o la del tipo de evento); fechas reales,
+   las ocho claves del esquema; el local, uno de los de hoy CON la capacidad que la
+   intención necesita (`ventas_resumen`, `cajas_resumen` o la del tipo de evento);
+   `caja` de un solo día; fechas reales,
    `desde` ≤ `hasta` y un rango de 31 días como mucho. Lo que no cierra es
    `NO_ENTIENDO`, con ejemplos fijos de lo que sí se puede preguntar.
 6. La respuesta:
@@ -282,17 +345,21 @@ En orden:
      autorizados hoy con la capacidad del tipo, histórico incluido, por día de
      Argentina (`fechaOperacion`). La cantidad, los 10 más recientes y cuántos
      más hay (`restantes`, "y N más").
+   - **Caja** y **ventas por turno**: arriba, "Turnos".
 
 Estados: `VENTAS` (`alcance` `LOCAL` o `TODOS`) y `EVENTOS`, los dos con
-`noSeparaPor`; `NO_ENTIENDO`,
+`noSeparaPor`; `CAJA` y `VENTAS_TURNO` (Tanda 7B, `LOCAL` o `TODOS`, con
+`turnoPedido`, `turnoNoEncontrado`, las cajas de cada local y, en `TODOS`,
+`fallidos`; `VENTAS_TURNO` además `noSeparaPor` y, en `TODOS`, `total` o null);
+`NO_ENTIENDO`,
 `SALDO_AGOTADO` (200), `IA_NO_DISPONIBLE` (503), y las fallas de siempre:
 `ERP_NO_DISPONIBLE` (503), `ERP_CUPO_EXCEDIDO` (429), `SIN_SESION`,
 `NO_AUTORIZADO`, `SOLICITUD_INVALIDA`, `ORIGEN_NO_PERMITIDO`,
 `SERVICIO_NO_DISPONIBLE`.
 
 **Cupo del ERP por pregunta: 1 + N.** Una `mi_alcance` siempre; más una
-`ventas_resumen` si es de un local, o N si es de todos (N = locales con ventas
-hoy). Eventos y `NO_ENTIENDO` gastan solo la `mi_alcance`. Con 5 locales, una
+`ventas_resumen` (o `cajas_resumen` en caja y ventas por turno) si es de un
+local, o N si es de todos (N = locales con esa capacidad hoy). Eventos y `NO_ENTIENDO` gastan solo la `mi_alcance`. Con 5 locales, una
 pregunta de "todos" gasta 6 del cupo de 120 por persona por minuto.
 
 **El tope de gasto** (`src/server/ia/consumo.ts`, tabla `ConsumoIa`, una fila
@@ -397,7 +464,8 @@ Los parámetros de la URL también son estrictos: uno de más o repetido es
 Pedido del dueño: "una vez que salgo y vuelvo a entrar no queda guardado".
 Cada pregunta contestada se guarda en la tabla `Pregunta`
 (`src/server/preguntas/guardadas.ts`) con exactamente la respuesta que vio la
-pantalla, en JSON versionado (`resultadoVersion` 1). POST preguntar contesta,
+pantalla, en JSON versionado (`resultadoVersion` 2 desde la Tanda 7B, que agrega `CAJA`
+y `VENTAS_TURNO`; las de versión 1 se siguen leyendo, solo con sus estados). POST preguntar contesta,
 además, `guardadaId`, para que la pantalla no la muestre dos veces cuando el
 historial ya la trae.
 
@@ -405,14 +473,14 @@ historial ya la trae.
   preguntó (`erpLocalId`) o de General (null). Otra persona no la ve; en
   General no aparecen las de un Local ni al revés.
 - **Qué se guarda.** Las respuestas que se dan una vez autorizada la persona:
-  ventas, eventos, no entendí, saldo agotado, la IA caída, el ERP caído o sin
+  ventas, caja, ventas por turno, eventos, no entendí, saldo agotado, la IA caída, el ERP caído o sin
   cupo. Lo de antes de saber quién es (sin sesión, solicitud inválida, local
   ajeno) no se guarda. Si guardar falla, se contesta igual.
 - **Una foto.** Al volver a verla no se recalcula nada; la pantalla dice cuándo
   fue la respuesta.
 - **Fallo cerrado al mostrar.** Cada pregunta guarda sus `requisitos`: de qué
-  locales trae datos y con qué capacidad (`ventas_resumen`, o la del tipo de
-  evento). Para mostrarla, todos tienen que seguir anunciados hoy por
+  locales trae datos y con qué capacidad (`ventas_resumen`, `cajas_resumen`
+  para caja y ventas por turno, o la del tipo de evento). Para mostrarla, todos tienen que seguir anunciados hoy por
   `mi_alcance`; si uno no, se oculta (no se borra: si mañana vuelve, se ve).
   Un requisito ilegible también la oculta. Las que no traen datos de locales
   (no entendí, saldo, IA caída) se ven en su chat mientras la persona lo pueda
@@ -437,7 +505,7 @@ Solo un estado, sin mensaje, stack, URL interna, respuesta del ERP ni token:
 - `ERP_NO_DISPONIBLE` (503): no se pudo comprobar la autorización. Sin
   historial. En ventas, además, el ERP no dio unas ventas que se puedan mostrar.
 - `ERP_CUPO_EXCEDIDO` (429, Tanda 5B): el ERP contestó LIMITE_EXCEDIDO, en
-  `mi_alcance` o, en ventas, en `ventas_resumen`. Sin historial, igual que el
+  `mi_alcance` o, en ventas y caja, en `ventas_resumen` / `cajas_resumen`. Sin historial, igual que el
   anterior; la interfaz lo dice con su propio texto.
 - `SERVICIO_NO_DISPONIBLE` (503): configuración o base.
 - En preguntas (Tanda 6A), además: `NO_ENTIENDO` y `SALDO_AGOTADO` (200) y
