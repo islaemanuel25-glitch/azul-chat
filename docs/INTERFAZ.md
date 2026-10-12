@@ -89,8 +89,16 @@ grande se centra en una columna de 480 px; no hay un diseño de escritorio.
   {lo que hay} · mín. {mínimo}"— y, si vinieron más, "Ver todos ({n})" los
   despliega (`<details>`, hasta 50, lo que manda el ERP); si el ERP tiene más
   de 50, "Se muestran 50 de {total}.". "Lo que hay" es la `equivalencia` del
-  ERP tal cual, el texto de su pantalla de stock ("3 uds", "2 bultos + 6
-  uds"). Sin mínimo cargado en el local: "Este local no tiene stock mínimo
+  ERP, el texto de su pantalla de stock ("3 uds", "2 bultos + 6 uds"), con
+  los números en es-AR (Tanda 8C): el ERP manda punto decimal y sin miles, y
+  "-613.826 kg" se leería como miles; acá dice "-613,826 kg", "-0,775 kg",
+  "1.250,5 kg", "1.250 uds". `formatearEquivalencia` (en `formato.ts`) lo
+  lee de forma estricta —número y unidad (kg, uds, pzs, bulto, bultos),
+  partes unidas por " + ", decimales solo en kg— y un texto que no tiene esa
+  forma se muestra tal cual. Es solo presentación: lo que manda el ERP y lo
+  que se guarda no cambian, y vale igual en la tarjeta de producto, en la de
+  todos y en las preguntas guardadas. Los negativos se muestran como vienen y
+  en el orden del ERP. Sin mínimo cargado en el local: "Este local no tiene stock mínimo
   cargado."; con mínimo y nada por debajo: "Nada por debajo del mínimo.". Los
   estados son los de Ventas: "Consultando stock…" en el chip, la tarjeta de
   error con "Reintentar" a mano y el texto del cupo con su espera
