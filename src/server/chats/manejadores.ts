@@ -1,6 +1,6 @@
 // src/server/chats/manejadores.ts
 //
-// LAS SEIS RUTAS DE CHATS. Las de src/app solo delegan acá.
+// LAS SIETE RUTAS DE CHATS. Las de src/app solo delegan acá.
 //
 //   GET  /api/chats                          la lista: General y cada local autorizado
 //   GET  /api/chats/local?localId=&cursor=   el historial de un local
@@ -8,6 +8,7 @@
 //   POST /api/chats/leido                    marcar leído, explícito
 //   GET  /api/chats/ventas?localId=          las ventas de hoy de un local (Tanda 3A)
 //   GET  /api/chats/caja?localId=            las cajas de hoy de un local, por turno (Tanda 7B)
+//   GET  /api/chats/stock?localId=           los productos bajo mínimo de un local (Tanda 8B)
 //
 // Las cuatro primeras: sesión → `mi_alcance` vivo, UNA vez → locales con al
 // menos una capacidad de eventos, y de cada uno los tipos de esas capacidades
@@ -37,6 +38,7 @@ import type {
   RespuestaLeido,
   RespuestaCaja,
   RespuestaLocal,
+  RespuestaStock,
   RespuestaVentas,
 } from "../../shared/chats/api.ts";
 import type { DatosVentasResumen, ResultadoConsulta } from "../../shared/erp/contrato.ts";
@@ -49,6 +51,7 @@ import { cookieBorrada } from "../sesion/cookie.ts";
 import type { ResultadoDelegado } from "../sesion/delegacion.ts";
 import type { DependenciasSesion } from "../sesion/dependencias.ts";
 import { ventasResumenDeSesion } from "../ventas/ventasResumen.ts";
+import { bajoMinimoPublico, esSinMinimo, sinMinimoPublico, stockConsultaDeSesion } from "../stock/stockConsulta.ts";
 import { conAutorizacionViva, tiposVisibles, type Autorizacion, type LocalAutorizado, type LocalDeEventos } from "./autorizacion.ts";
 import {
   decodificarCursor,
@@ -232,6 +235,7 @@ export function manejarLocal(request: Request, deps: DependenciasSesion): Promis
         esDeposito: local.esDeposito,
         ventas: a.conVentas.some((l) => l.localId === localId),
         caja: a.conCaja.some((l) => l.localId === localId),
+        stock: a.conStock.some((l) => l.localId === localId),
       },
       sincronizacion: local.sincronizacion,
       preguntas: deps.ia?.ok === true,
@@ -349,10 +353,12 @@ export function ventasPublicas(d: DatosVentasResumen, local: LocalAutorizado): E
 }
 
 /**
- * Las dos rutas que consultan UN local "hoy" (ventas, Tanda 3A; caja, Tanda
- * 7B) hacen lo mismo con distinta capacidad: autorización viva (el local en
- * `mi_alcance` CON la capacidad, `grupoId` de ahí), una consulta al ERP con
- * período "hoy", y la copia de lo contestado si es lo pedido. Escrito una vez.
+ * Las rutas que consultan UN local "hoy" (ventas, Tanda 3A; caja, Tanda 7B;
+ * stock, Tanda 8B) hacen lo mismo con distinta capacidad: autorización viva (el
+ * local en `mi_alcance` CON la capacidad, `grupoId` de ahí), una consulta al
+ * ERP, y la copia de lo contestado si es lo pedido. Escrito una vez.
+ * `deRechazo` (stock): un rechazo del ERP que es una respuesta y no una falla,
+ * reconocido por su código; los demás siguen siendo fallas.
  */
 async function consultarLocalHoy<D, R>(
   request: Request,
@@ -360,6 +366,7 @@ async function consultarLocalHoy<D, R>(
   locales: (a: Autorizacion) => readonly LocalAutorizado[],
   consultar: (local: LocalAutorizado) => Promise<ResultadoDelegado<D>>,
   publicar: (d: D, local: LocalAutorizado) => R | null,
+  deRechazo?: (r: ResultadoConsulta<D>, local: LocalAutorizado) => R | null,
 ): Promise<Response> {
   const p = parametros(request, ["localId"]);
   const crudo = p?.get("localId");
@@ -392,10 +399,13 @@ async function consultarLocalHoy<D, R>(
       return falla(r.vinculoInvalidado ? { estado: "SIN_SESION", motivo: "VINCULO_INVALIDO" } : { estado: "SIN_SESION" }, request, deps);
     case "SERVICIO_NO_DISPONIBLE":
       return falla({ estado: "SERVICIO_NO_DISPONIBLE" }, request, deps);
-    case "RECHAZO_ERP":
+    case "RECHAZO_ERP": {
+      const comoRespuesta = deRechazo?.(r.resultado, local);
+      if (comoRespuesta) return json(comoRespuesta);
       // Por código, no por texto: ninguno de estos dice algo del vínculo, así que la sesión sigue.
       // NO_AUTORIZADO acá también es ERP_NO_DISPONIBLE (el local ya se autorizó con mi_alcance); el cupo, el suyo.
       return falla(esFalloDeCupo(r.resultado) ? { estado: "ERP_CUPO_EXCEDIDO" } : { estado: "ERP_NO_DISPONIBLE" }, request, deps);
+    }
     case "OK": {
       const publica = publicar(r.datos, local);
       return publica ? json(publica) : falla({ estado: "ERP_NO_DISPONIBLE" }, request, deps);
@@ -432,5 +442,29 @@ export function manejarCaja(request: Request, deps: DependenciasSesion): Promise
       // El nombre de HOY, de `mi_alcance`: el mismo del encabezado del chat.
       return c ? { estado: "OK", ...c, local: { id: local.localId, nombre: local.nombre } } : null;
     },
+  );
+}
+
+// ── GET /api/chats/stock ────────────────────────────────────────────────────
+//
+// Los productos bajo mínimo de un local (Tanda 8B), como los calcula el ERP. El
+// mismo camino que ventas y caja, con `stock_consulta` en modo `bajo_minimo`:
+// el local tiene que anunciarla en el `mi_alcance` de ahora. Cupo: 1
+// `mi_alcance` + 1 `stock_consulta`. Nada se guarda. STOCK_MINIMO_NO_DISPONIBLE
+// —el local no tiene ningún mínimo ajustado— es una respuesta (`sinMinimo`),
+// no una falla.
+
+export function manejarStock(request: Request, deps: DependenciasSesion): Promise<Response> {
+  const pedido = (local: LocalAutorizado) => ({ localId: local.localId, grupoId: local.grupoId, nombre: local.nombre });
+  return consultarLocalHoy(
+    request,
+    deps,
+    (a) => a.conStock,
+    (local) => stockConsultaDeSesion(request.headers, { alcance: { grupoId: local.grupoId, localId: local.localId }, parametros: { modo: "bajo_minimo" } }, deps),
+    (d, local): RespuestaStock | null => {
+      const b = bajoMinimoPublico(d, pedido(local));
+      return b ? { estado: "OK", ...b } : null;
+    },
+    (r, local): RespuestaStock | null => (esSinMinimo(r) ? { estado: "OK", ...sinMinimoPublico(pedido(local)) } : null),
   );
 }

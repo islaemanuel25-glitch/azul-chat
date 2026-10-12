@@ -20,6 +20,7 @@ import type {
   RespuestaGeneral,
   RespuestaLeido,
   RespuestaLocal,
+  RespuestaStock,
   RespuestaVentas,
 } from "../../shared/chats/api.ts";
 import type { PedidoPregunta, RespuestaPregunta } from "../../shared/chats/preguntas.ts";
@@ -32,6 +33,8 @@ const RUTA_LEIDO = "/api/chats/leido";
 const RUTA_VENTAS = "/api/chats/ventas";
 /** Tanda 7B: las cajas de hoy de un local. */
 const RUTA_CAJA = "/api/chats/caja";
+/** Tanda 8B: los productos bajo mínimo de un local. */
+const RUTA_STOCK = "/api/chats/stock";
 /** Tanda 6A: una pregunta en lenguaje natural. */
 const RUTA_PREGUNTAR = "/api/chats/preguntar";
 /** Tanda 3B: el commit que sirve el servidor, para recargar una pestaña que quedó con el JS de otro despliegue. */
@@ -47,6 +50,7 @@ export const RUTAS_DEL_CLIENTE = Object.freeze({
   leido: RUTA_LEIDO,
   ventas: RUTA_VENTAS,
   caja: RUTA_CAJA,
+  stock: RUTA_STOCK,
   preguntar: RUTA_PREGUNTAR,
 });
 
@@ -118,6 +122,12 @@ export function pedirVentas(localId: number, signal?: AbortSignal) {
 export function pedirCaja(localId: number, signal?: AbortSignal) {
   const q = new URLSearchParams({ localId: String(localId) }).toString();
   return pedir<RespuestaCaja>(() => fetch(`${RUTA_CAJA}?${q}`, { ...OPCIONES, signal: signal ?? null }), signal);
+}
+
+/** GET /api/chats/stock?localId=N: los productos bajo mínimo (Tanda 8B). Solo cuando la persona toca "Stock". */
+export function pedirStock(localId: number, signal?: AbortSignal) {
+  const q = new URLSearchParams({ localId: String(localId) }).toString();
+  return pedir<RespuestaStock>(() => fetch(`${RUTA_STOCK}?${q}`, { ...OPCIONES, signal: signal ?? null }), signal);
 }
 
 /** POST /api/chats/leido: lo único que marca leído, y solo cuando una pantalla lo pide. */

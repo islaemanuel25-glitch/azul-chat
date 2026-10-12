@@ -34,9 +34,10 @@ import { EJEMPLOS_DE_PREGUNTAS, RESTRICCIONES_NO_SOPORTADAS, type RespuestaPregu
 import type { DatosMiAlcance, EventoTransferenciaRecibida } from "../../src/shared/erp/contrato.ts";
 import { crearBaseDescartable, type BaseDescartable } from "../ayuda/baseDescartable.ts";
 import { cajasDelDiaDelFixture } from "../ayuda/cajas.ts";
+import { bajoMinimoDelFixture, productosDelFixture } from "../ayuda/stock.ts";
 import { levantarErpConEstado, type ErpConEstado } from "../ayuda/erpConEstado.ts";
 import { recepcion } from "../ayuda/paginadorErp.ts";
-import { DATOS_ERP, ERRORES_ERP, FIXTURES_ERP, FIXTURES_ERP_25172FE, SECRETO_PRUEBA, type Rompible } from "../ayuda/servidorErp.ts";
+import { DATOS_ERP, ERRORES_ERP, FIXTURES_ERP, FIXTURES_ERP_25172FE, FIXTURES_ERP_41F702B, SECRETO_PRUEBA, type Rompible } from "../ayuda/servidorErp.ts";
 
 const ORIGEN = "https://chat.ejemplo.invalid";
 const INSTALACION = "instalacion-prueba";
@@ -81,6 +82,7 @@ beforeEach(async () => {
   erp.respuestaParaCapacidad.clear();
   erp.respuestasVentas.length = 0;
   erp.respuestasCajas.length = 0;
+  erp.respuestasStock.length = 0;
   erp.ponerModo("normal");
   erp.cupo.desactivar();
   erp.alcances.clear();
@@ -106,7 +108,7 @@ function respuestaGemini(
   { uso = { promptTokenCount: 600, candidatesTokenCount: 40, thoughtsTokenCount: 120 }, finishReason = "STOP", texto }: { uso?: Record<string, number>; finishReason?: string; texto?: string } = {},
 ): Response {
   // Tanda 7B: la salida lleva `turno` (null si la pregunta no nombra uno).
-  const completa = { intencion: null, tipoEvento: null, local: null, periodo: null, desde: null, hasta: null, turno: null, restriccionesNoSoportadas: [], ...salida };
+  const completa = { intencion: null, tipoEvento: null, local: null, periodo: null, desde: null, hasta: null, turno: null, modoStock: null, producto: null, restriccionesNoSoportadas: [], ...salida };
   return new Response(
     JSON.stringify({
       candidates: [{ finishReason, content: { role: "model", parts: [{ text: texto ?? JSON.stringify(completa) }] } }],
@@ -823,7 +825,7 @@ describe("6C. las preguntas se guardan con su respuesta y vuelven en el historia
     reloj += 60_000;
     await preguntar(cookie, { pregunta: "nueva", localId: CASIANO.id });
     const vinculo = (await base.db.vinculo.findFirst({ select: { id: true } }))!;
-    const hoy = { autorizados: [{ localId: CASIANO.id, capacidades: ["transferencias_eventos"] }], conVentas: [], conCaja: [] };
+    const hoy = { autorizados: [{ localId: CASIANO.id, capacidades: ["transferencias_eventos"] }], conVentas: [], conCaja: [], conStock: [] };
     const aLos = (ms: number) => fuenteDePreguntas(base.db, { vinculoId: vinculo.id, erpLocalId: CASIANO.id, hoy, ahora: new Date(ms) })(null, 10);
     const NOVENTA = DIAS_DE_RETENCION * 24 * 60 * 60 * 1000;
     assert.deepEqual((await aLos(reloj - 60_000 + NOVENTA)).map((p) => p.pregunta.pregunta), ["nueva", "vieja"], "el día 90 todavía está");
@@ -862,7 +864,7 @@ describe("6C. la paginación intercala preguntas y eventos sin repetir ni perder
     for (const [i, creadaEn] of momentos.entries()) {
       await guardarPregunta(base.db, { vinculoId: vinculo.id, erpLocalId: CASIANO.id, texto: `p${i}`, creadaEn, respuesta, intencion: null });
     }
-    const hoy = { autorizados: [{ localId: CASIANO.id, capacidades: ["transferencias_eventos"] }], conVentas: [], conCaja: [] };
+    const hoy = { autorizados: [{ localId: CASIANO.id, capacidades: ["transferencias_eventos"] }], conVentas: [], conCaja: [], conStock: [] };
     const fuente = fuenteDePreguntas(base.db, { vinculoId: vinculo.id, erpLocalId: CASIANO.id, hoy, ahora: new Date(reloj) });
     const locales = [{ localId: CASIANO.id, tipos: ["TRANSFERENCIA_RECIBIDA" as const] }];
     return { fuente, locales };
@@ -1066,7 +1068,8 @@ describe("7B. caja y ventas por turno: el ERP calcula, el código elige el turno
     assert.deepEqual(r.cuerpo.locales.map(nombres), [["Mañana", "Tarde", "Sin turno asignado"], ["Mañana", "Tarde", "Sin turno asignado"]]);
   });
 
-  it("guardado: caja y ventas por turno vuelven en el historial como foto (versión 2); sin cajas_resumen hoy, no se muestran", async () => {
+  // Tanda 8B: desde que STOCK existe, todo se guarda en la versión 3 (las de antes se siguen leyendo; ver 8B).
+  it("guardado: caja y ventas por turno vuelven en el historial como foto (versión 3); sin cajas_resumen hoy, no se muestran", async () => {
     conCaja(CASIANO.id);
     const cookie = await vincular(ADMIN);
     respuestaIa = () => respuestaGemini({ intencion: "caja", local: "Casiano", periodo: "hoy" });
@@ -1078,8 +1081,8 @@ describe("7B. caja y ventas por turno: el ERP calcula, el código elige el turno
     assert.deepEqual(guardadas.map((g) => [g.id, g.respuesta]), [[v.guardadaId, v.cuerpo], [c.guardadaId, c.cuerpo]]);
     const filas = await base.db.pregunta.findMany({ orderBy: { id: "asc" }, select: { resultadoVersion: true, requisitos: true } });
     assert.deepEqual(filas, [
-      { resultadoVersion: 2, requisitos: [{ localId: CASIANO.id, capacidad: "cajas_resumen" }] },
-      { resultadoVersion: 2, requisitos: [{ localId: CASIANO.id, capacidad: "cajas_resumen" }] },
+      { resultadoVersion: 3, requisitos: [{ localId: CASIANO.id, capacidad: "cajas_resumen" }] },
+      { resultadoVersion: 3, requisitos: [{ localId: CASIANO.id, capacidad: "cajas_resumen" }] },
     ]);
     // Hoy Casiano ya no anuncia cajas_resumen: no se muestran (siguen guardadas).
     const a = erp.alcances.get(ADMIN) as Rompible<DatosMiAlcance>;
@@ -1102,5 +1105,129 @@ describe("7B. caja y ventas por turno: el ERP calcula, el código elige el turno
     await base.db.pregunta.create({ data: fila("vieja", "NO_ENTIENDO", 20) });
     await base.db.pregunta.create({ data: fila("imposible", "CAJA", 10) });
     assert.deepEqual((await verLocal(cookie)).guardadas.map((g) => g.pregunta), ["vieja"]);
+  });
+});
+
+describe("8B. stock: el ERP busca y decide; el código arma la respuesta", () => {
+  type Local = Extract<RespuestaLocal, { estado: "OK" }>;
+  const verLocal = async (cookie: string, localId = CASIANO.id) => {
+    const res = await manejarLocal(new Request(`${ORIGEN}/api/chats/local?localId=${localId}`, { headers: conCookie(cookie) }), deps());
+    return JSON.parse(await res.text()) as Local;
+  };
+  /** Suma `stock_consulta` a esos locales en el mi_alcance del admin (el de 25172fe es anterior a la capacidad). */
+  const conStock = (...ids: number[]) => {
+    const a = erp.alcances.get(ADMIN) as Rompible<DatosMiAlcance>;
+    for (const l of a.locales) if (ids.includes(l.id)) l.capacidades = [...(l.capacidades ?? []), "stock_consulta"] as never;
+  };
+  const stock = (o: Record<string, unknown>) => respuestaGemini({ intencion: "stock", local: "Casiano", periodo: "hoy", modoStock: "producto", producto: "leche", ...o });
+
+  it("un producto en un local: 1 mi_alcance + 1 stock_consulta con el texto TAL CUAL; lo que encontró el ERP; a la IA no le llega ni un producto ni una cantidad", async () => {
+    conStock(CASIANO.id);
+    const cookie = await vincular(ADMIN);
+    respuestaIa = () => stock({});
+    erp.recibidas.length = 0;
+    const r = await preguntar(cookie, { pregunta: "¿Cuánta leche hay?", localId: CASIANO.id });
+    assert.equal(r.status, 200, r.texto);
+    assert.deepEqual(capacidadesPedidas(), ["mi_alcance", "stock_consulta"]);
+    assert.deepEqual(r.cuerpo, { estado: "STOCK", modo: "producto", alcance: "LOCAL", texto: "leche", resultado: productosDelFixture("variasCoincidencias", CASIANO) });
+    const pedido = erp.cuerposA("consultar").find((c) => c.capacidad === "stock_consulta")!;
+    assert.deepEqual([pedido.alcance, pedido.parametros], [{ grupoId: 1, localId: CASIANO.id }, { modo: "producto", texto: "leche" }]);
+    const alaIa = JSON.stringify(llamadasIa.at(-1)!.cuerpo);
+    for (const dato of ["Leche Descremada", "Serenísima", "7790001000029", "24 uds", "mín."]) assert.ok(!alaIa.includes(dato), `a la IA le llegó ${dato}`);
+    assert.ok(alaIa.includes("¿Cuánta leche hay?"), "la pregunta sí viaja, como hoy");
+  });
+
+  it("un producto en todos: una consulta por local con stock_consulta, cada uno con lo suyo", async () => {
+    conStock(CASIANO.id, DEPOSITO.id);
+    const cookie = await vincular(ADMIN);
+    respuestaIa = () => stock({ local: "todos", producto: "fernet" });
+    erp.recibidas.length = 0;
+    const r = await preguntar(cookie, { pregunta: "¿Hay fernet en algún local?" });
+    assert.deepEqual(capacidadesPedidas(), ["mi_alcance", "stock_consulta", "stock_consulta"]);
+    assert.ok(r.cuerpo.estado === "STOCK" && r.cuerpo.modo === "producto" && r.cuerpo.alcance === "TODOS", r.texto);
+    assert.deepEqual(r.cuerpo.locales, [productosDelFixture("ninguna", CASIANO), productosDelFixture("ninguna", DEPOSITO)]);
+    assert.deepEqual(r.cuerpo.fallidos, []);
+  });
+
+  it("bajo mínimo en un local, y en todos con un local sin mínimo cargado: cada uno con lo suyo, sin sumar", async () => {
+    conStock(CASIANO.id, DEPOSITO.id);
+    const cookie = await vincular(ADMIN);
+    respuestaIa = () => stock({ modoStock: "bajo_minimo", producto: null });
+    const uno = await preguntar(cookie, { pregunta: "¿Qué hay que reponer?", localId: CASIANO.id });
+    assert.deepEqual(uno.cuerpo, { estado: "STOCK", modo: "bajo_minimo", alcance: "LOCAL", resultado: bajoMinimoDelFixture(CASIANO) });
+    erp.respuestaParaCapacidad.set(`stock_consulta:${DEPOSITO.id}`, FIXTURES_ERP_41F702B.bajoMinimo.stockMinimoNoDisponible.respuesta);
+    respuestaIa = () => stock({ modoStock: "bajo_minimo", producto: null, local: "todos" });
+    const todos = await preguntar(cookie, { pregunta: "¿Qué falta en los locales?" });
+    assert.deepEqual(todos.cuerpo, {
+      estado: "STOCK",
+      modo: "bajo_minimo",
+      alcance: "TODOS",
+      locales: [bajoMinimoDelFixture(CASIANO), { local: DEPOSITO, sinMinimo: true }],
+      fallidos: [],
+    });
+  });
+
+  it("todos con un local caído: se dice cuál; con el cupo lleno en el primero, no se sigue gastando", async () => {
+    conStock(CASIANO.id, DEPOSITO.id);
+    const cookie = await vincular(ADMIN);
+    respuestaIa = () => stock({ modoStock: "bajo_minimo", producto: null, local: "todos" });
+    erp.respuestaParaCapacidad.set(`stock_consulta:${DEPOSITO.id}`, ERRORES_ERP.INTEGRACION_NO_DISPONIBLE!);
+    const r = await preguntar(cookie, { pregunta: "¿Qué falta?" });
+    assert.ok(r.cuerpo.estado === "STOCK" && r.cuerpo.alcance === "TODOS", r.texto);
+    assert.deepEqual([r.cuerpo.locales.map((l) => l.local.nombre), r.cuerpo.fallidos], [["Casiano"], [{ id: DEPOSITO.id, nombre: "Depósito Central" }]]);
+
+    erp.respuestaParaCapacidad.clear();
+    erp.respuestaParaCapacidad.set(`stock_consulta:${CASIANO.id}`, ERRORES_ERP.LIMITE_EXCEDIDO!);
+    erp.recibidas.length = 0;
+    const cupo = await preguntar(cookie, { pregunta: "¿Qué falta?" });
+    assert.deepEqual([cupo.status, cupo.cuerpo], [429, { estado: "ERP_CUPO_EXCEDIDO" }]);
+    assert.deepEqual(capacidadesPedidas(), ["mi_alcance", "stock_consulta"], "el segundo local no se consultó");
+  });
+
+  it("un local sin stock_consulta, un texto que el ERP no acepta o stock de ayer: NO_ENTIENDO, sin consultar stock", async () => {
+    conStock(CASIANO.id);
+    const cookie = await vincular(ADMIN);
+    for (const salida of [
+      { local: "Belgrano" },
+      { producto: "l" },
+      { periodo: "ayer" },
+    ]) {
+      respuestaIa = () => stock(salida);
+      erp.recibidas.length = 0;
+      const r = await preguntar(cookie, { pregunta: "¿Cuánto hay?" });
+      assert.equal(r.cuerpo.estado, "NO_ENTIENDO", JSON.stringify(salida));
+      assert.deepEqual(capacidadesPedidas(), ["mi_alcance"]);
+    }
+  });
+
+  it("guardado: la foto vuelve en el historial (versión 3, requisito stock_consulta); sin stock_consulta hoy, no se muestra", async () => {
+    conStock(CASIANO.id);
+    const cookie = await vincular(ADMIN);
+    respuestaIa = () => stock({ modoStock: "bajo_minimo", producto: null });
+    const b = await preguntar(cookie, { pregunta: "¿Qué hay que reponer?", localId: CASIANO.id });
+    const guardadas = (await verLocal(cookie)).guardadas;
+    assert.deepEqual(guardadas.map((g) => [g.id, g.respuesta]), [[b.guardadaId, b.cuerpo]]);
+    const filas = await base.db.pregunta.findMany({ select: { resultadoVersion: true, requisitos: true } });
+    assert.deepEqual(filas, [{ resultadoVersion: 3, requisitos: [{ localId: CASIANO.id, capacidad: "stock_consulta" }] }]);
+    const a = erp.alcances.get(ADMIN) as Rompible<DatosMiAlcance>;
+    a.locales.find((l) => l.id === CASIANO.id)!.capacidades = ["ventas_resumen", "transferencias_eventos"] as never;
+    assert.deepEqual((await verLocal(cookie)).guardadas, []);
+  });
+
+  it("una fila v2 se sigue leyendo; una v2 con STOCK, que la v2 no tenía, no (CONTRAPRUEBA)", async () => {
+    const cookie = await vincular(ADMIN);
+    const vinculo = (await base.db.vinculo.findFirst({ select: { id: true } }))!;
+    const fila = (texto: string, estado: string, segundos: number) => ({
+      vinculoId: vinculo.id,
+      erpLocalId: CASIANO.id,
+      texto,
+      creadaEn: new Date(reloj - segundos * 1000),
+      resultadoVersion: 2,
+      resultado: { estado, ejemplos: [] },
+      requisitos: [],
+    });
+    await base.db.pregunta.create({ data: fila("de la 7B", "NO_ENTIENDO", 20) });
+    await base.db.pregunta.create({ data: fila("imposible", "STOCK", 10) });
+    assert.deepEqual((await verLocal(cookie)).guardadas.map((g) => g.pregunta), ["de la 7B"]);
   });
 });

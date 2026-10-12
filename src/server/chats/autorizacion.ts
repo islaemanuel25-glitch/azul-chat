@@ -31,6 +31,7 @@ import type { TipoEvento } from "@prisma/client";
 import {
   anunciaCapacidad,
   CAPACIDAD_CAJAS_RESUMEN,
+  CAPACIDAD_STOCK_CONSULTA,
   CAPACIDADES_EVENTOS,
   type CapacidadEventos,
   type DatosMiAlcance,
@@ -90,6 +91,8 @@ export type Autorizacion = {
   readonly conVentas: readonly LocalAutorizado[];
   /** Tanda 7B: los locales que anuncian `cajas_resumen`, con el mismo criterio. */
   readonly conCaja: readonly LocalAutorizado[];
+  /** Tanda 8B: los locales que anuncian `stock_consulta`, con el mismo criterio. */
+  readonly conStock: readonly LocalAutorizado[];
 };
 
 /**
@@ -126,6 +129,7 @@ export async function autorizacionViva(deps: DependenciasSesion, token: string, 
       autorizados: localesAutorizadosAhora(alcance.datos),
       conVentas: localesConCapacidad(alcance.datos, CAPACIDAD_VENTAS_RESUMEN),
       conCaja: localesConCapacidad(alcance.datos, CAPACIDAD_CAJAS_RESUMEN),
+      conStock: localesConCapacidad(alcance.datos, CAPACIDAD_STOCK_CONSULTA),
     },
   };
 }

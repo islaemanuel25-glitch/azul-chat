@@ -39,8 +39,11 @@ import {
   tituloDeCajas,
   tituloDeVentasDe,
   tituloDeVentasDeTurno,
+  tituloDeProductosTodos,
+  TITULO_BAJO_MINIMO_TODOS,
 } from "./formato.ts";
 import { TarjetaCajas } from "./Cajas.tsx";
+import { ContenidoBajoMinimo, ContenidoProductos, TarjetaBajoMinimo, TarjetaProductos } from "./Stock.tsx";
 import { destinoDeFalla, hayPreguntaEnCurso, reducirPreguntas, type IntercambioDePregunta } from "./logica.ts";
 import { retenerRecarga } from "./version.ts";
 import { AvisoDeRespuesta, SubtituloDeTarjeta, TarjetaEvento, TarjetaVentas, TEXTO_CUPO_ERP } from "./Piezas.tsx";
@@ -161,6 +164,8 @@ export function RespuestaDePreguntaVista({
       return <RespuestaDeCajas respuesta={respuesta} {...(zona ? { zona } : {})} />;
     case "VENTAS_TURNO":
       return <RespuestaVentasDeTurno respuesta={respuesta} {...(zona ? { zona } : {})} />;
+    case "STOCK":
+      return <RespuestaDeStock respuesta={respuesta} />;
     case "NO_ENTIENDO":
       return (
         <article className="ac-ventas">
@@ -228,6 +233,37 @@ function TarjetaVentasTodos({ respuesta }: { respuesta: Extract<RespuestaDePregu
 function NoSePudo({ fallidos }: { fallidos: readonly { readonly nombre: string }[] }) {
   if (fallidos.length === 0) return null;
   return <p className="ac-ventas__advertencia">No se pudo consultar: {fallidos.map((f) => f.nombre).join(", ")}.</p>;
+}
+
+/**
+ * Stock (Tanda 8B): lo que encontró el ERP, o lo que está bajo mínimo. De un
+ * local, su tarjeta; de todos, UNA tarjeta con una sección por local —cada uno
+ * con lo suyo, sin sumas— y los que no se pudieron consultar.
+ */
+function RespuestaDeStock({ respuesta }: { respuesta: Extract<RespuestaDePregunta, { estado: "STOCK" }> }) {
+  if (respuesta.alcance === "LOCAL") {
+    return respuesta.modo === "producto" ? <TarjetaProductos datos={respuesta.resultado} /> : <TarjetaBajoMinimo datos={respuesta.resultado} />;
+  }
+  const titulo = respuesta.modo === "producto" ? tituloDeProductosTodos(respuesta.texto) : TITULO_BAJO_MINIMO_TODOS;
+  return (
+    <article className="ac-ventas ac-stock" aria-label={titulo}>
+      <p className="ac-ventas__titulo">{titulo}</p>
+      {respuesta.modo === "producto"
+        ? respuesta.locales.map((d) => (
+            <section key={d.local.id} className="ac-stock__local" aria-label={d.local.nombre}>
+              <SubtituloDeTarjeta texto={d.local.nombre} />
+              <ContenidoProductos datos={d} />
+            </section>
+          ))
+        : respuesta.locales.map((d) => (
+            <section key={d.local.id} className="ac-stock__local" aria-label={d.local.nombre}>
+              <SubtituloDeTarjeta texto={d.local.nombre} />
+              <ContenidoBajoMinimo datos={d} />
+            </section>
+          ))}
+      <NoSePudo fallidos={respuesta.fallidos} />
+    </article>
+  );
 }
 
 /** Caja: la tarjeta de cajas de cada local (filtrada por el turno si se encontró). */

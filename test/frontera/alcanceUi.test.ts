@@ -69,12 +69,16 @@ const TEXTOS_FUERA_DE_ALCANCE = [
 /**
  * Los chips del diseño que no están implementados, como texto visible: literal o hijo de JSX.
  * Tanda 7B: "Caja" SALE de esta lista porque existe (Figma 1:144), y solo como
- * el chip de la barra, en UN archivo (CHIPS_IMPLEMENTADOS, abajo).
+ * el chip de la barra, en UN archivo (CHIPS_IMPLEMENTADOS, abajo). Tanda 8B:
+ * "Stock" también (Figma 1:150), con la misma regla.
  */
-const CHIPS_NO_IMPLEMENTADOS = ["Transferencias", "Pedidos", "Stock"];
+const CHIPS_NO_IMPLEMENTADOS = ["Transferencias", "Pedidos"];
 const comoTextoVisible = (t: string) => new RegExp(`["'\`>]\\s*${t}\\s*["'\`<]`);
 /** Tanda 7B: los chips que existen, cada uno como texto visible en un solo archivo: el de la barra. */
-const CHIPS_IMPLEMENTADOS: readonly { readonly texto: string; readonly archivo: string }[] = [{ texto: "Caja", archivo: "src/components/chats/Piezas.tsx" }];
+const CHIPS_IMPLEMENTADOS: readonly { readonly texto: string; readonly archivo: string }[] = [
+  { texto: "Caja", archivo: "src/components/chats/Piezas.tsx" },
+  { texto: "Stock", archivo: "src/components/chats/Piezas.tsx" },
+];
 
 /** Textos que existen, cada uno en un solo archivo de la interfaz. */
 const TEXTOS_PERMITIDOS: readonly { readonly texto: string; readonly archivo: string }[] = [
@@ -237,7 +241,11 @@ describe("alcance de la interfaz de chats", () => {
     // Tanda 7B: el chip "Caja" está en la barra (Piezas.tsx) y solo ahí; ahí mismo, otro chip sigue en rojo.
     const piezas = arbol[CHIPS_IMPLEMENTADOS[0]!.archivo]!;
     assert.ok(comoTextoVisible("Caja").test(piezas), "el chip Caja está donde el permiso dice");
-    assert.notDeepEqual(problemas({ ...arbol, [CHIPS_IMPLEMENTADOS[0]!.archivo]: `${piezas}\nexport const S = () => <button className="ac-chip">Stock</button>;\n` }), [], "Piezas con Stock");
+    assert.notDeepEqual(problemas({ ...arbol, [CHIPS_IMPLEMENTADOS[0]!.archivo]: `${piezas}\nexport const S = () => <button className="ac-chip">Pedidos</button>;\n` }), [], "Piezas con Pedidos");
+    // Tanda 8B: "Stock" también solo en la barra: en la tarjeta de stock, rojo.
+    assert.ok(comoTextoVisible("Stock").test(piezas), "el chip Stock está donde el permiso dice");
+    const stock = arbol["src/components/chats/Stock.tsx"]!;
+    assert.notDeepEqual(problemas({ ...arbol, "src/components/chats/Stock.tsx": `${stock}\nexport const K3 = () => <button className="ac-chip">Stock</button>;\n` }), [], "chip Stock en la tarjeta");
     const cajas = arbol["src/components/chats/Cajas.tsx"]!;
     assert.notDeepEqual(problemas({ ...arbol, "src/components/chats/Cajas.tsx": `${cajas}\nexport const K2 = () => <button className="ac-chip">Caja</button>;\n` }), [], "chip Caja en la tarjeta");
     // Un texto que solo CONTIENE el nombre de un chip no es el chip: "Transferencia #182 recibida" sigue bien.

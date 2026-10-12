@@ -846,3 +846,60 @@ body {
   flex-direction: column;
   gap: var(--ac-espacio-2);
 }
+
+/* ── Tanda 8B: las tarjetas de stock (Figma tiene el chip 1:150; las tarjetas
+   se arman con las piezas de ventas y cajas). Solo tokens: ningún color nuevo.
+   "Bajo mínimo" usa la misma marca de alerta que "recibida con diferencias". ── */
+
+.ac-stock {
+  width: 88%;
+}
+
+.ac-stock__producto {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ac-espacio-1);
+  width: 100%;
+  padding: var(--ac-espacio-2) 0;
+  border-top: 1px solid var(--ac-color-borde);
+}
+
+.ac-stock__producto--bajo {
+  border-top-color: var(--ac-color-alerta);
+}
+
+.ac-stock__nombre {
+  font-size: var(--ac-letra-chica);
+  font-weight: 600;
+}
+
+.ac-stock__bajo {
+  color: var(--ac-color-alerta);
+  font-size: var(--ac-letra-mini);
+  font-weight: 600;
+}
+
+.ac-stock__mas {
+  width: 100%;
+}
+
+.ac-stock__mas > summary {
+  display: flex;
+  align-items: center;
+  min-height: var(--ac-alto-toque);
+  color: var(--ac-color-marca-fuerte);
+  font-size: var(--ac-letra-mini);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ac-stock__local {
+  width: 100%;
+  padding-top: var(--ac-espacio-2);
+  border-top: 1px solid var(--ac-color-borde);
+}
+
+.ac-stock__local-nombre {
+  font-size: var(--ac-letra-chica);
+  font-weight: 600;
+}

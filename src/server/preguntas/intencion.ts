@@ -9,11 +9,17 @@
 //   ventas   { local: <nombre> | "todos", periodo, turno? }
 //   eventos  { tipoEvento, local: <nombre> | "todos", periodo }
 //   caja     { local: <nombre> | "todos", periodo de un día, turno? }   (Tanda 7B)
+//   stock    { local: <nombre> | "todos", modoStock, producto? }        (Tanda 8B)
 //   no_entiendo
 //
 // Tanda 7B: `turno` es texto libre corto ("tarde"), o null. La IA no conoce
 // los nombres de los turnos del local: el código los compara con los que
 // devuelve `cajas_resumen` del día (preguntas/cajas.ts).
+//
+// Tanda 8B: `modoStock` (producto | bajo_minimo) y `producto`, el producto
+// TAL COMO LO ESCRIBIÓ la persona ("leche", un código de barras), o null. La
+// IA no recibe ningún producto ni ninguna cantidad: el texto viaja al ERP, que
+// es quien busca con su buscador (preguntas/stock.ts).
 //
 // con periodo = hoy | ayer | rango { desde, hasta }.
 //
@@ -52,6 +58,7 @@ import {
   type TipoEventoPregunta,
 } from "../../shared/chats/preguntas.ts";
 import { MAX_DIAS_RANGO } from "../erp/ventasResumen.ts";
+import { esTextoDeStock } from "../erp/stockConsulta.ts";
 
 /** La zona del ERP: los días de las preguntas son días de Argentina. */
 export const ZONA_ARGENTINA = "America/Argentina/Buenos_Aires";
@@ -98,8 +105,8 @@ export const EVENTO_DE_PREGUNTA: Readonly<Record<TipoEventoPregunta, { tipo: Tip
 
 export const TODOS = "todos";
 
-/** Las claves de la salida de la IA: exactamente estas, ni una más. Tanda 7B: `turno`. */
-const CLAVES = ["intencion", "tipoEvento", "local", "periodo", "desde", "hasta", "turno", "restriccionesNoSoportadas"] as const;
+/** Las claves de la salida de la IA: exactamente estas, ni una más. Tanda 7B: `turno`. Tanda 8B: `modoStock` y `producto`. */
+const CLAVES = ["intencion", "tipoEvento", "local", "periodo", "desde", "hasta", "turno", "modoStock", "producto", "restriccionesNoSoportadas"] as const;
 
 /**
  * Tanda 7B: el turno, como lo dijo la pregunta ("tarde", "turno mañana"). Texto
@@ -124,13 +131,15 @@ export function esquemaDeIntencion(nombres: readonly string[]) {
   return {
     type: "OBJECT",
     properties: {
-      intencion: { type: "STRING", enum: ["ventas", "eventos", "caja", "no_entiendo"] },
+      intencion: { type: "STRING", enum: ["ventas", "eventos", "caja", "stock", "no_entiendo"] },
       tipoEvento: { type: "STRING", enum: [...TIPOS_DE_EVENTO_PREGUNTA], nullable: true },
       local: { type: "STRING", enum: opcionesDeLocal(nombres), nullable: true },
       periodo: { type: "STRING", enum: ["hoy", "ayer", "rango"], nullable: true },
       desde: { type: "STRING", description: "AAAA-MM-DD, solo con periodo rango", nullable: true },
       hasta: { type: "STRING", description: "AAAA-MM-DD, solo con periodo rango", nullable: true },
       turno: { type: "STRING", description: "el turno que nombra la pregunta, tal como lo dice; null si no nombra uno", nullable: true },
+      modoStock: { type: "STRING", enum: ["producto", "bajo_minimo"], nullable: true },
+      producto: { type: "STRING", description: "solo con intencion stock y modoStock producto: el producto tal como lo escribe la pregunta", nullable: true },
       restriccionesNoSoportadas: { type: "ARRAY", items: { type: "STRING", enum: [...RESTRICCIONES_NO_SOPORTADAS] } },
     },
     required: [...CLAVES],
@@ -150,6 +159,7 @@ export function instruccionesDeIntencion(e: { pregunta: string; hoy: string; loc
     "- ventas: cuánto se vendió (total, cantidad de ventas, medios de pago).",
     "- eventos: transferencias recibidas (recibidas), recibidas con diferencias (recibidas_con_diferencias), transferencias enviadas al local (enviadas), pedidos solicitados (pedidos) o transferencias canceladas (cancelaciones). Va en tipoEvento.",
     "- caja: las cajas del día: cómo cerró la caja, si está correcta, faltantes o sobrantes, retiros (y a quién o por qué), lo que se cobró en efectivo o en débito por caja, cajas abiertas. Es de UN día: hoy, ayer o un rango de un solo día.",
+    "- stock: cuánto hay de un producto en un local (modoStock = producto, y en producto el nombre o el código del producto tal como lo escribe la pregunta, sin agregar ni corregir nada), o qué productos están por debajo del mínimo, faltan o hay que reponer (modoStock = bajo_minimo, producto null). Es el stock de ahora: periodo hoy.",
     "turno: si la pregunta nombra un turno (\"turno tarde\", \"la mañana\", \"el de la noche\"), la palabra del turno tal como la dice (\"tarde\", \"mañana\", \"noche\"); si no nombra ninguno, null. Vale para ventas y para caja.",
     "local: uno de los nombres de la lista, o \"todos\" si pregunta por todos los locales. Si no nombra ninguno y hay local actual, el local actual; si no hay local actual, \"todos\".",
     "periodo: hoy, ayer o rango. Con rango, desde y hasta en AAAA-MM-DD, calculados desde la fecha de hoy (\"esta semana\" va del lunes a hoy; \"este mes\", del día 1 a hoy). Sin rango, desde y hasta son null. Si no dice cuándo, hoy.",
@@ -170,6 +180,8 @@ export type LocalesDeHoy = {
   readonly ventas: readonly { readonly localId: number; readonly grupoId: number; readonly nombre: string }[];
   /** Tanda 7B: locales con `cajas_resumen`, con el grupo que el ERP acepta. */
   readonly caja: readonly { readonly localId: number; readonly grupoId: number; readonly nombre: string }[];
+  /** Tanda 8B: locales con `stock_consulta`, con el grupo que el ERP acepta. */
+  readonly stock: readonly { readonly localId: number; readonly grupoId: number; readonly nombre: string }[];
 };
 
 /** Un período de UN día: hoy, ayer, o un rango que empieza y termina el mismo día. */
@@ -199,6 +211,14 @@ export type Intencion =
       readonly todos: boolean;
       readonly periodo: PeriodoPregunta;
       readonly turno: string | null;
+    }
+  | {
+      /** Tanda 8B: el stock de ahora; `texto`, el producto como lo escribió la persona (solo en modo producto). */
+      readonly tipo: "STOCK";
+      readonly locales: LocalesDeHoy["stock"];
+      readonly todos: boolean;
+      readonly modo: "producto" | "bajo_minimo";
+      readonly texto: string | null;
     }
   | {
       readonly tipo: "EVENTOS";
@@ -243,7 +263,7 @@ function resolverPeriodo(o: Record<string, unknown>, hoy: string): PeriodoPregun
 
 /**
  * La salida cruda de la IA → una intención que se puede ejecutar, o
- * NO_ENTIENDO. Estricta: exactamente las ocho claves, valores del catálogo,
+ * NO_ENTIENDO. Estricta: exactamente las diez claves, valores del catálogo,
  * un local que la persona puede ver hoy CON la capacidad que la intención
  * necesita (un nombre repetido entre dos locales no se adivina) y un período
  * de calendario de hasta 31 días.
@@ -264,6 +284,17 @@ export function validarIntencion(crudo: unknown, hoy: string, locales: LocalesDe
   // Tanda 7B: el turno es texto libre corto, o null.
   if (o.turno !== null && (typeof o.turno !== "string" || o.turno.trim().length === 0 || [...o.turno.trim()].length > MAX_LARGO_TURNO)) return NO_ENTIENDO;
   const turno = o.turno === null ? null : o.turno.trim();
+  // Tanda 8B: el modo y el producto, solo en stock; en cualquier otra intención, null.
+  if (o.intencion !== "stock" && (o.modoStock !== null || o.producto !== null)) return NO_ENTIENDO;
+
+  if (o.intencion === "stock") {
+    if (o.tipoEvento !== null || turno !== null || periodo.tipo !== "hoy") return NO_ENTIENDO;
+    if (o.modoStock === "bajo_minimo" ? o.producto !== null : o.modoStock !== "producto" || !esTextoDeStock(o.producto)) return NO_ENTIENDO;
+    const elegidos = todos ? locales.stock : locales.stock.filter((l) => l.nombre === o.local);
+    if (elegidos.length === 0 || (!todos && elegidos.length !== 1)) return NO_ENTIENDO;
+    const texto = o.modoStock === "producto" ? (o.producto as string).trim() : null;
+    return { tipo: "STOCK", locales: elegidos, todos, modo: o.modoStock as "producto" | "bajo_minimo", texto };
+  }
 
   if (o.intencion === "ventas") {
     if (o.tipoEvento !== null) return NO_ENTIENDO;
