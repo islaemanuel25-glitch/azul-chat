@@ -84,6 +84,8 @@ const VARIABLES_APP = [
   // Tanda 6A: preguntas en lenguaje natural.
   "AZUL_CHAT_GEMINI_API_KEY",
   "AZUL_CHAT_IA_TOPE_USD",
+  // Tanda 12: a quién avisar si la sincronización se cae (el vigía).
+  "AZUL_CHAT_AVISOS_SISTEMA",
 ];
 
 /** Las violaciones del compose. Vacío = cumple. */
@@ -396,30 +398,51 @@ function minutosDelPeriodo(fuente: string): number | null {
   return m ? Number(m[1]) : null;
 }
 
-function problemasDeSincronizar(servicio: string, timer: string, script: string, fuente = leer(FUENTE_PERIODO)): string[] {
+/**
+ * Una unidad que dispara una ruta INTERNA con el secreto de la tarea: la
+ * sincronización (Tanda 5A) y, desde la Tanda 12, el vigía. Las reglas son las
+ * mismas; cambian el script, la ruta, el intervalo y cuánto puede durar.
+ */
+type UnidadInterna = { readonly script: string; readonly url: string; readonly intervalo: string; readonly servicio: string; readonly duracionMaximaSec: number };
+const UNIDAD_SINCRONIZAR: UnidadInterna = {
+  script: SCRIPT_SINCRONIZAR,
+  url: "http://127.0.0.1:3100/api/interno/sincronizar",
+  intervalo: "2min",
+  servicio: "azul-chat-sincronizar.service",
+  duracionMaximaSec: 120,
+};
+
+const uno = (u: Map<string, string[]>, k: string) => (u.get(k)?.length === 1 ? u.get(k)![0] : undefined);
+
+function problemasDeUnidadInterna(servicio: string, timer: string, script: string, e: UnidadInterna): string[] {
   const p: string[] = [];
   const s = leerUnidad(servicio);
   const t = leerUnidad(timer);
-  const uno = (u: Map<string, string[]>, k: string) => (u.get(k)?.length === 1 ? u.get(k)![0] : undefined);
   if (uno(s, "Service.Type") !== "oneshot") p.push("el servicio no es oneshot");
-  if (uno(s, "Service.ExecStart") !== `${RUTA_CLON}/${SCRIPT_SINCRONIZAR}`) p.push(`ExecStart no es el script del repo: ${s.get("Service.ExecStart")?.join(" | ")}`);
+  if (uno(s, "Service.ExecStart") !== `${RUTA_CLON}/${e.script}`) p.push(`ExecStart no es el script del repo: ${s.get("Service.ExecStart")?.join(" | ")}`);
   if (uno(s, "Service.WorkingDirectory") !== RUTA_CLON) p.push("WorkingDirectory no es el clon de producción");
-  if (Number(uno(s, "Service.TimeoutStartSec")) >= 120) p.push("una corrida puede durar más que el intervalo");
+  if (Number(uno(s, "Service.TimeoutStartSec")) >= e.duracionMaximaSec) p.push("una corrida puede durar más que el intervalo");
   if ([...s.keys()].some((k) => /Environment/.test(k))) p.push("la unidad define variables de entorno (el secreto va en un archivo aparte)");
-  if (uno(t, "Timer.OnUnitActiveSec") !== "2min") p.push(`el intervalo no es de 2 minutos: ${t.get("Timer.OnUnitActiveSec")?.join(" | ")}`);
-  const minutos = minutosDelPeriodo(fuente);
-  if (minutos === null) p.push(`${FUENTE_PERIODO} no declara PERIODO_SINCRONIZACION_MS en minutos`);
-  else if (uno(t, "Timer.OnUnitActiveSec") !== `${minutos}min`) p.push(`el timer no corre cada ${minutos} min, el periodo del código`);
+  if (uno(t, "Timer.OnUnitActiveSec") !== e.intervalo) p.push(`el intervalo no es ${e.intervalo}: ${t.get("Timer.OnUnitActiveSec")?.join(" | ")}`);
   if (uno(t, "Install.WantedBy") !== "timers.target") p.push("el timer no se habilita con timers.target");
   const destino = uno(t, "Timer.Unit");
-  if (destino !== undefined && destino !== "azul-chat-sincronizar.service") p.push(`el timer dispara ${destino}`);
+  if (destino !== undefined && destino !== e.servicio) p.push(`el timer dispara ${destino}`);
   const codigo = script.split("\n").filter((l) => !l.trim().startsWith("#")).join("\n");
   const urls = codigo.match(/https?:\/\/[^\s"']+/g) ?? [];
-  if (JSON.stringify(urls) !== JSON.stringify(["http://127.0.0.1:3100/api/interno/sincronizar"])) p.push(`el script llama a: ${urls.join(", ")}`);
+  if (JSON.stringify(urls) !== JSON.stringify([e.url])) p.push(`el script llama a: ${urls.join(", ")}`);
   if (!/--config -/.test(codigo)) p.push("el secreto no va por la entrada estándar de curl");
   if (/(-H|--header)\s/.test(codigo)) p.push("el secreto va como argumento de curl");
   if (!/stat -c '%a'[^\n]*= "600"/.test(codigo)) p.push("no exige permisos 600 en el archivo del secreto");
   if (/echo[^\n]*\$SECRETO|echo[^\n]*\$\{SECRETO|set -x/.test(codigo)) p.push("el script puede imprimir el secreto");
+  return p;
+}
+
+function problemasDeSincronizar(servicio: string, timer: string, script: string, fuente = leer(FUENTE_PERIODO)): string[] {
+  const p = problemasDeUnidadInterna(servicio, timer, script, UNIDAD_SINCRONIZAR);
+  const t = leerUnidad(timer);
+  const minutos = minutosDelPeriodo(fuente);
+  if (minutos === null) p.push(`${FUENTE_PERIODO} no declara PERIODO_SINCRONIZACION_MS en minutos`);
+  else if (uno(t, "Timer.OnUnitActiveSec") !== `${minutos}min`) p.push(`el timer no corre cada ${minutos} min, el periodo del código`);
   return p;
 }
 
@@ -458,5 +481,52 @@ describe("las unidades de systemd de la sincronización", () => {
     const otroPeriodo = fuente.replace("PERIODO_SINCRONIZACION_MS = 2 * 60_000;", "PERIODO_SINCRONIZACION_MS = 5 * 60_000;");
     assert.notEqual(otroPeriodo, fuente);
     assert.notDeepEqual(problemasDeSincronizar(servicio, timer, script, otroPeriodo), [], "el código dice 5 min y el timer 2");
+  });
+});
+
+// ── El vigía de la sincronización (Tanda 12) ─────────────────────────────────
+//
+// Otro timer de USUARIO, con las MISMAS reglas que el de la sincronización: el
+// script del repo desde el clon de producción, solo a
+// 127.0.0.1:3100/api/interno/vigia, el secreto por la entrada estándar de curl
+// y el archivo en 600. Cada 5 minutos.
+
+const UNIDAD_VIGIA: UnidadInterna = {
+  script: "ops/vigia/vigia-azul-chat.sh",
+  url: "http://127.0.0.1:3100/api/interno/vigia",
+  intervalo: "5min",
+  servicio: "azul-chat-vigia.service",
+  duracionMaximaSec: 300,
+};
+
+describe("las unidades de systemd del vigía", () => {
+  const servicio = leer("ops/vigia/systemd/azul-chat-vigia.service");
+  const timer = leer("ops/vigia/systemd/azul-chat-vigia.timer");
+  const script = leer(UNIDAD_VIGIA.script);
+
+  it("12. el servicio corre el script del repo una vez, cada 5 minutos, sin secretos en la unidad ni en los argumentos", () => {
+    assert.deepEqual(problemasDeUnidadInterna(servicio, timer, script, UNIDAD_VIGIA), []);
+    const modo = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-s", UNIDAD_VIGIA.script], { cwd: RAIZ, encoding: "utf8" });
+    assert.match(script, /^#!\/usr\/bin\/env bash/);
+    assert.ok(modo.startsWith("100755"), `el script no está en git como ejecutable: ${modo || "no está"}`);
+  });
+
+  it("CONTRAPRUEBA: atrapa otro script, otro intervalo, el secreto en la unidad o como argumento, otra URL y un eco del secreto", () => {
+    const casos: [string, string, string][] = [
+      [servicio.replace("ops/vigia/vigia-azul-chat.sh", "ops/vigia/otro.sh"), timer, script],
+      [servicio.replace("Type=oneshot", "Type=simple"), timer, script],
+      [servicio.replace("TimeoutStartSec=90", "TimeoutStartSec=600"), timer, script],
+      [`${servicio}\nEnvironment=AZUL_CHAT_TAREA_SECRET=x\n`, timer, script],
+      [servicio, timer.replace("OnUnitActiveSec=5min", "OnUnitActiveSec=30s"), script],
+      [servicio, timer.replace("WantedBy=timers.target", "WantedBy=default.target"), script],
+      [servicio, timer, script.replace("--config -", '--header "x-azul-chat-tarea: $SECRETO"')],
+      [servicio, timer, script.replace('URL="http://127.0.0.1:3100/api/interno/vigia"', 'URL="http://127.0.0.1:3100/api/interno/sincronizar"')],
+      [servicio, timer, script.replace('= "600"', '= "644"')],
+      [servicio, timer, script.replace("unset SECRETO", 'echo "$SECRETO"')],
+    ];
+    for (const [i, [s, t, sc]] of casos.entries()) {
+      assert.ok(s !== servicio || t !== timer || sc !== script, `el reemplazo ${i} no se aplicó`);
+      assert.notDeepEqual(problemasDeUnidadInterna(s, t, sc, UNIDAD_VIGIA), [], `caso ${i}`);
+    }
   });
 });

@@ -155,7 +155,13 @@ describe("6D. toda respuesta de las rutas de la interfaz lleva el commit de la i
 });
 
 describe("6D. los clientes HTTP de la interfaz pasan cada respuesta a anotarCommitDe", () => {
-  const CLIENTES = ["src/components/chats/clienteChats.ts", "src/components/sesion/PanelSesion.tsx", "src/components/push/notificaciones.ts"];
+  const CLIENTES = [
+    "src/components/chats/clienteChats.ts",
+    "src/components/sesion/PanelSesion.tsx",
+    "src/components/push/notificaciones.ts",
+    // Tanda 12: el de la configuración (Tanda 11) faltaba en esta lista; anota cada respuesta por su pedir().
+    "src/components/sesion/clienteConfiguracion.ts",
+  ];
 
   function problemasDelCliente(codigo: string): string[] {
     const p: string[] = [];
@@ -163,9 +169,10 @@ describe("6D. los clientes HTTP de la interfaz pasan cada respuesta a anotarComm
     const anotados = codigo.match(/const res = await fetch\([\s\S]*?\);\s*anotarCommitDe\(res\);/g)?.length ?? 0;
     if (directos !== anotados) p.push(`${directos - anotados} fetch sin anotar`);
     // Los que van por pedir(): pedir anota la respuesta antes de leerla.
-    if (/pedir<[^>]+>\(\(\) => fetch\(/.test(codigo) && !/const res = await hacer\(\);\s*anotarCommitDe\(res\);/.test(codigo)) p.push("pedir() no anota");
+    if (/pedir<[^>]+>\(\(\) =>\s*fetch\(/.test(codigo) &&!/const res = await hacer\(\);\s*anotarCommitDe\(res\);/.test(codigo)) p.push("pedir() no anota");
     const todos = codigo.match(/(?<![\w-])fetch\(/g)?.length ?? 0;
-    const porPedir = codigo.match(/pedir<[^>]+>\(\(\) => fetch\(|\(\) => fetch\(RUTA_LEIDO/g)?.length ?? 0;
+    // Tanda 12: `() =>` y `fetch(` pueden quedar en renglones distintos (así los formatea el editor).
+    const porPedir = codigo.match(/pedir<[^>]+>\(\(\) =>\s*fetch\(|\(\) =>\s*fetch\(RUTA_LEIDO/g)?.length ?? 0;
     if (todos !== directos + porPedir) p.push("hay un fetch que no es ni directo ni por pedir()");
     return p;
   }

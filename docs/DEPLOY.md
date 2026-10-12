@@ -89,6 +89,16 @@ cualquiera, `/api/salud` contesta 503 y no se crean sesiones.
   contesta 404 a todo y no hay sincronización de fondo ni avisos.
   - El MISMO valor va en `~/.config/azul-chat/tarea.secreto` (permisos 600),
     que es de donde lo lee el timer.
+  - El vigía (`POST /api/interno/vigia`, Tanda 12) usa el MISMO secreto y el
+    MISMO archivo: no hay un secreto nuevo.
+- **`AZUL_CHAT_AVISOS_SISTEMA`** (Tanda 12): a quién avisar por push si la
+  sincronización de fondo se cae y cuando vuelve. IDs de persona del ERP
+  separados por coma, los mismos de `Vinculo.erpUsuarioId` (por ejemplo `9` o
+  `9,11`). **Opcional**: vacía o ausente, el vigía igual abre y cierra el
+  incidente pero no manda nada y deja una línea en el journal
+  (`"sinEnvio":"SIN_DESTINATARIOS"`); mal escrita (`9;11`, `dueño`), tampoco
+  manda y dice `DESTINATARIOS_INVALIDOS`, sin adivinar a quién. No es un
+  secreto ni una autorización. Ver "Vigía de la sincronización".
 - **`AZUL_CHAT_GEMINI_API_KEY`** (Tanda 6A): la clave de Google Gemini para las
   preguntas en lenguaje natural. **Es la MISMA que usa el ERP** (su
   `GEMINI_API_KEY`); se copia de archivo a archivo sin imprimirla (abajo).
@@ -217,6 +227,18 @@ pregunta y el cupo del ERP que gasta (1 + N) están en `docs/CHATS.md`.
 - Las rutas nuevas (`/api/push/estado`, `/api/sesion/configuracion`,
   `/api/sesion/silencio`, `/api/sesion/otras`) no necesitan nada en nginx: van
   por el mismo `location` de la app.
+
+### Tanda 12: migración de la salud de la sincronización
+
+- La migración es `20261014120000_salud_sincronizacion`: crea la tabla
+  `SaludSincronizacion`, de **una sola fila** (CHECK `unica = true`), con el
+  último éxito, la última falla y su motivo (código cerrado:
+  `ERP_NO_DISPONIBLE`, `ERP_CUPO_EXCEDIDO` o `BASE`), las fallas seguidas, y
+  el estado del incidente y de sus avisos. No guarda una fila por corrida ni
+  ningún dato de negocio. Es aditiva: no toca ninguna tabla existente. Volver
+  a la imagen anterior es seguro (el código viejo no la mira; la tabla queda).
+- Entra con el paso 3 del DEPLOY. El vigía se instala DESPUÉS de desplegar la
+  imagen que trae la ruta (abajo, "Vigía de la sincronización").
 
 ### Tanda 6D: la cabecera con el commit
 
@@ -572,11 +594,19 @@ estilo que las del backup:
   escribe en el journal solo el código HTTP y las cuentas de la corrida.
 - `azul-chat-sincronizar.timer`: `OnBootSec=2min`, `OnUnitActiveSec=2min`.
 
-**El cupo del ERP, con números (Tanda 5B).** El ERP admite 30 consultas por
-persona y 120 por aplicación, en una ventana FIJA de 60 s que arranca con la
-primera consulta contada; los rechazos no cuentan (erpmanual,
-`lib/integraciones/azul-chat/limitador.js`). La app abierta y esta corrida
-usan el mismo token: comparten las 30.
+**El cupo del ERP, con números (Tanda 5B; corregido en la Tanda 12).** El
+ERP admite hoy **120 consultas por persona y 240 por aplicación**, en una
+ventana FIJA de 60 s que arranca con la primera consulta contada; los rechazos
+no cuentan (erpmanual, `lib/integraciones/azul-chat/limitador.js`,
+`MAX_POR_USUARIO` y `MAX_POR_APLICACION`, leído sobre `955cdd9`). Eran 30 y
+120 cuando se escribió esta cuenta, y el ERP los subió después del incidente
+del 11/10. La app abierta y esta corrida usan el mismo token: comparten las
+120.
+
+Azul Chat **no cambió su presupuesto**: `CUPO_ERP_POR_PERSONA` sigue en 30 en
+`src/server/chats/sincronizacion.ts`, así que la cuenta de abajo, hecha sobre
+30, queda del lado seguro con cuatro veces de margen. Subirlo es una decisión
+aparte, con su prueba en `test/db/cupo.test.ts`.
 
 - **El incidente del 11/10.** Abrir la app costaba 22 a 27 consultas (una
   `mi_alcance` por pedido más la ingesta de cada local y capacidad); la corrida,
@@ -608,9 +638,9 @@ usan el mismo token: comparten las 30.
   contesta 200 con `cortadaPorCupo: true`; la siguiente empieza por eso. La app
   muestra "Muchas consultas seguidas al ERP. Probá de nuevo en un minuto." con
   Reintentar deshabilitado 20 s.
-- **El cupo por aplicación (120)** no lo cubre esta cuenta: con 18 por
-  persona alcanza para 6 personas por corrida. Con más personas vinculadas a la
-  vez, hay que revisarlo.
+- **El cupo por aplicación (240)** no lo cubre esta cuenta: con 18 por
+  persona alcanza para 13 personas por corrida. Con más personas vinculadas a
+  la vez, hay que revisarlo.
 
 **Por qué cada 2 minutos.** Con 2 minutos entre corridas, dos nunca caen en la
 misma ventana de 60 s, que es lo que hace valer el tope de 18. Y el código usa
@@ -672,3 +702,96 @@ docker compose -f docker-compose.prod.yml up -d azul-chat-app
 **Los backups no incluyen la clave de cifrado.** Sin la misma
 `AZUL_CHAT_TOKEN_ENCRYPTION_KEY`, los tokens restaurados no se descifran: la
 gente tendrá que volver a vincular. Por eso la clave se guarda aparte.
+
+## Vigía de la sincronización (Tanda 12)
+
+Si las corridas de `azul-chat-sincronizar` fallan (ERP caído, cupo, error
+interno) o dejan de ocurrir (timer parado), antes nadie se enteraba. Ahora:
+
+- **Cada corrida anota su salud** en la tabla `SaludSincronizacion` (una sola
+  fila): la hora del último éxito, la de la última falla con su motivo corto, y
+  las fallas seguidas. Una corrida es falla si el ERP cortó por cupo
+  (`ERP_CUPO_EXCEDIDO`), si fallaron TODAS las personas que se intentaron
+  (`ERP_NO_DISPONIBLE`) o si falló la base de Azul Chat (`BASE`). Una corrida
+  sin nadie a quien sincronizar es un éxito: corrió.
+- **Un segundo timer, `azul-chat-vigia`, cada 5 minutos**, llama a
+  `POST http://127.0.0.1:3100/api/interno/vigia`. Está protegida EXACTAMENTE
+  como sincronizar: el mismo secreto `AZUL_CHAT_TAREA_SECRET`, la misma
+  comparación en tiempo constante, el mismo 404 vacío para todo lo demás
+  (navegador, nginx, GET). No llama al ERP.
+- **Hay incidente** si el último éxito tiene más de 10 minutos, o si hay 3 o
+  más fallas seguidas. Con la base recién migrada (ninguna corrida anotada), no
+  hay incidente hasta 10 minutos después de que el vigía la ve por primera vez.
+- **Avisos**: UN push al abrirse ("Azul Chat no se está actualizando desde las
+  HH:MM." y el motivo en palabras simples) y UN push al cerrarse ("Azul Chat
+  volvió a actualizarse."), solo a las personas de `AZUL_CHAT_AVISOS_SISTEMA`.
+  El de recuperación va solo a quien recibió el de apertura. No se repiten cada
+  5 minutos ni con un reinicio: el estado del incidente y a quién se avisó
+  quedan en la base, y se anotan ANTES de mandar (si el envío falla, no se
+  reintenta). Tocar el aviso abre la pantalla principal.
+- **Horario de silencio**: se respeta, el de cada persona. Si el incidente se
+  abre dentro del silencio, el aviso sale en la primera vuelta del vigía
+  después del silencio, y solo si sigue abierto; si se cerró antes, no sale
+  ninguno de los dos.
+- Un error del push nunca es un 500: queda en el log y el vigía contesta 200.
+
+Las unidades viven en `ops/vigia/systemd/`, con el mismo estilo que las de
+sincronizar:
+
+- `azul-chat-vigia.service`: `Type=oneshot`, ejecuta
+  `/srv/produccion/azul-chat/ops/vigia/vigia-azul-chat.sh`, que lee el secreto
+  de `~/.config/azul-chat/tarea.secreto` (el MISMO archivo; se niega si no es
+  600), se lo pasa a curl por la entrada estándar y escribe en el journal solo
+  el código HTTP y la respuesta (`incidente` y cuentas).
+- `azul-chat-vigia.timer`: `OnBootSec=5min`, `OnUnitActiveSec=5min`.
+
+Instalar (después del despliegue que trae la ruta y la migración):
+
+```sh
+cd /srv/produccion/azul-chat
+# 1. A quién avisar: los IDs de persona del ERP, sin comillas. Una sola línea.
+grep -c '^AZUL_CHAT_AVISOS_SISTEMA=' app.env          # si da 1, editarla en vez de agregar
+printf 'AZUL_CHAT_AVISOS_SISTEMA=%s\n' '<ids, p. ej. 9>' >> app.env
+docker compose -f docker-compose.prod.yml up -d azul-chat-app   # para que la lea
+
+# 2. Las unidades.
+cp ops/vigia/systemd/azul-chat-vigia.service ops/vigia/systemd/azul-chat-vigia.timer ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user start azul-chat-vigia.service      # una vuelta ahora
+journalctl --user -u azul-chat-vigia -n 5            # HTTP 200 {"estado":"OK","incidente":"SIN_INCIDENTE",...}
+systemctl --user enable --now azul-chat-vigia.timer
+systemctl --user list-timers azul-chat-vigia.timer
+```
+
+Comprobar que desde afuera no anda (los dos dan 404):
+
+```sh
+curl -s -o /dev/null -w '%{http_code}\n' -X POST https://chat.operix.cloud/api/interno/vigia
+curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:3100/api/interno/vigia
+```
+
+**Probarlo a mano**, con una persona de la lista con las notificaciones
+activadas en su teléfono y fuera de su horario de silencio:
+
+```sh
+systemctl --user stop azul-chat-sincronizar.timer    # simula el timer parado
+# esperar más de 10 minutos; el vigía corre solo cada 5, o forzarlo:
+systemctl --user start azul-chat-vigia.service
+journalctl --user -u azul-chat-vigia -n 3            # "incidente":"ABIERTO","avisosApertura":1
+# llega el push "Azul Chat no se está actualizando desde las HH:MM. ..."
+systemctl --user start azul-chat-vigia.service
+journalctl --user -u azul-chat-vigia -n 3            # "incidente":"SIGUE", sin avisos nuevos
+systemctl --user start azul-chat-sincronizar.timer   # vuelve; corre a los 2 minutos
+systemctl --user start azul-chat-sincronizar.service # o ya
+systemctl --user start azul-chat-vigia.service
+journalctl --user -u azul-chat-vigia -n 3            # "incidente":"CERRADO","avisosRecuperacion":1
+```
+
+Si no llega nada, el log de la app dice por qué, sin datos: `docker logs
+azul-chat-app 2>&1 | grep tarea.vigia | tail -3` muestra `sinEnvio`
+(`SIN_DESTINATARIOS`, `DESTINATARIOS_INVALIDOS`, `PUSH_NO_CONFIGURADO`), o
+`enSilencio`, o `enviados` / `fallidos`. Una persona sin teléfono suscripto
+cuenta como avisada: se le intentó y no hay a dónde mandarle.
+
+Pararlo: `systemctl --user disable --now azul-chat-vigia.timer`. Nada más
+depende de él.

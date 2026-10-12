@@ -55,6 +55,14 @@ describe("el secreto solo existe del lado del servidor", () => {
     }
   });
 
+  it("12. la lista de a quién avisar del vigía se lee en un único archivo de src/server, y .env.example la trae vacía", () => {
+    // No es un secreto, pero son personas reales del ERP: un solo lugar la lee
+    // y nada la acerca al navegador.
+    assert.deepEqual(dondeAparece(/AZUL_CHAT_AVISOS_SISTEMA/), ["src/server/interno/vigia.ts"]);
+    const lineas = readFileSync(path.join(RAIZ, ".env.example"), "utf8").split("\n");
+    assert.equal(lineas.find((l) => l.startsWith("AZUL_CHAT_AVISOS_SISTEMA=")), "AZUL_CHAT_AVISOS_SISTEMA=");
+  });
+
   it("process.env se lee solo en src/server", () => {
     const fuera = dondeAparece(/process\.env/).filter((f) => !f.startsWith("src/server/"));
     assert.deepEqual(fuera, []);

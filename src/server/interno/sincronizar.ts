@@ -43,6 +43,10 @@
 // ningún evento ya avisado se vuelve a avisar.
 //
 // La respuesta y el log dicen solo CUÁNTOS: ni nombres, ni locales, ni ids.
+//
+// Tanda 12: cada corrida que pasó la puerta anota su resultado (éxito, o falla
+// con un motivo corto) en la salud de la sincronización (salud.ts), que mira
+// el vigía para avisar si esto se cae.
 
 import "server-only";
 
@@ -56,6 +60,7 @@ import { json } from "../http/respuestas.ts";
 import { leerConfigPush, type ConfigPush } from "../push/config.ts";
 import { avisarNovedades, borrarSuscripcionesSinSesion } from "../push/avisos.ts";
 import { enSilencio } from "../push/silencio.ts";
+import { registrarCorrida, resultadoDeCorrida } from "./salud.ts";
 import type { DependenciasEnvio } from "../push/enviar.ts";
 import type { ResultadoConsulta } from "../../shared/erp/contrato.ts";
 import { borrarPreguntasVencidas } from "../preguntas/guardadas.ts";
@@ -102,7 +107,8 @@ export type ResumenTarea = {
   readonly consultasErp: number;
 };
 
-const noExiste = () => new Response(null, { status: 404, headers: { "Cache-Control": "no-store" } });
+/** El 404 de una ruta interna sin su puerta: igual al de una que no existe. Tanda 12: lo usa también el vigía. */
+export const noExiste = () => new Response(null, { status: 404, headers: { "Cache-Control": "no-store" } });
 
 type DeUnaPersona = {
   localesDemorados: number;
@@ -211,8 +217,12 @@ export async function manejarSincronizar(request: Request, deps: DependenciasTar
     }
   } catch {
     deps.registrar({ evento: "sesion.falla_local", etapa: "base" });
+    // Tanda 12: la falla también se anota, si la base deja; si no, el vigía la ve por el tiempo sin éxitos.
+    await registrarCorrida(db, ahora, { ok: false, motivo: "BASE" }).catch(() => {});
     return json({ estado: "SERVICIO_NO_DISPONIBLE" }, { status: 503 });
   }
+  // Tanda 12: el resultado de la corrida, para el vigía (interno/salud.ts). Si anotarlo falla, la corrida igual contesta.
+  await registrarCorrida(db, ahora, resultadoDeCorrida(resumen)).catch(() => deps.registrar({ evento: "sesion.falla_local", etapa: "base" }));
   deps.registrar({ evento: "tarea.sincronizar", duracionMs: Math.max(0, deps.ahora() - inicio), ...resumen });
   const cuerpo: ResumenTarea = { estado: "OK", ...resumen };
   return json(cuerpo);

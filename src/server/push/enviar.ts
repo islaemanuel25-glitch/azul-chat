@@ -40,9 +40,9 @@ export type Aviso = {
   readonly titulo: string;
   /** "Casiano: Transferencia #404 recibida con diferencias" o "Casiano: 3 novedades". */
   readonly cuerpo: string;
-  /** Qué abrir al tocarlo: siempre `/?vista=local&localId=N`. */
+  /** Qué abrir al tocarlo: `/?vista=local&localId=N`; desde la Tanda 12, `/` para un aviso del sistema (interno/vigia.ts). */
   readonly url: string;
-  /** Un aviso nuevo del mismo local reemplaza al anterior en la bandeja. */
+  /** Un aviso nuevo del mismo local (o del sistema) reemplaza al anterior en la bandeja. */
   readonly etiqueta: string;
 };
 

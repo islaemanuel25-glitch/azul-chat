@@ -40,7 +40,7 @@ describe("la migración", () => {
     const tablas = await base.db.$queryRawUnsafe<{ t: string }[]>(
       `SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' ORDER BY 1`,
     );
-    assert.deepEqual(tablas.map((x) => x.t), ["AvisoLocal", "ConsumoIa", "CursorIngesta", "Evento", "Instalacion", "LecturaLocal", "Pregunta", "PushSuscripcion", "Sesion", "Vinculo", "_prisma_migrations"]);
+    assert.deepEqual(tablas.map((x) => x.t), ["AvisoLocal", "ConsumoIa", "CursorIngesta", "Evento", "Instalacion", "LecturaLocal", "Pregunta", "PushSuscripcion", "SaludSincronizacion", "Sesion", "Vinculo", "_prisma_migrations"]);
     const aplicadas = await base.db.$queryRawUnsafe<{ n: string }[]>(`SELECT migration_name AS n FROM _prisma_migrations WHERE finished_at IS NOT NULL`);
     const enElRepo = readdirSync(path.join(RAIZ, "prisma/migrations"), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name);
     assert.deepEqual(aplicadas.map((x) => x.n).sort(), enElRepo.sort());
@@ -126,6 +126,21 @@ describe("la migración", () => {
       "PushSuscripcion.ultimoErrorCodigo",
       "PushSuscripcion.ultimoErrorEn",
       "PushSuscripcion.vinculoId",
+      // Tanda 12: la salud de la sincronización. Una sola fila con horas,
+      // un contador y CÓDIGOS cerrados de motivo (nunca un mensaje del ERP);
+      // las dos listas son ids de persona del ERP a los que ya se avisó,
+      // copiados de AZUL_CHAT_AVISOS_SISTEMA: a quién avisar, no qué puede.
+      "SaludSincronizacion.actualizadoEn",
+      "SaludSincronizacion.avisadosApertura",
+      "SaludSincronizacion.fallasSeguidas",
+      "SaludSincronizacion.incidenteDesde",
+      "SaludSincronizacion.incidenteMotivo",
+      "SaludSincronizacion.pendientesRecuperacion",
+      "SaludSincronizacion.ultimaFallaEn",
+      "SaludSincronizacion.ultimaFallaMotivo",
+      "SaludSincronizacion.ultimoExitoEn",
+      "SaludSincronizacion.unica",
+      "SaludSincronizacion.vigiaDesdeEn",
       "Sesion.creadaEn",
       "Sesion.expiraEn",
       "Sesion.id",
@@ -329,6 +344,20 @@ describe("40. invariantes que sostiene la base", () => {
       await rechaza(`UPDATE "Vinculo" SET "silencioDesde" = ${d}, "silencioHasta" = ${h}`, CHECK);
     }
     await sql(`UPDATE "Vinculo" SET "silencioActivo" = false, "silencioDesde" = 0, "silencioHasta" = 7`);
+  });
+
+  it("12. la salud de la sincronización: una sola fila; motivos con código cerrado y junto a su hora; fallas no negativas", async () => {
+    await sql(`INSERT INTO "SaludSincronizacion" (unica) VALUES (true)`);
+    await rechaza(`INSERT INTO "SaludSincronizacion" (unica) VALUES (false)`, CHECK);
+    await rechaza(`UPDATE "SaludSincronizacion" SET "ultimaFallaEn" = now()`, CHECK);
+    await rechaza(`UPDATE "SaludSincronizacion" SET "ultimaFallaMotivo" = 'BASE'`, CHECK);
+    await rechaza(`UPDATE "SaludSincronizacion" SET "ultimaFallaEn" = now(), "ultimaFallaMotivo" = 'El ERP dijo: boom'`, CHECK);
+    await rechaza(`UPDATE "SaludSincronizacion" SET "ultimaFallaEn" = now(), "ultimaFallaMotivo" = 'SIN_CORRIDAS'`, CHECK);
+    await rechaza(`UPDATE "SaludSincronizacion" SET "incidenteDesde" = now()`, CHECK);
+    await rechaza(`UPDATE "SaludSincronizacion" SET "incidenteDesde" = now(), "incidenteMotivo" = 'OTRO'`, CHECK);
+    await rechaza(`UPDATE "SaludSincronizacion" SET "fallasSeguidas" = -1`, CHECK);
+    await sql(`UPDATE "SaludSincronizacion" SET "ultimaFallaEn" = now(), "ultimaFallaMotivo" = 'ERP_CUPO_EXCEDIDO', "incidenteDesde" = now(), "incidenteMotivo" = 'SIN_CORRIDAS', "fallasSeguidas" = 3`);
+    await sql(`DELETE FROM "SaludSincronizacion"`);
   });
 
   it("no se borra un vínculo con sesiones ni una instalación con vínculos", async () => {

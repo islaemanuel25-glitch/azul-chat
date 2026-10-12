@@ -94,7 +94,27 @@ export type RegistroIa = {
   readonly costoMicroUsd: number | null;
 };
 
-export type Registro = RegistroConsultaErp | RegistroVinculacion | RegistroInvalidacion | RegistroFallaLocal | RegistroTarea | RegistroIa;
+/**
+ * Tanda 12: una corrida del vigía de la sincronización. Solo estados y
+ * cuentas: ni personas, ni endpoints, ni el motivo en texto libre.
+ */
+export type RegistroVigia = {
+  readonly evento: "tarea.vigia";
+  /** Lo que pasó con el incidente en esta corrida. */
+  readonly incidente: "SIN_INCIDENTE" | "ABIERTO" | "SIGUE" | "CERRADO";
+  /** El motivo, un código cerrado (SIN_CORRIDAS, ERP_NO_DISPONIBLE…), o null sin incidente. */
+  readonly motivo: string | null;
+  /** Por qué no se mandó nada aunque correspondía: sin destinatarios, la variable mal escrita, o sin push. */
+  readonly sinEnvio?: "SIN_DESTINATARIOS" | "DESTINATARIOS_INVALIDOS" | "PUSH_NO_CONFIGURADO";
+  readonly avisosApertura: number;
+  readonly avisosRecuperacion: number;
+  readonly enSilencio: number;
+  readonly enviados: number;
+  readonly fallidos: number;
+  readonly suscripcionesBorradas: number;
+};
+
+export type Registro = RegistroConsultaErp | RegistroVinculacion | RegistroInvalidacion | RegistroFallaLocal | RegistroTarea | RegistroIa | RegistroVigia;
 
 export type Registrador = (registro: Registro) => void;
 
