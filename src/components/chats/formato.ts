@@ -376,9 +376,44 @@ export function formatearCantidad(decimal: string): string {
   return `${signo}${conMiles}${decimales ? `,${decimales}` : ""}`;
 }
 
-/** Lo que hay, como lo dice la pantalla del ERP; si no viniera, la existencia y su unidad. */
+// ── La equivalencia del ERP, en es-AR (Tanda 8C) ──────────────────────────
+//
+// El ERP arma la equivalencia con el formato de su pantalla
+// (lib/stock/presentacion.js, `formatCantidad` y `presentacionCantidadStock`):
+// "N uds", "N pzs", "N.NNN kg" y "N bulto(s) + M uds", con PUNTO decimal y sin
+// separador de miles. En es-AR "-613.826 kg" se lee como seiscientos trece mil:
+// acá se muestra "-613,826 kg". Es solo presentación: el dato que manda el ERP
+// y el que se guarda no cambian.
+//
+// Estricto: cada parte es un número y una de esas unidades; los kilos admiten
+// decimales, las unidades, piezas y bultos no (el ERP los redondea). Lo que no
+// cierra con esa forma se muestra TAL CUAL: mejor el texto del ERP que un
+// número reinterpretado.
+
+const PARTE_DE_EQUIVALENCIA = /^(-?\d+(?:\.\d+)?) (kg|uds|pzs|bulto|bultos)$/;
+
+/** Un número del ERP ("-613.826", "1250", "1250.500") en es-AR ("-613,826", "1.250", "1.250,5"). */
+function numeroEsAr(n: string): string {
+  const [entero, fraccion = ""] = n.replace(/^-/, "").split(".") as [string, string?];
+  const conMiles = entero.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  const decimales = fraccion.replace(/0+$/, "");
+  return `${n.startsWith("-") ? "-" : ""}${conMiles}${decimales ? `,${decimales}` : ""}`;
+}
+
+/**
+ * "-613.826 kg" → "-613,826 kg"; "2 bultos + 1250 uds" → "2 bultos + 1.250 uds".
+ * Un texto que no tiene la forma del ERP vuelve sin tocar.
+ */
+export function formatearEquivalencia(texto: string): string {
+  const partes = texto.split(" + ");
+  const leidas = partes.map((p) => PARTE_DE_EQUIVALENCIA.exec(p));
+  if (leidas.some((m) => !m || (m[2] !== "kg" && m[1]!.includes(".")))) return texto;
+  return leidas.map((m) => `${numeroEsAr(m![1]!)} ${m![2]}`).join(" + ");
+}
+
+/** Lo que hay, como lo dice la pantalla del ERP (en es-AR); si no viniera, la existencia y su unidad. */
 export function cantidadDeProducto(p: { readonly cantidad: string; readonly unidad: string; readonly equivalencia: string }): string {
-  return p.equivalencia.trim() ? p.equivalencia : `${formatearCantidad(p.cantidad)} ${p.unidad}`;
+  return p.equivalencia.trim() ? formatearEquivalencia(p.equivalencia) : `${formatearCantidad(p.cantidad)} ${p.unidad}`;
 }
 
 /** "mín. 10", o null si el producto no tiene el mínimo ajustado. */
