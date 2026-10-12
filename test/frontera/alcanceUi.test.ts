@@ -467,8 +467,21 @@ function problemasDelServiceWorker(crudo: string): string[] {
   const codigo = sinComentarios(crudo);
   const eventos = [...codigo.matchAll(/addEventListener\(\s*["'`]([a-z]+)["'`]/g)].map((m) => m[1]).sort();
   if (JSON.stringify(eventos) !== JSON.stringify(["activate", "install", "notificationclick", "push"])) p.push(`escucha: ${eventos.join(", ")}`);
-  if (/\bonfetch\b|["'`]fetch["'`]|(?<![\w-])fetch\s*\(/.test(codigo)) p.push("intercepta o hace pedidos");
-  if (/\bcaches\b|CacheStorage|indexedDB|localStorage|sessionStorage|cookieStore/.test(codigo)) p.push("guarda algo");
+  if (/\bonfetch\b|["'`]fetch["'`]|(?<![\w-])fetch\s*\(|respondWith/.test(codigo)) p.push("intercepta o hace pedidos");
+  if (/CacheStorage|indexedDB|localStorage|sessionStorage|cookieStore/.test(codigo)) p.push("guarda algo");
+  // Tanda 13: guarda UNA cosa, la hora del último aviso mostrado por etiqueta,
+  // en UNA caché propia. `caches` solo se abre con ese nombre, y de esa caché
+  // solo se lee (`match`) y se escribe (`put`) una hora en texto: nada de
+  // copiar respuestas del servidor, ni borrar o listar otras cachés.
+  const usosDeCaches = [...codigo.matchAll(/\bcaches\b[^;\n]*/g)].map((m) => m[0]);
+  if (usosDeCaches.some((u) => u !== "caches.open(CACHE_AVISOS)")) p.push("usa otra caché que la de los avisos");
+  if (!/const CACHE_AVISOS = "azul-chat-avisos-v1";/.test(codigo)) p.push("la caché de los avisos no tiene su nombre fijo");
+  if (/\.(add|addAll|keys|delete)\s*\(/.test(codigo)) p.push("copia, lista o borra en una caché");
+  const escrituras = [...codigo.matchAll(/\.put\(([^\n]*)\)/g)].map((m) => m[1]);
+  if (escrituras.some((e) => e !== "claveDeEtiqueta(etiqueta), new Response(String(creadoEn))")) p.push("guarda en la caché algo que no es una hora");
+  // Y lo usa para decidir: un aviso más viejo que el último mostrado no se muestra.
+  if (!/return creadoEn < ultimaMostrada \? "DESCARTAR" : "MOSTRAR";/.test(codigo)) p.push("no descarta el aviso viejo");
+  if (!/if \(decidirAviso\(creadoEn, ultima\) === "DESCARTAR"\) return;/.test(codigo)) p.push("no consulta la decisión antes de mostrar");
   if (/importScripts|\bimport\s*\(|\bimport\s+/.test(codigo)) p.push("carga código de otro lado");
   if (/\b(setInterval|setTimeout)\b|periodicsync|\bsync\b/.test(codigo)) p.push("trabaja en segundo plano por su cuenta");
   // Lo único que abre es un local de Azul Chat (o la lista): la URL del aviso se valida.
@@ -500,7 +513,7 @@ describe("el service worker y la app instalable", () => {
   const css = readFileSync(path.join(RAIZ, "src/app/globals.css"), "utf8");
   const layout = sinComentarios(readFileSync(path.join(RAIZ, "src/app/layout.tsx"), "utf8"));
 
-  it("5A. el service worker solo maneja push y el toque: sin fetch, sin caché, sin almacenamiento, sin temporizadores", () => {
+  it("5A. el service worker solo maneja push y el toque: sin fetch, sin temporizadores; desde la 13, solo la caché de las horas de los avisos", () => {
     assert.deepEqual(problemasDelServiceWorker(sw), []);
   });
 
@@ -508,6 +521,14 @@ describe("el service worker y la app instalable", () => {
     const casos: Record<string, string> = {
       fetch: `${sw}\nself.addEventListener("fetch", (e) => e.respondWith(fetch(e.request)));\n`,
       cache: `${sw}\nself.addEventListener("install", (e) => e.waitUntil(caches.open("v1")));\n`,
+      // Tanda 13: la caché de los avisos no se puede usar para otra cosa.
+      cacheAjena: sw.replace("const cache = await caches.open(CACHE_AVISOS);\n  await cache.put", 'const cache = await caches.open("paginas");\n  await cache.put'),
+      cacheCopia: `${sw}\nasync function x() { const c = await caches.open(CACHE_AVISOS); await c.addAll(["/"]); }\n`,
+      cacheRespuesta: sw.replace("new Response(String(creadoEn))", "await fetch(\"/\")"),
+      cacheBorra: `${sw}\nasync function x() { await caches.delete("otra"); }\n`,
+      sinDecidir: sw.replace('if (decidirAviso(creadoEn, ultima) === "DESCARTAR") return;', ""),
+      sinDescartar: sw.replace('return creadoEn < ultimaMostrada ? "DESCARTAR" : "MOSTRAR";', 'return "MOSTRAR";'),
+      respondWith: `${sw}\nself.onmessage = (e) => e.respondWith(null);\n`,
       guardar: `${sw}\nconst db = indexedDB.open("x");\n`,
       importar: `importScripts("/otro.js");\n${sw}`,
       temporizador: `${sw}\nsetInterval(() => {}, 1000);\n`,

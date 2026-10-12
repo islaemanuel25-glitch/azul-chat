@@ -61,7 +61,7 @@ let base: BaseDescartable;
 let erp: ErpConEstado;
 let reloj: number;
 let registros: Registro[];
-let enviados: { endpoint: string; aviso: Record<string, unknown> }[];
+let enviados: { endpoint: string; aviso: Record<string, unknown>; headers: Record<string, string> }[];
 /** Lo que contesta el servicio de push: un status, o "TIRA" para que el fetch falle. */
 let respuestaPush: number | "TIRA";
 const telefonos = new Map<string, { ecdh: ReturnType<typeof createECDH>; auth: Buffer }>();
@@ -109,7 +109,8 @@ const servicioPush: typeof fetch = async (url, init) => {
   const t = telefonos.get(endpoint);
   assert.ok(t, `push a un endpoint desconocido: ${endpoint}`);
   const plano = ece.decrypt(Buffer.from(init!.body as Uint8Array), { version: "aes128gcm", privateKey: t.ecdh, authSecret: t.auth.toString("base64url") });
-  if (respuestaPush >= 200 && respuestaPush < 300) enviados.push({ endpoint, aviso: JSON.parse(plano.toString("utf8")) });
+  const headers = Object.fromEntries(Object.entries(init!.headers as Record<string, string>).map(([k, v]) => [k.toLowerCase(), v]));
+  if (respuestaPush >= 200 && respuestaPush < 300) enviados.push({ endpoint, aviso: JSON.parse(plano.toString("utf8")), headers });
   return new Response(null, { status: respuestaPush });
 };
 
@@ -264,7 +265,13 @@ describe("Tanda 12: el incidente y sus avisos", () => {
       cuerpo: "Azul Chat no se está actualizando desde las 09:00. La actualización automática no está corriendo.",
       url: "/",
       etiqueta: "sistema",
+      // Tanda 13: el id del incidente (desde cuándo no se actualiza) y la hora del vigía.
+      incidente: new Date(AHORA).toISOString(),
+      creadoEn: reloj,
     });
+    // Tanda 13: urgencia alta y 6 horas de vida en el servicio de push.
+    assert.equal(enviados[0]!.headers["urgency"], "high");
+    assert.equal(enviados[0]!.headers["ttl"], String(6 * 60 * 60));
     for (let i = 0; i < 3; i++) {
       reloj += 5 * MIN;
       assert.equal((await vigia()).cuerpo!.incidente, "SIGUE");
@@ -274,6 +281,12 @@ describe("Tanda 12: el incidente y sus avisos", () => {
     const c = await vigia();
     assert.equal(c.cuerpo!.incidente, "CERRADO");
     assert.deepEqual(cuerpos(), [enviados[0]!.aviso.cuerpo, "Azul Chat volvió a actualizarse."]);
+    // Tanda 13: misma etiqueta (reemplaza en la bandeja), hora más nueva (el teléfono descarta la apertura si llega después).
+    const recuperacion = enviados[1]!;
+    assert.deepEqual(recuperacion.aviso, { titulo: "Azul Chat", cuerpo: "Azul Chat volvió a actualizarse.", url: "/", etiqueta: "sistema", creadoEn: reloj });
+    assert.ok((recuperacion.aviso.creadoEn as number) > (enviados[0]!.aviso.creadoEn as number));
+    assert.equal(recuperacion.headers["urgency"], "high");
+    assert.equal(recuperacion.headers["ttl"], String(6 * 60 * 60));
     reloj += 5 * MIN;
     assert.equal((await vigia()).cuerpo!.incidente, "SIN_INCIDENTE");
     assert.equal(enviados.length, 2);

@@ -43,7 +43,7 @@ import "server-only";
 import type { Entorno } from "../erp/config.ts";
 import { json } from "../http/respuestas.ts";
 import { enviarAVinculo } from "../push/avisos.ts";
-import type { Aviso } from "../push/enviar.ts";
+import { TTL_AVISO_SISTEMA_SEGUNDOS, type Aviso } from "../push/enviar.ts";
 import { enSilencio } from "../push/silencio.ts";
 import { dependenciasDeTareaProduccion, noExiste, type DependenciasTarea } from "./sincronizar.ts";
 
@@ -97,8 +97,18 @@ export function desdeCuando(desde: Date, ahora: Date): string {
 }
 
 /** Los dos avisos. Etiqueta común: el de recuperación reemplaza al de apertura en la bandeja. */
+// La apertura lleva el id del incidente: la hora desde la que no se actualiza,
+// en ISO, que es única por incidente (cerrarlo exige un éxito más nuevo). El
+// service worker no lo necesita para decidir: una apertura vieja que llega
+// después de su recuperación se descarta por `creadoEn` (Tanda 13).
 export function avisoDeApertura(desde: Date, motivo: MotivoIncidente, ahora: Date): Aviso {
-  return { titulo: "Azul Chat", cuerpo: `Azul Chat no se está actualizando ${desdeCuando(desde, ahora)}. ${MOTIVO_EN_PALABRAS[motivo]}`, url: "/", etiqueta: "sistema" };
+  return {
+    titulo: "Azul Chat",
+    cuerpo: `Azul Chat no se está actualizando ${desdeCuando(desde, ahora)}. ${MOTIVO_EN_PALABRAS[motivo]}`,
+    url: "/",
+    etiqueta: "sistema",
+    incidente: desde.toISOString(),
+  };
 }
 export const AVISO_RECUPERACION: Aviso = Object.freeze({ titulo: "Azul Chat", cuerpo: TEXTO_RECUPERACION, url: "/", etiqueta: "sistema" });
 
@@ -195,7 +205,7 @@ export async function manejarVigia(request: Request, deps: DependenciasVigia): P
       });
       const callado = (v: (typeof vinculos)[number]) => enSilencio({ activo: v.silencioActivo, desde: v.silencioDesde, hasta: v.silencioHasta }, ahora);
       const mandar = async (v: (typeof vinculos)[number], aviso: Aviso) => {
-        const r = await enviarAVinculo(db, v.id, [aviso], envio, ahora);
+        const r = await enviarAVinculo(db, v.id, [aviso], envio, ahora, TTL_AVISO_SISTEMA_SEGUNDOS);
         cuentas.enviados += r.enviados;
         cuentas.fallidos += r.fallidos;
         cuentas.suscripcionesBorradas += r.borradas;
