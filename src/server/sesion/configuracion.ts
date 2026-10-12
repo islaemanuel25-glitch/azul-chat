@@ -72,21 +72,32 @@ export function primeroDelMesSiguiente(mes: string): string {
 /** Millonésimas de dólar → centavos, para arriba. */
 const aCentavos = (microUsd: bigint) => Number((microUsd + 9_999n) / 10_000n);
 
+/** El primer instante del mes "AAAA-MM" en Argentina (UTC−3, sin horario de verano). */
+export function inicioDelMesEnArgentina(mes: string): Date {
+  const [a, m] = mes.split("-").map(Number) as [number, number];
+  return new Date(Date.UTC(a, m - 1, 1, 3));
+}
+
 /**
  * El saldo de IA del mes de Argentina, de ConsumoIa. "Agotado" es exactamente
  * lo que decide reservarPregunta (ia/consumo.ts): que la reserva de una
  * pregunta más ya no entre en el tope.
+ *
+ * Tanda 14: el gasto y el tope son de TODO el negocio (un solo ConsumoIa por
+ * mes, para todas las personas). Las preguntas son las de esta persona: las
+ * suyas guardadas desde el 1 del mes. Las de los demás no se cuentan acá.
  */
 async function saldoIa(c: Contexto, deps: DependenciasSesion, ahora: Date): Promise<SaldoIa | null> {
   if (deps.ia?.ok !== true) return null;
   const tope = deps.ia.config.topeMicroUsd;
   const mes = mesEnArgentina(ahora);
-  const fila = await c.db.consumoIa.findUnique({ where: { mes }, select: { costoMicroUsd: true, preguntas: true } });
+  const fila = await c.db.consumoIa.findUnique({ where: { mes }, select: { costoMicroUsd: true } });
   const gastado = fila?.costoMicroUsd ?? 0n;
+  const propias = await c.db.pregunta.count({ where: { vinculoId: c.sesion.vinculo.id, creadaEn: { gte: inicioDelMesEnArgentina(mes) } } });
   return {
     gastadoCentavos: aCentavos(gastado),
     topeCentavos: aCentavos(tope),
-    preguntas: fila?.preguntas ?? 0,
+    preguntasPropias: propias,
     agotado: gastado + reservaPorPregunta(ahora) > tope,
     reiniciaEl: primeroDelMesSiguiente(mes),
   };

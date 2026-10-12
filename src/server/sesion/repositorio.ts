@@ -144,9 +144,23 @@ export async function sesionesParaSegundoPlano(db: Db, instalacionId: string, ah
     where: { revocadaEn: null, expiraEn: { gt: ahora }, vinculo: { instalacionId, invalidadoEn: null } },
     orderBy: [{ vinculoId: "asc" }, { creadaEn: "desc" }, { id: "asc" }],
     distinct: ["vinculoId"],
-    select: { id: true, vinculo: { select: { id: true, erpUsuarioId: true, erpVinculoId: true, tokenCifrado: true } } },
+    select: { id: true, vinculo: { select: { id: true, erpUsuarioId: true, erpVinculoId: true, tokenCifrado: true, ultimoTurnoFondoEn: true } } },
   });
-  return sesiones.map((s) => ({ sesionId: s.id, vinculo: s.vinculo }));
+  // Tanda 14: el turno. Primero a quien nunca le tocó, después a quien le tocó
+  // hace más; a igual, por vínculo (el orden de siempre). Si la corrida no
+  // alcanza para todos, los que quedan afuera van primero en la siguiente.
+  const turno = (d: Date | null) => (d === null ? -Infinity : d.getTime());
+  return sesiones
+    .sort((a, b) => turno(a.vinculo.ultimoTurnoFondoEn) - turno(b.vinculo.ultimoTurnoFondoEn) || (a.vinculo.id < b.vinculo.id ? -1 : 1))
+    .map((s) => ({
+      sesionId: s.id,
+      vinculo: { id: s.vinculo.id, erpUsuarioId: s.vinculo.erpUsuarioId, erpVinculoId: s.vinculo.erpVinculoId, tokenCifrado: s.vinculo.tokenCifrado },
+    }));
+}
+
+/** Tanda 14: a esta persona le tocó la corrida de fondo ahora. */
+export async function anotarTurnoDeFondo(db: Db, vinculoId: string, ahora: Date): Promise<void> {
+  await db.vinculo.update({ where: { id: vinculoId }, data: { ultimoTurnoFondoEn: ahora } });
 }
 
 /** Revoca SOLO la sesión de ese identificador. Las demás de la persona siguen. */

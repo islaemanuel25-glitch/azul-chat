@@ -379,14 +379,22 @@ describe("Tanda 11: dispositivos y cerrar las otras sesiones", () => {
 });
 
 describe("Tanda 11: el saldo de IA del mes", () => {
-  it("sin IA configurada, null; con IA, lo gastado del mes de Argentina contra el tope y las preguntas; agotado cuando la próxima reserva ya no entra", async () => {
+  /** Una pregunta guardada de esa persona, a esa hora. */
+  const preguntaDe = async (usuarioId: number, creadaEn: string) => {
+    const v = await base.db.vinculo.findFirstOrThrow({ where: { erpUsuarioId: usuarioId }, select: { id: true } });
+    await base.db.pregunta.create({
+      data: { vinculoId: v.id, texto: "¿cuánto vendí?", creadaEn: new Date(creadaEn), resultadoVersion: 1, resultado: { estado: "NO_ENTIENDO" }, requisitos: [] },
+    });
+  };
+
+  it("sin IA configurada, null; con IA, lo gastado del mes de Argentina por todo el negocio contra el tope; agotado cuando la próxima reserva ya no entra", async () => {
     const cookie = await vincular(ADMIN);
     assert.equal((await configuracion(cookie)).cuerpo.ia, null);
-    assert.deepEqual((await configuracion(cookie, true)).cuerpo.ia, { gastadoCentavos: 0, topeCentavos: 500, preguntas: 0, agotado: false, reiniciaEl: "2026-11-01" });
+    assert.deepEqual((await configuracion(cookie, true)).cuerpo.ia, { gastadoCentavos: 0, topeCentavos: 500, preguntasPropias: 0, agotado: false, reiniciaEl: "2026-11-01" });
     await base.db.consumoIa.create({ data: { mes: "2026-10", costoMicroUsd: 1_234_567n, preguntas: 12 } });
     // El mes de otro año no cuenta.
     await base.db.consumoIa.create({ data: { mes: "2025-10", costoMicroUsd: 4_999_999n, preguntas: 99 } });
-    assert.deepEqual((await configuracion(cookie, true)).cuerpo.ia, { gastadoCentavos: 124, topeCentavos: 500, preguntas: 12, agotado: false, reiniciaEl: "2026-11-01" });
+    assert.deepEqual((await configuracion(cookie, true)).cuerpo.ia, { gastadoCentavos: 124, topeCentavos: 500, preguntasPropias: 0, agotado: false, reiniciaEl: "2026-11-01" });
     // Justo donde una pregunta más ya no entra: agotado (lo mismo que decide reservarPregunta).
     const reserva = reservaPorPregunta(new Date(reloj));
     await base.db.consumoIa.update({ where: { mes: "2026-10" }, data: { costoMicroUsd: 5_000_000n - reserva + 1n } });
@@ -395,10 +403,26 @@ describe("Tanda 11: el saldo de IA del mes", () => {
     assert.equal((await configuracion(cookie, true)).cuerpo.ia!.agotado, false, "CONTRAPRUEBA: si entra justo, no");
   });
 
+  it("Tanda 14: el gasto es de todos y el mismo para cada persona; las preguntas, solo las propias del mes de Argentina", async () => {
+    const a = await vincular(ADMIN);
+    const b = await vincular(ENCARGADO);
+    await base.db.consumoIa.create({ data: { mes: "2026-10", costoMicroUsd: 2_000_000n, preguntas: 5 } });
+    for (const cuando of ["2026-10-01T03:00:00.000Z", "2026-10-05T12:00:00.000Z", "2026-10-08T11:00:00.000Z"]) await preguntaDe(ADMIN, cuando);
+    await preguntaDe(ENCARGADO, "2026-10-07T15:00:00.000Z");
+    // Del mes anterior en Argentina (el 30/9 a las 23:59), no cuenta.
+    await preguntaDe(ADMIN, "2026-10-01T02:59:00.000Z");
+    const ia = async (c: string) => (await configuracion(c, true)).cuerpo.ia!;
+    assert.equal((await ia(a)).gastadoCentavos, 200);
+    assert.equal((await ia(b)).gastadoCentavos, 200, "el mismo gasto, el de todo el negocio");
+    assert.equal((await ia(a)).preguntasPropias, 3);
+    assert.equal((await ia(b)).preguntasPropias, 1, "las de la otra persona no se cuentan");
+  });
+
   it("el mes es el de Argentina: el 31/12 a las 22 de Argentina ya es 1/1 en UTC, y sigue siendo diciembre", async () => {
     reloj = Date.parse("2027-01-01T01:00:00.000Z");
     const cookie = await vincular(ADMIN);
     await base.db.consumoIa.create({ data: { mes: "2026-12", costoMicroUsd: 10_000n, preguntas: 1 } });
-    assert.deepEqual((await configuracion(cookie, true)).cuerpo.ia, { gastadoCentavos: 1, topeCentavos: 500, preguntas: 1, agotado: false, reiniciaEl: "2027-01-01" });
+    await preguntaDe(ADMIN, "2026-12-31T20:00:00.000Z");
+    assert.deepEqual((await configuracion(cookie, true)).cuerpo.ia, { gastadoCentavos: 1, topeCentavos: 500, preguntasPropias: 1, agotado: false, reiniciaEl: "2027-01-01" });
   });
 });

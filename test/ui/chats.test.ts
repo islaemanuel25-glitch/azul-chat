@@ -156,6 +156,13 @@ const cuerpoLocal = (estado: EstLocal, masSinLeer = false) =>
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("la lista de chats", () => {
+  it("Tanda 14: una persona sin locales asignados en el ERP ve el estado vacío, no un error", () => {
+    const vacia: ChatsOk = { ...CHATS, general: { noLeidos: 0, ultimoEvento: null }, locales: [] };
+    const html = texto(cuerpoChats({ fase: "LISTA", datos: vacia }));
+    assert.match(html, /No tenés locales asignados\./);
+    assert.doesNotMatch(texto(cuerpoChats({ fase: "LISTA", datos: CHATS })), /No tenés locales asignados/, "CONTRAPRUEBA: con locales, no");
+  });
+
   it("A/B. General primero y después exactamente los locales de la API, en su orden", () => {
     const filas = filasDeChats(CHATS, "TODOS");
     assert.deepEqual(

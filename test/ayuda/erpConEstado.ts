@@ -79,6 +79,16 @@ export type RespuestaVentasCargada = { readonly status: number; readonly cuerpo:
 
 type VinculoErp = { usuarioId: number; vinculoId: number; codigo: string; token: string | null; revocado: boolean };
 
+/**
+ * Tanda 14: los números del cupo del ERP DE HOY (erpmanual
+ * lib/integraciones/azul-chat/limitador.js, MAX_POR_USUARIO y
+ * MAX_POR_APLICACION, leídos en ccf2894): 120 por delegación y 240 por
+ * aplicación. Sin opciones, `cupo.activar()` sigue con los de la Tanda 5B
+ * (30 y 120), que son los que Azul Chat presupuesta por persona y prueba
+ * test/db/cupo.test.ts; con varias personas, el que importa es este.
+ */
+export const CUPO_ERP_DE_HOY = Object.freeze({ maxPorUsuario: 120, maxPorAplicacion: 240 });
+
 /** El cupo del ERP (limitador.js), para prender en un test. */
 export type CupoErp = {
   activar(opciones?: { maxPorUsuario?: number; maxPorAplicacion?: number; ventanaMs?: number; ahora?: () => number }): void;

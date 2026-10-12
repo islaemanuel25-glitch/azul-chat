@@ -160,6 +160,9 @@ describe("la migración", () => {
       "Vinculo.silencioDesde",
       "Vinculo.silencioHasta",
       "Vinculo.tokenCifrado",
+      // Tanda 14: cuándo le tocó a la persona la corrida de fondo. Solo
+      // ordena turnos entre personas: ni autoridad ni dato del ERP.
+      "Vinculo.ultimoTurnoFondoEn",
       "Vinculo.vinculadoEn",
     ]);
   });

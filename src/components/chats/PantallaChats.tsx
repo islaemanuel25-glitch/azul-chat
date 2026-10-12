@@ -95,7 +95,7 @@ export function ListaChats({
           ))}
         </ul>
       )}
-      {datos.locales.length === 0 && <EstadoChat texto="Hoy no tenés locales con eventos para ver." />}
+      {datos.locales.length === 0 && <EstadoChat texto="No tenés locales asignados." />}
       {datos.locales.some((l) => l.sincronizacion === "DEMORADA") && filtro === "TODOS" && (
         <AvisoDemorada texto="Algunos locales muestran lo último guardado: traer lo nuevo se demoró." />
       )}

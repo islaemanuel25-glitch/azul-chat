@@ -266,7 +266,8 @@ grande se centra en una columna de 480 px; no hay un diseño de escritorio.
     vuelve a lo de antes y lo dice. Lo que llega en ese horario queda sin leer
     y no se avisa después.
   - *Inteligencia artificial,* solo si el servidor tiene la IA configurada:
-    "Gastado este mes: US$ X de US$ {tope}", "Preguntas este mes: N" y, si una
+    "Gastado este mes, entre todos: US$ X de US$ {tope}" (el gasto de todo el
+    negocio, Tanda 14), "Tus preguntas este mes: N" (las de esta persona) y, si una
     pregunta más ya no entra, "Saldo agotado hasta el 1/{mes siguiente}".
   - *Sesiones.* "Dispositivos": cuántas sesiones abiertas y, de cada una,
     "Este dispositivo" u "Otro dispositivo" y desde cuándo (Azul Chat no guarda
