@@ -16,7 +16,9 @@
 //      vínculo y revoca sus sesiones (sesion/delegacion.ts); caído, lento,
 //      cupo o NO_AUTORIZADO no;
 //   3. los avisos push de lo nuevo, de los locales y tipos de HOY
-//      (push/avisos.ts).
+//      (push/avisos.ts). Tanda 11: en el horario de silencio de la persona
+//      (push/silencio.ts) no se manda ninguno, y lo de ese rato no se manda
+//      después.
 //
 // Desde la Tanda 5B es la ÚNICA que ingiere: abrir la app ya no trae nada del
 // ERP, solo pide `mi_alcance` para autorizar y lee la base.
@@ -53,6 +55,7 @@ import { esFalloDeCupo, PRESUPUESTO_FONDO_POR_PERSONA, sincronizarAutorizados } 
 import { json } from "../http/respuestas.ts";
 import { leerConfigPush, type ConfigPush } from "../push/config.ts";
 import { avisarNovedades, borrarSuscripcionesSinSesion } from "../push/avisos.ts";
+import { enSilencio } from "../push/silencio.ts";
 import type { DependenciasEnvio } from "../push/enviar.ts";
 import type { ResultadoConsulta } from "../../shared/erp/contrato.ts";
 import { borrarPreguntasVencidas } from "../preguntas/guardadas.ts";
@@ -152,11 +155,19 @@ export async function manejarSincronizar(request: Request, deps: DependenciasTar
           // `mi_alcance` ya gastó una del presupuesto de esta persona.
           const s = await sincronizarAutorizados(deps, a.datos, a.datos.autorizados, PRESUPUESTO_FONDO_POR_PERSONA - 1);
           if (!s.ok) return s.fallo; // VINCULO_NO_VALIDO: delegarConContexto invalida
+          // Tanda 11: en su horario de silencio no se le manda nada, pero la marca de avisos avanza
+          // igual (avisarNovedades sin envío): al salir del horario no llega el atraso.
+          const horario = await db.vinculo.findUnique({
+            where: { id: sesion.vinculo.id },
+            select: { silencioActivo: true, silencioDesde: true, silencioHasta: true },
+          });
+          const callado =
+            horario !== null && enSilencio({ activo: horario.silencioActivo, desde: horario.silencioDesde, hasta: horario.silencioHasta }, new Date(deps.ahora()));
           const av = await avisarNovedades(
             db,
             sesion.vinculo.id,
             s.locales.map((l) => ({ localId: l.localId, nombre: l.nombre, tipos: tiposVisibles(l.capacidades) })),
-            envio,
+            callado ? null : envio,
             new Date(deps.ahora()),
           );
           return {

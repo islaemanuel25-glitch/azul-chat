@@ -17,6 +17,7 @@ import {
   bytesDeClave,
   desactivar,
   leerEstado,
+  reactivar,
   RUTA_SERVICE_WORKER,
   type EntornoPush,
   type EstadoNotificaciones,
@@ -26,7 +27,9 @@ import {
 const texto = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 const nada = () => {};
 const dibujar = (estado: EstadoNotificaciones | null, extra: { error?: string; trabajando?: boolean } = {}) =>
-  renderToStaticMarkup(createElement(VistaNotificaciones, { estado, trabajando: extra.trabajando ?? false, ...(extra.error ? { error: extra.error } : {}), alActivar: nada, alDesactivar: nada }));
+  renderToStaticMarkup(
+    createElement(VistaNotificaciones, { estado, trabajando: extra.trabajando ?? false, ...(extra.error ? { error: extra.error } : {}), alActivar: nada, alDesactivar: nada, alReactivar: nada }),
+  );
 
 describe("la fila de notificaciones", () => {
   it("Activadas, con el botón para desactivar", () => {
@@ -35,6 +38,14 @@ describe("la fila de notificaciones", () => {
 
   it("Desactivadas, con el botón para activar", () => {
     assert.equal(texto(dibujar("DESACTIVADAS")), "Notificaciones Avisos en este teléfono Desactivadas Activar");
+  });
+
+  it("Tanda 11: el navegador suscripto y el servidor no: 'No están llegando', por qué, y 'Reactivar'", () => {
+    assert.equal(
+      texto(dibujar("NO_LLEGAN")),
+      "Notificaciones Avisos en este teléfono No están llegando Reactivar Este teléfono quedó suscripto, pero Azul Chat no lo tiene registrado: los avisos no llegan.",
+    );
+    assert.doesNotMatch(dibujar("NO_LLEGAN"), /Activadas/);
   });
 
   it("bloqueadas por el navegador: lo dice en una línea y no ofrece un botón que no puede andar", () => {
@@ -54,7 +65,7 @@ describe("la fila de notificaciones", () => {
     assert.match(texto(dibujar("DESACTIVADAS", { error: "No se pudieron activar. Probá de nuevo." })), /No se pudieron activar\. Probá de nuevo\.$/);
   });
 
-  it("solo esa fila de la pantalla de Configuración, sin colores escritos", () => {
+  it("la fila sola, sin lo que el diseño trae y no existe (privacidad, sonidos) ni colores escritos; el horario de silencio va aparte (Configuracion.tsx)", () => {
     const html = ["ACTIVADAS", "DESACTIVADAS", "BLOQUEADAS"].map((e) => dibujar(e as EstadoNotificaciones)).join("");
     assert.doesNotMatch(html, /Privacidad|Horario|Sonidos|Inteligencia|Saldo|style=|#[0-9a-f]{3,6}/i);
   });
@@ -69,13 +80,18 @@ afterEach(() => {
   globalThis.fetch = fetchOriginal;
 });
 
-/** Un fetch de prueba: GET clave y POST/DELETE suscribir, con las respuestas que diga el test. */
-function servidor(r: { clave?: unknown; suscribir?: { status: number; cuerpo: unknown } } = {}) {
+/** Un fetch de prueba: GET clave, GET estado (Tanda 11) y POST/DELETE suscribir, con las respuestas que diga el test. */
+function servidor(r: { clave?: unknown; suscribir?: { status: number; cuerpo: unknown }; estado?: { status: number; cuerpo: unknown } | "SIN_RED" } = {}) {
   pedidos = [];
   globalThis.fetch = (async (url: string, init?: RequestInit) => {
     const metodo = init?.method ?? "GET";
     pedidos.push({ url, metodo, cuerpo: init?.body ? JSON.parse(String(init.body)) : undefined });
     if (url === "/api/push/clave") return new Response(JSON.stringify(r.clave ?? { estado: "OK", clave: CLAVE }), { status: 200 });
+    if (url.startsWith("/api/push/estado?")) {
+      if (r.estado === "SIN_RED") throw new TypeError("sin red");
+      const e = r.estado ?? { status: 200, cuerpo: { estado: "OK", registrada: true } };
+      return new Response(JSON.stringify(e.cuerpo), { status: e.status });
+    }
     if (url === "/api/push/suscribir") {
       const s = r.suscribir ?? { status: 200, cuerpo: { estado: "OK" } };
       return new Response(JSON.stringify(s.cuerpo), { status: s.status });
@@ -181,13 +197,62 @@ describe("el cliente de notificaciones", () => {
     assert.equal(pedidos.length, 0);
   });
 
-  it("al abrir el panel con una suscripción hecha, la vuelve a mandar (idempotente) y muestra Activadas", async () => {
+  // Tanda 11: antes, abrir el panel volvía a mandar la suscripción y mostraba "Activadas" con lo que
+  // dijera el navegador. Ahora se le PREGUNTA al servidor, y solo eso: no se manda nada sin que la persona toque.
+  it("al abrir el panel con una suscripción hecha, le pregunta al servidor por ESE endpoint: la tiene, Activadas; no la tiene, No están llegando; sin respuesta, tampoco Activadas", async () => {
     servidor();
     assert.equal(await leerEstado(navegador({ permiso: "granted", suscripto: true }).entorno), "ACTIVADAS");
-    assert.deepEqual(pedidos.map((p) => `${p.metodo} ${p.url}`), ["POST /api/push/suscribir"]);
+    assert.deepEqual(
+      pedidos.map((p) => `${p.metodo} ${p.url}`),
+      [`GET /api/push/estado?endpoint=${encodeURIComponent("https://fcm.googleapis.com/fcm/send/prueba")}`],
+    );
+    servidor({ estado: { status: 200, cuerpo: { estado: "OK", registrada: false } } });
+    assert.equal(await leerEstado(navegador({ permiso: "granted", suscripto: true }).entorno), "NO_LLEGAN");
+    assert.ok(pedidos.every((p) => p.metodo === "GET"), "no la vuelve a mandar sola");
+    servidor({ estado: { status: 401, cuerpo: { estado: "SIN_SESION" } } });
+    assert.equal(await leerEstado(navegador({ permiso: "granted", suscripto: true }).entorno), "NO_LLEGAN");
+    servidor({ estado: "SIN_RED" });
+    assert.equal(await leerEstado(navegador({ permiso: "granted", suscripto: true }).entorno), "NO_LLEGAN");
     servidor();
-    assert.equal(await leerEstado(navegador({ permiso: "granted" }).entorno), "DESACTIVADAS");
+    assert.equal(await leerEstado(navegador({ permiso: "granted" }).entorno), "DESACTIVADAS", "el navegador sin suscripción: ni pregunta");
     assert.equal(pedidos.length, 0);
+  });
+
+  it("Reactivar: vuelve a mandar la MISMA suscripción, sin pedir permiso de nuevo ni suscribir otra", async () => {
+    servidor();
+    let pidioPermiso = false;
+    const { entorno, registro } = navegador({ permiso: "granted", suscripto: true });
+    const conCuidado: EntornoPush = {
+      ...entorno,
+      Notification: {
+        permission: "granted",
+        requestPermission: async () => {
+          pidioPermiso = true;
+          return "granted";
+        },
+      },
+    };
+    assert.deepEqual(await reactivar(conCuidado), { estado: "ACTIVADAS" });
+    assert.equal(pidioPermiso, false);
+    assert.equal(registro.suscribirCon, undefined);
+    assert.deepEqual(pedidos.map((p) => `${p.metodo} ${p.url}`), ["POST /api/push/suscribir"]);
+    assert.deepEqual(pedidos[0]!.cuerpo, { endpoint: "https://fcm.googleapis.com/fcm/send/prueba", expirationTime: null, keys: { p256dh: "p", auth: "a" } });
+  });
+
+  it("Reactivar que el servidor no guarda: sigue 'No están llegando', con el error, y la del navegador queda (para volver a probar)", async () => {
+    servidor({ suscribir: { status: 503, cuerpo: { estado: "NO_DISPONIBLE" } } });
+    const { entorno, registro } = navegador({ permiso: "granted", suscripto: true });
+    const r = await reactivar(entorno);
+    assert.equal(r.estado, "NO_LLEGAN");
+    assert.ok(r.error);
+    assert.equal(registro.bajas, 0);
+  });
+
+  it("Reactivar sin suscripción en el navegador es activar", async () => {
+    servidor();
+    const { entorno } = navegador({ permiso: "granted" });
+    assert.deepEqual(await reactivar(entorno), { estado: "ACTIVADAS" });
+    assert.deepEqual(pedidos.map((p) => `${p.metodo} ${p.url}`), ["GET /api/push/clave", "POST /api/push/suscribir"]);
   });
 
   it("desactivar: DELETE con el endpoint y baja en el navegador", async () => {

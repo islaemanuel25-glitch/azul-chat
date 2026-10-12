@@ -965,3 +965,109 @@ body {
   color: var(--ac-color-texto-suave);
   font-size: var(--ac-letra-chica);
 }
+
+/* ── Tanda 11: configuración (Figma 06, 1:271). Las filas son las `ac-ajuste`
+   de la 5A; acá el interruptor, las horas y la confirmación. Solo tokens. ── */
+
+.ac-ajuste--apilado {
+  flex-direction: column;
+  align-items: stretch;
+  margin-top: var(--ac-espacio-2);
+}
+
+.ac-ajuste__fila {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ac-espacio-3);
+}
+
+.ac-ajuste__horas {
+  display: flex;
+  gap: var(--ac-espacio-3);
+  margin-top: var(--ac-espacio-2);
+}
+
+.ac-ajuste__hora {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--ac-espacio-1);
+}
+
+.ac-ajuste__selector {
+  min-height: var(--ac-alto-toque);
+  padding: 0 var(--ac-espacio-3);
+  border: 1px solid var(--ac-color-borde);
+  border-radius: var(--ac-espacio-3);
+  background: var(--ac-color-fondo);
+  color: var(--ac-color-texto);
+  font: inherit;
+  font-size: var(--ac-letra-chica);
+}
+
+.ac-ajustes__accion {
+  margin-top: var(--ac-espacio-3);
+}
+
+.ac-interruptor {
+  position: relative;
+  flex-shrink: 0;
+  width: 52px;
+  min-height: var(--ac-alto-toque);
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.ac-interruptor::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 52px;
+  height: 30px;
+  transform: translateY(-50%);
+  border: 1px solid var(--ac-color-borde);
+  border-radius: var(--ac-radio-pastilla);
+  background: var(--ac-color-marca-suave);
+}
+
+.ac-interruptor[aria-checked="true"]::before {
+  border-color: var(--ac-color-marca);
+  background: var(--ac-color-marca);
+}
+
+.ac-interruptor__perilla {
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 24px;
+  height: 24px;
+  transform: translateY(-50%);
+  border-radius: var(--ac-radio-pastilla);
+  background: var(--ac-color-superficie);
+  transition: left 0.15s;
+}
+
+.ac-interruptor[aria-checked="true"] .ac-interruptor__perilla {
+  left: 25px;
+}
+
+.ac-interruptor:disabled {
+  opacity: 0.5;
+}
+
+.ac-confirmacion {
+  margin-top: var(--ac-espacio-3);
+  padding: var(--ac-espacio-3);
+  border: 1px solid var(--ac-color-alerta);
+  border-radius: var(--ac-espacio-3);
+  background: var(--ac-color-alerta-fondo);
+}
+
+.ac-confirmacion__pregunta {
+  margin: 0 0 var(--ac-espacio-3);
+  color: var(--ac-color-texto);
+  font-size: var(--ac-letra-chica);
+}

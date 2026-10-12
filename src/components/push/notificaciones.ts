@@ -12,20 +12,27 @@
 //     suscripción del navegador: no queda "activada" algo que no avisa;
 //   · desactivar: DELETE /api/push/suscribir con el endpoint, y darla de baja
 //     en el navegador;
-//   · al abrir el panel con una suscripción ya hecha, se vuelve a mandar al
-//     servidor (es idempotente): la cuelga de la sesión de ahora, por si se
-//     volvió a vincular o el servidor la había borrado.
+//   · Tanda 11: al abrir el panel con una suscripción ya hecha, se PREGUNTA al
+//     servidor si la tiene para esta sesión (GET /api/push/estado). "Activadas"
+//     solo si la tiene. Si el navegador está suscripto y el servidor no (se
+//     cerró la sesión, venció, o el servicio dijo 410), "No están llegando" y
+//     "Reactivar", que la vuelve a mandar SIN pedir permiso de nuevo. Antes se
+//     volvía a mandar sola al abrir el panel y se mostraba "Activadas" con lo
+//     que dijera el navegador: el 11/10 eso dejó a alguien sin avisos y sin
+//     saberlo.
 //
 // Nada se guarda en el navegador fuera de lo que el propio navegador guarda de
 // su suscripción. Sin reintentos: si falla, la persona vuelve a tocar.
 
-import type { RespuestaClavePush, RespuestaSuscripcionPush } from "../../shared/push/api.ts";
+import type { RespuestaClavePush, RespuestaEstadoPush, RespuestaSuscripcionPush } from "../../shared/push/api.ts";
 import { anotarCommitDe } from "../chats/version.ts";
 
 export const RUTA_SERVICE_WORKER = "/sw.js";
 /** Las dos rutas propias que llama este archivo, literales: es lo que admite la frontera de HTTP (secretoSoloServidor.test.ts). */
 const RUTA_CLAVE = "/api/push/clave";
 const RUTA_SUSCRIBIR = "/api/push/suscribir";
+/** Tanda 11: el estado real, del lado del servidor. */
+const RUTA_ESTADO = "/api/push/estado";
 
 /** Lo que se ve en la fila. */
 export type EstadoNotificaciones =
@@ -33,7 +40,10 @@ export type EstadoNotificaciones =
   | "NO_SOPORTADAS"
   /** La persona (o el navegador) las bloqueó para este sitio: solo se destraban desde la configuración del navegador. */
   | "BLOQUEADAS"
+  /** El navegador está suscripto Y el servidor la tiene para esta sesión. */
   | "ACTIVADAS"
+  /** Tanda 11: el navegador está suscripto pero el servidor no la tiene (o no se pudo confirmar): los avisos no llegan. */
+  | "NO_LLEGAN"
   | "DESACTIVADAS";
 
 /** Lo mínimo del navegador que se usa. En el navegador, `window`; en los tests, uno de mentira. */
@@ -102,13 +112,43 @@ async function mandar(metodo: "POST" | "DELETE", cuerpo: unknown): Promise<boole
   }
 }
 
-/** Qué mostrar ahora. Si ya hay una suscripción, la vuelve a mandar al servidor (idempotente). */
+/** ¿El servidor tiene esta suscripción para esta sesión? null: no se pudo saber. */
+async function registradaEnElServidor(endpoint: string): Promise<boolean | null> {
+  try {
+    const q = new URLSearchParams({ endpoint }).toString();
+    const res = await fetch(`${RUTA_ESTADO}?${q}`, { cache: "no-store", credentials: "same-origin" });
+    anotarCommitDe(res);
+    const r = (await res.json().catch(() => null)) as RespuestaEstadoPush | null;
+    return res.ok && r?.estado === "OK" ? r.registrada : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Qué mostrar ahora: el estado REAL. Con una suscripción en el navegador, le
+ * pregunta al servidor; "Activadas" solo si la tiene. No la vuelve a mandar:
+ * eso lo hace "Reactivar", a propósito.
+ */
 export async function leerEstado(e: EntornoPush): Promise<EstadoNotificaciones> {
   if (!soportadas(e)) return "NO_SOPORTADAS";
   if (e.Notification!.permission === "denied") return "BLOQUEADAS";
   const s = await suscripcionActual(e).catch(() => null);
   if (!s || e.Notification!.permission !== "granted") return "DESACTIVADAS";
-  return (await mandar("POST", s.toJSON())) ? "ACTIVADAS" : "DESACTIVADAS";
+  return (await registradaEnElServidor(s.endpoint)) === true ? "ACTIVADAS" : "NO_LLEGAN";
+}
+
+/**
+ * Tanda 11: el navegador sigue suscripto pero el servidor no la tiene. Se
+ * vuelve a mandar la MISMA suscripción, sin pedir permiso de nuevo. Si el
+ * navegador ya no tiene ninguna, es activar.
+ */
+export async function reactivar(e: EntornoPush): Promise<ResultadoAccion> {
+  if (!soportadas(e)) return { estado: "NO_SOPORTADAS" };
+  if (e.Notification!.permission === "denied") return { estado: "BLOQUEADAS" };
+  const s = await suscripcionActual(e).catch(() => null);
+  if (!s || e.Notification!.permission !== "granted") return activar(e);
+  return (await mandar("POST", s.toJSON())) ? { estado: "ACTIVADAS" } : { estado: "NO_LLEGAN", error: "No se pudieron reactivar. Probá de nuevo." };
 }
 
 export type ResultadoAccion = { readonly estado: EstadoNotificaciones; readonly error?: string };
@@ -155,6 +195,8 @@ export function textoDeEstado(estado: EstadoNotificaciones): string {
   switch (estado) {
     case "ACTIVADAS":
       return "Activadas";
+    case "NO_LLEGAN":
+      return "No están llegando";
     case "DESACTIVADAS":
       return "Desactivadas";
     case "BLOQUEADAS":

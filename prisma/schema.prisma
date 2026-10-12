@@ -64,6 +64,15 @@ model Vinculo {
   erpCanjeadoEn      DateTime
   invalidadoEn       DateTime?
   motivoInvalidacion MotivoInvalidacion?
+  /// Tanda 11: el HORARIO DE SILENCIO de la persona. Apagado por defecto.
+  /// Mientras está activo y la hora de Argentina cae en [desde, hasta) —que
+  /// puede cruzar la medianoche, como 0 a 7 o 22 a 7—, la sincronización de
+  /// fondo no manda push; la marca de avisos avanza igual, así que al salir del
+  /// horario no llega el atraso. Horas enteras de 0 a 23, distintas (CHECK).
+  /// Es de la persona en esta instalación: sobrevive a volver a vincularse.
+  silencioActivo     Boolean             @default(false)
+  silencioDesde      Int                 @default(0)
+  silencioHasta      Int                 @default(7)
 
   instalacion   Instalacion       @relation(fields: [instalacionId], references: [id], onDelete: Restrict)
   sesiones      Sesion[]

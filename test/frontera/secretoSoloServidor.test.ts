@@ -162,6 +162,7 @@ describe("el cliente ERP no es genérico", () => {
       "src/components/x/Interna.tsx": '"use client";\nconst RUTA = "/api/interno/sincronizar";\nfetch(RUTA, { method: "POST" });\n',
       "src/components/x/InternaLiteral.tsx": '"use client";\nfetch("/api/interno/sincronizar");\n',
       "src/components/x/PushDeMas.tsx": '"use client";\nfetch("/api/push/enviar");\n',
+      "src/components/x/PushEstadoDeOtro.tsx": '"use client";\nfetch("/api/push/estados");\n',
     };
     for (const [archivo, codigo] of Object.entries(casos)) {
       const v = violacionesHttp({ ...base, [archivo]: codigo });
@@ -229,7 +230,8 @@ const ENVIO_PUSH = "src/server/push/enviar.ts";
 /** Tanda 6A: la llamada a la IA, a un destino fijo. */
 const LLAMADA_IA = "src/server/ia/gemini.ts";
 const DESTINO_IA = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent";
-const RUTA_PROPIA = /^\/api\/((sesion|chats)(\/[a-z]+)*|version|push\/(clave|suscribir))$/;
+/** Tanda 11: también `push/estado`, el estado real de la suscripción de este navegador. */
+const RUTA_PROPIA = /^\/api\/((sesion|chats)(\/[a-z]+)*|version|push\/(clave|suscribir|estado))$/;
 /** `${CONSTANTE}?${identificador}`: una ruta propia con una consulta (Tanda 2C). */
 const RUTA_CON_CONSULTA = /^`\$\{([A-Za-z_$][\w$]*)\}\?\$\{[A-Za-z_$][\w$]*\}`$/;
 
