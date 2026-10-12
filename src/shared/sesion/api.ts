@@ -19,6 +19,11 @@ export type EstadoSesion =
       readonly alcance: AlcanceErp;
       readonly locales: readonly LocalEnAlcance[];
     }
+  /**
+   * Tanda 15: hay sesión y el ERP la reconoce, pero el dueño todavía no le dio
+   * acceso a Azul Chat ("entrar"). Solo el nombre: ningún local ni dato.
+   */
+  | { readonly estado: "SIN_ACCESO"; readonly usuario: { readonly nombre: string } }
   /** Hay sesión, pero el ERP dice que hoy la persona no está autorizada (p. ej. inactiva). */
   | { readonly estado: "NO_AUTORIZADO" }
   /** Hay sesión, pero el ERP no contestó (caído, lento, sin configurar). La sesión NO se toca. */

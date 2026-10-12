@@ -55,10 +55,12 @@ import { origenPermitido } from "../http/origen.ts";
 import { json } from "../http/respuestas.ts";
 import { cookieBorrada } from "../sesion/cookie.ts";
 import type { ResultadoDelegado } from "../sesion/delegacion.ts";
+import { permite, type Permiso } from "../../shared/sesion/accesos.ts";
+import { anotarNombre } from "../accesos/accesos.ts";
 import type { DependenciasSesion } from "../sesion/dependencias.ts";
 import { ventasResumenDeSesion } from "../ventas/ventasResumen.ts";
 import { bajoMinimoPublico, esSinMinimo, sinMinimoPublico, stockConsultaDeSesion } from "../stock/stockConsulta.ts";
-import { conAutorizacionViva, tiposVisibles, type Autorizacion, type LocalAutorizado, type LocalDeEventos, type LocalDePendientes } from "./autorizacion.ts";
+import { conAutorizacionViva, tiposVisibles, type ResultadoAutorizado, type Autorizacion, type LocalAutorizado, type LocalDeEventos, type LocalDePendientes } from "./autorizacion.ts";
 import { ordenDeGeneral, pendientesDeLocales } from "../pendientes/pendientes.ts";
 import {
   decodificarCursor,
@@ -90,6 +92,7 @@ const STATUS: Record<FallaChats["estado"], number> = {
   ERP_NO_DISPONIBLE: 503,
   ERP_CUPO_EXCEDIDO: 429,
   SERVICIO_NO_DISPONIBLE: 503,
+  SIN_ACCESO: 403,
 };
 
 export function falla(f: FallaChats, request: Request, deps: DependenciasSesion): Response {
@@ -100,8 +103,10 @@ export function falla(f: FallaChats, request: Request, deps: DependenciasSesion)
 }
 
 /** El resultado de la autorización viva → la falla pública. P1: sin `mi_alcance`, sin historial. */
-export function fallaDeDelegacion<T>(r: Exclude<ResultadoDelegado<T>, { tipo: "OK" }>): FallaChats {
+export function fallaDeDelegacion<T>(r: Exclude<ResultadoAutorizado<T>, { tipo: "OK" }>): FallaChats {
   switch (r.tipo) {
+    case "SIN_ACCESO":
+      return r.motivo === "ENTRAR" ? { estado: "SIN_ACCESO", motivo: "ENTRAR" } : { estado: "SIN_ACCESO" };
     case "SIN_SESION":
       return r.vinculoInvalidado ? { estado: "SIN_SESION", motivo: "VINCULO_INVALIDO" } : { estado: "SIN_SESION" };
     case "RECHAZO_ERP":
@@ -131,11 +136,12 @@ const localNoAutorizado = <R>(): ResultadoConsulta<Trabajo<R>> => ({ ok: true, d
 async function responder<R>(
   request: Request,
   deps: DependenciasSesion,
+  permiso: Permiso,
   trabajo: (a: Autorizacion) => Promise<ResultadoConsulta<Trabajo<R>>>,
 ): Promise<Response> {
-  let r: ResultadoDelegado<Trabajo<R>>;
+  let r: ResultadoAutorizado<Trabajo<R>>;
   try {
-    r = await conAutorizacionViva(request.headers, deps, trabajo);
+    r = await conAutorizacionViva(request.headers, deps, permiso, trabajo);
   } catch {
     deps.registrar({ evento: "sesion.falla_local", etapa: "base" });
     return falla({ estado: "SERVICIO_NO_DISPONIBLE" }, request, deps);
@@ -174,7 +180,7 @@ async function prepararLocales(deps: DependenciasSesion, a: Autorizacion, locale
 
 export function manejarChats(request: Request, deps: DependenciasSesion): Promise<Response> {
   if (parametros(request, []) === null) return Promise.resolve(falla({ estado: "SOLICITUD_INVALIDA" }, request, deps));
-  return responder<RespuestaChats>(request, deps, async (a) => {
+  return responder<RespuestaChats>(request, deps, "entrar", async (a) => {
     const preparados = await prepararLocales(deps, a, a.autorizados);
     const { db, config, sesion } = a.contexto;
     const locales: LocalDeChats[] = [];
@@ -195,6 +201,8 @@ export function manejarChats(request: Request, deps: DependenciasSesion): Promis
         ultimoGeneral = { ...l.ultimoEvento, local: { localId: l.localId, nombre: l.nombre } };
       }
     }
+    // Tanda 15: el nombre que da el ERP, para la lista de Accesos del administrador.
+    await anotarNombre(db, sesion.vinculo.id, a.usuario.nombre);
     return ok<RespuestaChats>({
       estado: "OK",
       usuario: a.usuario,
@@ -227,14 +235,16 @@ export function manejarLocal(request: Request, deps: DependenciasSesion): Promis
     return Promise.resolve(falla({ estado: "SOLICITUD_INVALIDA" }, request, deps));
   }
   const localId = Number(crudo);
-  return responder<RespuestaLocal>(request, deps, async (a) => {
+  return responder<RespuestaLocal>(request, deps, "entrar", async (a) => {
     const autorizado = a.autorizados.find((l) => l.localId === localId);
     if (!autorizado) return localNoAutorizado();
     const [local] = await prepararLocales(deps, a, [autorizado]);
     if (!local) return localNoAutorizado();
     const { db, config, sesion } = a.contexto;
     // Tanda 6C: las preguntas guardadas en este Local, intercaladas por hora (preguntas/guardadas.ts).
-    const preguntas = fuenteDePreguntas(db, { vinculoId: sesion.vinculo.id, erpLocalId: localId, hoy: a, ahora: new Date(deps.ahora()) });
+    // Tanda 15: solo con el permiso "ia"; sin él, ni las propias.
+    const conIa = permite(a.acceso.permisos, "ia");
+    const preguntas = conIa ? fuenteDePreguntas(db, { vinculoId: sesion.vinculo.id, erpLocalId: localId, hoy: a, ahora: new Date(deps.ahora()) }) : undefined;
     const pagina = await paginaDeHistorial(db, config.instalacionId, [visible(local)], desde, undefined, preguntas);
     return ok<RespuestaLocal>({
       estado: "OK",
@@ -248,7 +258,7 @@ export function manejarLocal(request: Request, deps: DependenciasSesion): Promis
         pendientes: a.conPendientes.some((l) => l.localId === localId),
       },
       sincronizacion: local.sincronizacion,
-      preguntas: deps.ia?.ok === true,
+      preguntas: deps.ia?.ok === true && conIa,
       noLeidos: await contarNoLeidos(db, sesion.vinculo.id, localId, tiposVisibles(local.capacidades)),
       leidoHasta: ((await leerLectura(db, sesion.vinculo.id, localId)) ?? 0n).toString(),
       eventos: pagina.filas.map((f) => f.evento),
@@ -265,12 +275,13 @@ export function manejarGeneral(request: Request, deps: DependenciasSesion): Prom
   const cursorCrudo = p?.get("cursor");
   const desde: PosicionHistorial | null = cursorCrudo === undefined ? null : decodificarCursor(cursorCrudo);
   if (!p || (cursorCrudo !== undefined && !desde)) return Promise.resolve(falla({ estado: "SOLICITUD_INVALIDA" }, request, deps));
-  return responder<RespuestaGeneral>(request, deps, async (a) => {
+  return responder<RespuestaGeneral>(request, deps, "entrar", async (a) => {
     const preparados = await prepararLocales(deps, a, a.autorizados);
     const { db, config, sesion } = a.contexto;
     const porId = new Map<number, LocalSincronizado>(preparados.map((l) => [l.localId, l]));
     // General es una proyección: la misma tabla de eventos, filtrada por los locales autorizados de AHORA.
-    const preguntas = fuenteDePreguntas(db, { vinculoId: sesion.vinculo.id, erpLocalId: null, hoy: a, ahora: new Date(deps.ahora()) });
+    const conIa = permite(a.acceso.permisos, "ia");
+    const preguntas = conIa ? fuenteDePreguntas(db, { vinculoId: sesion.vinculo.id, erpLocalId: null, hoy: a, ahora: new Date(deps.ahora()) }) : undefined;
     const pagina = await paginaDeHistorial(db, config.instalacionId, preparados.map(visible), desde, undefined, preguntas);
     let noLeidos = 0;
     for (const l of preparados) noLeidos += await contarNoLeidos(db, sesion.vinculo.id, l.localId, tiposVisibles(l.capacidades));
@@ -280,7 +291,7 @@ export function manejarGeneral(request: Request, deps: DependenciasSesion): Prom
       eventos: pagina.filas.map((f) => ({ ...f.evento, local: { localId: f.erpLocalId, nombre: porId.get(f.erpLocalId)!.nombre } })),
       guardadas: pagina.preguntas,
       siguiente: pagina.siguiente,
-      preguntas: deps.ia?.ok === true,
+      preguntas: deps.ia?.ok === true && conIa,
       localesDemorados: preparados.filter((l) => l.sincronizacion === "DEMORADA").map((l) => l.localId),
       pendientes: a.conPendientes.length > 0,
     });
@@ -315,7 +326,7 @@ export async function manejarLeido(request: Request, deps: DependenciasSesion): 
   if (!origenPermitido(request.headers, deps.config.config.origenPublico)) return falla({ estado: "ORIGEN_NO_PERMITIDO" }, request, deps);
   const marcas = leerMarcas(await leerObjetoJson(request, MAX_BYTES_LEIDO));
   if (!marcas) return falla({ estado: "SOLICITUD_INVALIDA" }, request, deps);
-  return responder<RespuestaLeido>(request, deps, async (a) => {
+  return responder<RespuestaLeido>(request, deps, "entrar", async (a) => {
     // TODOS los locales tienen que estar autorizados ahora; si uno no, no se marca ninguno.
     const locales = marcas.map((m) => a.autorizados.find((l) => l.localId === m.localId));
     if (!locales.every((l) => l !== undefined)) return localNoAutorizado();
@@ -374,6 +385,7 @@ export function ventasPublicas(d: DatosVentasResumen, local: LocalAutorizado): E
 async function consultarLocalHoy<D, R>(
   request: Request,
   deps: DependenciasSesion,
+  permiso: Permiso,
   locales: (a: Autorizacion) => readonly LocalAutorizado[],
   consultar: (local: LocalAutorizado) => Promise<ResultadoDelegado<D>>,
   publicar: (d: D, local: LocalAutorizado) => R | null,
@@ -384,9 +396,9 @@ async function consultarLocalHoy<D, R>(
   if (!p || !crudo || !LOCAL_ID.test(crudo)) return falla({ estado: "SOLICITUD_INVALIDA" }, request, deps);
   const localId = Number(crudo);
 
-  let autorizacion: ResultadoDelegado<Trabajo<LocalAutorizado>>;
+  let autorizacion: ResultadoAutorizado<Trabajo<LocalAutorizado>>;
   try {
-    autorizacion = await conAutorizacionViva(request.headers, deps, async (a) => {
+    autorizacion = await conAutorizacionViva(request.headers, deps, permiso, async (a) => {
       const local = locales(a).find((l) => l.localId === localId);
       return local ? ok(local) : localNoAutorizado();
     });
@@ -428,6 +440,7 @@ export function manejarVentas(request: Request, deps: DependenciasSesion): Promi
   return consultarLocalHoy(
     request,
     deps,
+    "ventas",
     (a) => a.conVentas,
     (local) => ventasResumenDeSesion(request.headers, { alcance: { grupoId: local.grupoId, localId: local.localId }, periodo: { tipo: "hoy" } }, deps),
     ventasPublicas,
@@ -446,6 +459,7 @@ export function manejarCaja(request: Request, deps: DependenciasSesion): Promise
   return consultarLocalHoy(
     request,
     deps,
+    "caja",
     (a) => a.conCaja,
     (local) => cajasResumenDeSesion(request.headers, { alcance: { grupoId: local.grupoId, localId: local.localId }, periodo: { tipo: "hoy" } }, deps),
     (d, local): RespuestaCaja | null => {
@@ -470,6 +484,7 @@ export function manejarStock(request: Request, deps: DependenciasSesion): Promis
   return consultarLocalHoy(
     request,
     deps,
+    "stock",
     (a) => a.conStock,
     (local) => stockConsultaDeSesion(request.headers, { alcance: { grupoId: local.grupoId, localId: local.localId }, parametros: { modo: "bajo_minimo" } }, deps),
     (d, local): RespuestaStock | null => {
@@ -502,9 +517,9 @@ async function localesDePendientesAhora(
   deps: DependenciasSesion,
   elegir: (a: Autorizacion) => readonly LocalDePendientes[] | null,
 ): Promise<{ ok: true; locales: readonly LocalDePendientes[] } | { ok: false; respuesta: Response }> {
-  let autorizacion: ResultadoDelegado<Trabajo<readonly LocalDePendientes[]>>;
+  let autorizacion: ResultadoAutorizado<Trabajo<readonly LocalDePendientes[]>>;
   try {
-    autorizacion = await conAutorizacionViva(request.headers, deps, async (a) => {
+    autorizacion = await conAutorizacionViva(request.headers, deps, "pendientes", async (a) => {
       const elegidos = elegir(a);
       return elegidos ? ok(elegidos) : localNoAutorizado();
     });
@@ -559,7 +574,7 @@ export function manejarBuscar(request: Request, deps: DependenciasSesion): Promi
     return Promise.resolve(falla({ estado: "SOLICITUD_INVALIDA" }, request, deps));
   }
   const localId = crudo === undefined ? null : Number(crudo);
-  return responder<RespuestaBuscar>(request, deps, async (a) => {
+  return responder<RespuestaBuscar>(request, deps, "entrar", async (a) => {
     const elegidos = localId === null ? a.autorizados : a.autorizados.filter((l) => l.localId === localId);
     if (localId !== null && elegidos.length === 0) return localNoAutorizado();
     const { db, config, sesion } = a.contexto;
@@ -567,7 +582,8 @@ export function manejarBuscar(request: Request, deps: DependenciasSesion): Promi
       instalacionId: config.instalacionId,
       vinculoId: sesion.vinculo.id,
       locales: elegidos.map((l) => ({ ...visible(l), nombre: l.nombre })),
-      chatsDePreguntas: localId === null ? [null, ...elegidos.map((l) => l.localId)] : [localId],
+      // Tanda 15: sin el permiso "ia", la búsqueda no mira preguntas guardadas.
+      chatsDePreguntas: !permite(a.acceso.permisos, "ia") ? [] : localId === null ? [null, ...elegidos.map((l) => l.localId)] : [localId],
       hoy: a,
       ahora: new Date(deps.ahora()),
       busqueda,

@@ -61,6 +61,8 @@ import { diaDe, etiquetaDeDia } from "./formato.ts";
 import {
   decidirLecturaLocal,
   destinoDeFalla,
+  motivoDeSesion,
+  pideSesion,
   elementosEnOrden,
   reducirCaja,
   reducirPendientes,
@@ -101,7 +103,7 @@ function useConversacion<E extends EventoPublico, I extends InfoLocal | InfoGene
 
   const fallar = useCallback(
     (falla: FallaCliente) => {
-      if (falla.estado === "SIN_SESION") return alPerderSesion(falla.motivo);
+      if (pideSesion(falla)) return alPerderSesion(motivoDeSesion(falla));
       alFallar(falla);
       despachar({ tipo: "FALLA", falla });
     },
@@ -171,8 +173,8 @@ function useLecturaLocal<E extends EventoPublico>(
       if (r.ok) {
         const l = r.datos.lecturas.find((x) => x.localId === marca.localId);
         if (l) despachar({ tipo: "LEIDO", localId: l.localId, leidoHasta: l.leidoHasta, noLeidos: l.noLeidos });
-      } else if (r.falla.estado === "SIN_SESION") {
-        alPerderSesion(r.falla.motivo);
+      } else if (pideSesion(r.falla)) {
+        alPerderSesion(motivoDeSesion(r.falla));
       }
       // Cualquier otra falla: no se finge que se leyó. La vista sigue como está.
     });
@@ -413,7 +415,7 @@ function useVentas(localId: number, alPerderSesion: AlPerderSesion, alFallar: (f
     void pedirVentas(localId, control.signal).then((resultado) => {
       if (control.signal.aborted) return;
       enCurso.current = null;
-      if (!resultado.ok && resultado.falla.estado === "SIN_SESION") return alPerderSesion(resultado.falla.motivo);
+      if (!resultado.ok && pideSesion(resultado.falla)) return alPerderSesion(motivoDeSesion(resultado.falla));
       if (!resultado.ok) alFallar(resultado.falla);
       despachar({ tipo: "RESPUESTA", resultado });
     });
@@ -440,7 +442,7 @@ function useCaja(localId: number, alPerderSesion: AlPerderSesion, alFallar: (f: 
     void pedirCaja(localId, control.signal).then((resultado) => {
       if (control.signal.aborted) return;
       enCurso.current = null;
-      if (!resultado.ok && resultado.falla.estado === "SIN_SESION") return alPerderSesion(resultado.falla.motivo);
+      if (!resultado.ok && pideSesion(resultado.falla)) return alPerderSesion(motivoDeSesion(resultado.falla));
       if (!resultado.ok) alFallar(resultado.falla);
       despachar({ tipo: "RESPUESTA", resultado });
     });
@@ -467,7 +469,7 @@ function useStock(localId: number, alPerderSesion: AlPerderSesion, alFallar: (f:
     void pedirStock(localId, control.signal).then((resultado) => {
       if (control.signal.aborted) return;
       enCurso.current = null;
-      if (!resultado.ok && resultado.falla.estado === "SIN_SESION") return alPerderSesion(resultado.falla.motivo);
+      if (!resultado.ok && pideSesion(resultado.falla)) return alPerderSesion(motivoDeSesion(resultado.falla));
       if (!resultado.ok) alFallar(resultado.falla);
       despachar({ tipo: "RESPUESTA", resultado });
     });
@@ -499,7 +501,7 @@ function usePendientes(localId: number | null, alPerderSesion: AlPerderSesion, a
     void consulta.then((resultado) => {
       if (control.signal.aborted) return;
       enCurso.current = null;
-      if (!resultado.ok && resultado.falla.estado === "SIN_SESION") return alPerderSesion(resultado.falla.motivo);
+      if (!resultado.ok && pideSesion(resultado.falla)) return alPerderSesion(motivoDeSesion(resultado.falla));
       if (!resultado.ok) alFallar(resultado.falla);
       despachar({ tipo: "RESPUESTA", resultado });
     });

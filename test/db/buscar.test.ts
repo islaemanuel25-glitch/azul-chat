@@ -28,6 +28,7 @@ import type { RespuestaBuscar, ResultadoBusqueda } from "../../src/shared/chats/
 import { EJEMPLOS_DE_PREGUNTAS } from "../../src/shared/chats/preguntas.ts";
 import type { DatosMiAlcance, EventoTransferenciaRecibida } from "../../src/shared/erp/contrato.ts";
 import { crearBaseDescartable, type BaseDescartable } from "../ayuda/baseDescartable.ts";
+import { ADMINISTRADORES_DE_PRUEBA } from "../ayuda/accesos.ts";
 import { levantarErpConEstado, type ErpConEstado } from "../ayuda/erpConEstado.ts";
 import { pedido, recepcion } from "../ayuda/paginadorErp.ts";
 import { FIXTURES_ERP_25172FE, SECRETO_PRUEBA, type Rompible } from "../ayuda/servidorErp.ts";
@@ -77,7 +78,7 @@ beforeEach(async () => {
 function deps(): DependenciasSesion {
   const registrar: (r: Registro) => void = () => {};
   return {
-    config: leerConfigAzulChat({ AZUL_CHAT_INSTALACION_ID: INSTALACION, AZUL_CHAT_ORIGEN_PUBLICO: ORIGEN, AZUL_CHAT_TOKEN_ENCRYPTION_KEY: CLAVE }),
+    config: leerConfigAzulChat({ AZUL_CHAT_INSTALACION_ID: INSTALACION, AZUL_CHAT_ORIGEN_PUBLICO: ORIGEN, AZUL_CHAT_TOKEN_ENCRYPTION_KEY: CLAVE, AZUL_CHAT_ADMINISTRADORES: ADMINISTRADORES_DE_PRUEBA }),
     db: base.db,
     erp: crearClienteErp({ entorno: { ERP_BASE_URL: erp.origen, AZUL_CHAT_INTEGRACION_SECRET: SECRETO_PRUEBA }, timeoutMs: 2000, registrar }),
     limitador: crearLimitador({ maxPorIp: 1000, maxPorProceso: 1000 }),

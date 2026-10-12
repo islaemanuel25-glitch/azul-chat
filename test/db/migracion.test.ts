@@ -40,7 +40,7 @@ describe("la migración", () => {
     const tablas = await base.db.$queryRawUnsafe<{ t: string }[]>(
       `SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' ORDER BY 1`,
     );
-    assert.deepEqual(tablas.map((x) => x.t), ["AvisoLocal", "ConsumoIa", "CursorIngesta", "Evento", "Instalacion", "LecturaLocal", "Pregunta", "PushSuscripcion", "SaludSincronizacion", "Sesion", "Vinculo", "_prisma_migrations"]);
+    assert.deepEqual(tablas.map((x) => x.t), ["AccesoPersona", "AvisoLocal", "ConsumoIa", "CursorIngesta", "Evento", "Instalacion", "LecturaLocal", "Pregunta", "PushSuscripcion", "SaludSincronizacion", "Sesion", "Vinculo", "_prisma_migrations"]);
     const aplicadas = await base.db.$queryRawUnsafe<{ n: string }[]>(`SELECT migration_name AS n FROM _prisma_migrations WHERE finished_at IS NOT NULL`);
     const enElRepo = readdirSync(path.join(RAIZ, "prisma/migrations"), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name);
     assert.deepEqual(aplicadas.map((x) => x.n).sort(), enElRepo.sort());
@@ -67,6 +67,20 @@ describe("la migración", () => {
     // NO autoriza nada: es una lista de lo que el resultado trae, que se
     // compara contra mi_alcance de hoy y solo puede OCULTAR la pregunta.
     assert.deepEqual(columnas.map((x) => x.c), [
+      // Tanda 15: los accesos de cada persona en Azul Chat. Seis booleanos que
+      // solo RESTAN a lo que da el ERP (nunca suman), por id de persona del
+      // ERP, y quién (otro id de persona) y cuándo los cambió. No es el rol ni
+      // los permisos del ERP: esos se piden vivos en cada pedido.
+      "AccesoPersona.caja",
+      "AccesoPersona.cambiadoEn",
+      "AccesoPersona.cambiadoPorErpUsuarioId",
+      "AccesoPersona.entrar",
+      "AccesoPersona.erpUsuarioId",
+      "AccesoPersona.ia",
+      "AccesoPersona.instalacionId",
+      "AccesoPersona.pendientes",
+      "AccesoPersona.stock",
+      "AccesoPersona.ventas",
       "AvisoLocal.actualizadoEn",
       "AvisoLocal.avisadoHastaEventoId",
       "AvisoLocal.erpLocalId",
@@ -148,6 +162,8 @@ describe("la migración", () => {
       "Sesion.revocadaEn",
       "Sesion.vinculoId",
       "Vinculo.erpCanjeadoEn",
+      // Tanda 15: el nombre que dio el ERP, solo para mostrarlo en Accesos.
+      "Vinculo.erpNombre",
       "Vinculo.erpUsuarioId",
       "Vinculo.erpVinculoId",
       "Vinculo.id",
@@ -361,6 +377,23 @@ describe("40. invariantes que sostiene la base", () => {
     await rechaza(`UPDATE "SaludSincronizacion" SET "fallasSeguidas" = -1`, CHECK);
     await sql(`UPDATE "SaludSincronizacion" SET "ultimaFallaEn" = now(), "ultimaFallaMotivo" = 'ERP_CUPO_EXCEDIDO', "incidenteDesde" = now(), "incidenteMotivo" = 'SIN_CORRIDAS', "fallasSeguidas" = 3`);
     await sql(`DELETE FROM "SaludSincronizacion"`);
+  });
+
+  it("15. los accesos: ids del ERP positivos, quién y cuándo juntos, todo en false por defecto; el nombre, corto y no vacío", async () => {
+    const instalacion = (await base.db.$queryRawUnsafe<{ id: string }[]>(`SELECT id FROM "Instalacion" LIMIT 1`))[0]!.id;
+    const acceso = (extra = "", valores = "") => `INSERT INTO "AccesoPersona" ("instalacionId", "erpUsuarioId"${extra}) VALUES ('${instalacion}', 77${valores})`;
+    await sql(acceso());
+    const [fila] = await base.db.$queryRawUnsafe<Record<string, unknown>[]>(`SELECT entrar, ventas, caja, stock, pendientes, ia FROM "AccesoPersona"`);
+    assert.deepEqual(fila, { entrar: false, ventas: false, caja: false, stock: false, pendientes: false, ia: false }, "cerrado por defecto");
+    await sql(`DELETE FROM "AccesoPersona"`);
+    await rechaza(acceso().replace(", 77", ", 0"), CHECK);
+    await rechaza(acceso(', "cambiadoPorErpUsuarioId"', ", 9"), CHECK);
+    await rechaza(acceso(', "cambiadoEn"', ", now()"), CHECK);
+    await rechaza(acceso(', "cambiadoPorErpUsuarioId", "cambiadoEn"', ", -1, now()"), CHECK);
+    await sql(acceso(', "cambiadoPorErpUsuarioId", "cambiadoEn"', ", 9, now()"));
+    await sql(`DELETE FROM "AccesoPersona"`);
+    await rechaza(`UPDATE "Vinculo" SET "erpNombre" = ''`, CHECK);
+    await rechaza(`UPDATE "Vinculo" SET "erpNombre" = '${"x".repeat(121)}'`, CHECK);
   });
 
   it("no se borra un vínculo con sesiones ni una instalación con vínculos", async () => {

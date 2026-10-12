@@ -12,7 +12,7 @@ import { afterEach, describe, it } from "node:test";
 import { createElement, isValidElement, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { cerrarOtrasSesiones, guardarSilencio, pedirConfiguracion, RUTAS_DE_CONFIGURACION } from "../../src/components/sesion/clienteConfiguracion.ts";
+import { cerrarOtrasSesiones, guardarAccesos, pedirAccesos, guardarSilencio, pedirConfiguracion, RUTAS_DE_CONFIGURACION } from "../../src/components/sesion/clienteConfiguracion.ts";
 import {
   Confirmacion,
   desdeCuando,
@@ -21,9 +21,13 @@ import {
   PREGUNTA_CERRAR_SESION,
   VistaIa,
   VistaSesiones,
+  VistaAccesos,
   VistaSilencio,
   type Confirmando,
 } from "../../src/components/sesion/Configuracion.tsx";
+import { TEXTO_SIN_ACCESO } from "../../src/components/sesion/PanelSesion.tsx";
+import { destinoDeFalla, motivoDeSesion, pideSesion } from "../../src/components/chats/logica.ts";
+import { NINGUN_PERMISO, TODOS_LOS_PERMISOS, type PersonaConAcceso } from "../../src/shared/sesion/accesos.ts";
 import type { Dispositivo, HorarioSilencio, SaldoIa } from "../../src/shared/sesion/configuracion.ts";
 
 const nada = () => {};
@@ -173,7 +177,7 @@ describe("el cliente HTTP de la configuración", () => {
     globalThis.fetch = original;
   });
 
-  it("tres rutas propias: leer (GET), guardar el silencio (PUT con el horario entero) y cerrar las otras (DELETE)", async () => {
+  it("cuatro rutas propias: leer (GET), guardar el silencio (PUT con el horario entero), cerrar las otras (DELETE) y, desde la Tanda 15, los accesos (GET y PUT)", async () => {
     const pedidos: { url: string; metodo: string; cuerpo: unknown }[] = [];
     globalThis.fetch = (async (url: string, init?: RequestInit) => {
       pedidos.push({ url, metodo: init?.method ?? "GET", cuerpo: init?.body ? JSON.parse(String(init.body)) : undefined });
@@ -182,12 +186,20 @@ describe("el cliente HTTP de la configuración", () => {
     assert.ok((await pedirConfiguracion()).ok);
     assert.ok((await guardarSilencio({ activo: true, desde: 0, hasta: 7 })).ok);
     assert.ok((await cerrarOtrasSesiones()).ok);
+    assert.ok((await pedirAccesos()).ok);
+    const permisos = { entrar: true, ventas: false, caja: true, stock: false, pendientes: false, ia: true };
+    assert.ok((await guardarAccesos({ personaId: 11, ...permisos })).ok);
     assert.deepEqual(pedidos, [
       { url: "/api/sesion/configuracion", metodo: "GET", cuerpo: undefined },
       { url: "/api/sesion/silencio", metodo: "PUT", cuerpo: { activo: true, desde: 0, hasta: 7 } },
       { url: "/api/sesion/otras", metodo: "DELETE", cuerpo: undefined },
+      { url: "/api/sesion/accesos", metodo: "GET", cuerpo: undefined },
+      { url: "/api/sesion/accesos", metodo: "PUT", cuerpo: { personaId: 11, ...permisos } },
     ]);
-    assert.deepEqual({ ...RUTAS_DE_CONFIGURACION }, { configuracion: "/api/sesion/configuracion", silencio: "/api/sesion/silencio", otras: "/api/sesion/otras" });
+    assert.deepEqual(
+      { ...RUTAS_DE_CONFIGURACION },
+      { configuracion: "/api/sesion/configuracion", silencio: "/api/sesion/silencio", otras: "/api/sesion/otras", accesos: "/api/sesion/accesos" },
+    );
   });
 
   it("una falla es la falla, y sin red es RED", async () => {
@@ -197,5 +209,77 @@ describe("el cliente HTTP de la configuración", () => {
       throw new TypeError("sin red");
     }) as typeof fetch;
     assert.deepEqual(await pedirConfiguracion(), { ok: false, falla: "RED" });
+  });
+});
+
+describe("Tanda 15: la sección Accesos (solo administradores)", () => {
+  const ZONA = "America/Argentina/Buenos_Aires";
+  const persona = (o: Partial<PersonaConAcceso>): PersonaConAcceso => ({
+    personaId: 11,
+    nombre: "Encargada Casiano",
+    vinculadoEn: "2026-10-12T15:02:00.000Z",
+    administrador: false,
+    permisos: NINGUN_PERMISO,
+    ...o,
+  });
+  const interruptores = (html: string) =>
+    [...html.matchAll(/<button[^>]*role="switch"[^>]*>/g)].map((m) => ({
+      rotulo: /aria-label="([^"]*)"/.exec(m[0])![1],
+      prendido: /aria-checked="true"/.test(m[0]),
+      quieto: /disabled=""/.test(m[0]),
+    }));
+
+  it("cada persona con su nombre, su último vínculo y un interruptor por permiso, en orden; sin Entrar, los otros quietos", () => {
+    const html = dibujar(createElement(VistaAccesos, { personas: [persona({})], guardando: null, alCambiar: nada, zona: ZONA }));
+    assert.equal(texto(html), "Accesos Encargada Casiano Vinculado el 12/10 a las 12:02 Entrar Ventas Caja Stock Pendientes IA");
+    assert.deepEqual(
+      interruptores(html).map((i) => [i.rotulo, i.prendido, i.quieto]),
+      [
+        ["Entrar de Encargada Casiano", false, false],
+        ["Ventas de Encargada Casiano", false, true],
+        ["Caja de Encargada Casiano", false, true],
+        ["Stock de Encargada Casiano", false, true],
+        ["Pendientes de Encargada Casiano", false, true],
+        ["IA de Encargada Casiano", false, true],
+      ],
+    );
+    const conEntrar = interruptores(dibujar(createElement(VistaAccesos, { personas: [persona({ permisos: { ...NINGUN_PERMISO, entrar: true, caja: true } })], guardando: null, alCambiar: nada, zona: ZONA })));
+    assert.deepEqual(conEntrar.map((i) => [i.prendido, i.quieto]), [[true, false], [false, false], [true, false], [false, false], [false, false], [false, false]]);
+  });
+
+  it("un administrador: todo prendido y bloqueado; mientras se guarda una persona, sus interruptores quedan quietos", () => {
+    const html = dibujar(createElement(VistaAccesos, { personas: [persona({ personaId: 9, nombre: "Emanuel", administrador: true, permisos: TODOS_LOS_PERMISOS })], guardando: null, alCambiar: nada, zona: ZONA }));
+    assert.match(texto(html), /Emanuel Administrador · Vinculado el/);
+    assert.ok(interruptores(html).every((i) => i.prendido && i.quieto));
+    const guardando = interruptores(dibujar(createElement(VistaAccesos, { personas: [persona({ permisos: TODOS_LOS_PERMISOS })], guardando: 11, alCambiar: nada, zona: ZONA })));
+    assert.ok(guardando.every((i) => i.quieto));
+  });
+
+  it("tocar un interruptor manda los seis permisos de esa persona, con ese cambiado", () => {
+    const cambios: [number, unknown][] = [];
+    const el = VistaAccesos({ personas: [persona({ permisos: { ...NINGUN_PERMISO, entrar: true } })], guardando: null, alCambiar: (id, p) => cambios.push([id, p]) });
+    const botones: ReactElement<{ onClick: () => void }>[] = [];
+    const juntar = (n: ReactNode): void => {
+      if (Array.isArray(n)) n.forEach(juntar);
+      else if (isValidElement(n)) {
+        const props = n.props as { role?: string; children?: ReactNode };
+        if (props.role === "switch") botones.push(n as ReactElement<{ onClick: () => void }>);
+        juntar(props.children);
+      }
+    };
+    juntar(el);
+    botones[2]!.props.onClick(); // Caja
+    assert.deepEqual(cambios, [[11, { ...NINGUN_PERMISO, entrar: true, caja: true }]]);
+  });
+
+  it("la falla SIN_ACCESO: sin \"entrar\" lleva a la sesión (que dice el texto de sin acceso); sin una sección, como un local que no se ve", () => {
+    assert.equal(TEXTO_SIN_ACCESO, "Todavía no tenés acceso a Azul Chat.");
+    assert.equal(pideSesion({ estado: "SIN_ACCESO", motivo: "ENTRAR" }), true);
+    assert.equal(destinoDeFalla({ estado: "SIN_ACCESO", motivo: "ENTRAR" }), "SESION");
+    assert.equal(motivoDeSesion({ estado: "SIN_ACCESO", motivo: "ENTRAR" }), undefined);
+    assert.equal(pideSesion({ estado: "SIN_ACCESO" }), false);
+    assert.equal(destinoDeFalla({ estado: "SIN_ACCESO" }), "NO_AUTORIZADO");
+    assert.equal(pideSesion({ estado: "SIN_SESION", motivo: "VINCULO_INVALIDO" }), true, "CONTRAPRUEBA: sin sesión, como siempre");
+    assert.equal(motivoDeSesion({ estado: "SIN_SESION", motivo: "VINCULO_INVALIDO" }), "VINCULO_INVALIDO");
   });
 });

@@ -21,6 +21,7 @@ import { manejarEstado } from "../../src/server/sesion/estado.ts";
 import { manejarVincular } from "../../src/server/sesion/vincular.ts";
 import { ventasResumenDeSesion } from "../../src/server/ventas/ventasResumen.ts";
 import { crearBaseDescartable, type BaseDescartable } from "../ayuda/baseDescartable.ts";
+import { ADMINISTRADORES_DE_PRUEBA } from "../ayuda/accesos.ts";
 import { levantarErpConEstado, type ErpConEstado } from "../ayuda/erpConEstado.ts";
 import { DATOS_ERP, ENTRADA_HOY, FIXTURES_ERP, FIXTURES_ERP_25172FE, SECRETO_PRUEBA } from "../ayuda/servidorErp.ts";
 
@@ -58,7 +59,7 @@ beforeEach(async () => {
 type Opciones = { db?: PrismaClient | null; entorno?: Record<string, string | undefined>; timeoutMs?: number; limitador?: ReturnType<typeof crearLimitador> };
 
 function deps(o: Opciones = {}): DependenciasSesion {
-  const entorno = o.entorno ?? { AZUL_CHAT_INSTALACION_ID: INSTALACION, AZUL_CHAT_ORIGEN_PUBLICO: ORIGEN, AZUL_CHAT_TOKEN_ENCRYPTION_KEY: CLAVE };
+  const entorno = o.entorno ?? { AZUL_CHAT_INSTALACION_ID: INSTALACION, AZUL_CHAT_ORIGEN_PUBLICO: ORIGEN, AZUL_CHAT_TOKEN_ENCRYPTION_KEY: CLAVE, AZUL_CHAT_ADMINISTRADORES: ADMINISTRADORES_DE_PRUEBA };
   const registrar = (r: Registro) => registros.push(r);
   return {
     config: leerConfigAzulChat(entorno),
@@ -154,7 +155,7 @@ describe("vincular", () => {
   });
 
   it("18. en producción la cookie lleva Secure", async () => {
-    const d = deps({ entorno: { AZUL_CHAT_INSTALACION_ID: INSTALACION, AZUL_CHAT_ORIGEN_PUBLICO: ORIGEN, AZUL_CHAT_TOKEN_ENCRYPTION_KEY: CLAVE, NODE_ENV: "production" } });
+    const d = deps({ entorno: { AZUL_CHAT_INSTALACION_ID: INSTALACION, AZUL_CHAT_ORIGEN_PUBLICO: ORIGEN, AZUL_CHAT_TOKEN_ENCRYPTION_KEY: CLAVE, AZUL_CHAT_ADMINISTRADORES: ADMINISTRADORES_DE_PRUEBA, NODE_ENV: "production" } });
     const res = await manejarVincular(pedidoVincular({ codigo: erp.emitirCodigo(7) }), d);
     assert.equal(res.status, 200);
     assert.ok(res.headers.get("set-cookie")!.split("; ").includes("Secure"));
@@ -365,7 +366,7 @@ describe("el estado de la sesión y mi_alcance", () => {
     const id = await vincular(7);
     const v = await base.db.vinculo.findFirstOrThrow();
     // El cifrado de OTRA persona copiado a esta fila: el contexto (AAD) no coincide.
-    const config = leerConfigAzulChat({ AZUL_CHAT_INSTALACION_ID: INSTALACION, AZUL_CHAT_ORIGEN_PUBLICO: ORIGEN, AZUL_CHAT_TOKEN_ENCRYPTION_KEY: CLAVE });
+    const config = leerConfigAzulChat({ AZUL_CHAT_INSTALACION_ID: INSTALACION, AZUL_CHAT_ORIGEN_PUBLICO: ORIGEN, AZUL_CHAT_TOKEN_ENCRYPTION_KEY: CLAVE, AZUL_CHAT_ADMINISTRADORES: ADMINISTRADORES_DE_PRUEBA });
     assert.ok(config.ok);
     const ajeno = config.config.cifrador.cifrar(erp.tokenVigente(7)!, { instalacionId: INSTALACION, erpUsuarioId: 8, erpVinculoId: v.erpVinculoId });
     await base.db.vinculo.update({ where: { id: v.id }, data: { tokenCifrado: ajeno } });

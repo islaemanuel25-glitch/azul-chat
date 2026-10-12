@@ -39,6 +39,7 @@ import type { DependenciasSesion } from "../../src/server/sesion/dependencias.ts
 import { manejarVincular } from "../../src/server/sesion/vincular.ts";
 import type { DatosMiAlcance, EventoTransferenciaRecibida } from "../../src/shared/erp/contrato.ts";
 import { crearBaseDescartable, type BaseDescartable } from "../ayuda/baseDescartable.ts";
+import { ADMINISTRADORES_DE_PRUEBA } from "../ayuda/accesos.ts";
 import { levantarErpConEstado, type ErpConEstado } from "../ayuda/erpConEstado.ts";
 import { recepcion } from "../ayuda/paginadorErp.ts";
 import { FIXTURES_ERP_25172FE, FIXTURES_ERP_76B9A71, SECRETO_PRUEBA, type Rompible } from "../ayuda/servidorErp.ts";
@@ -103,7 +104,7 @@ beforeEach(async () => {
 function deps(): DependenciasSesion {
   const registrar: (r: Registro) => void = () => {};
   return {
-    config: leerConfigAzulChat({ AZUL_CHAT_INSTALACION_ID: INSTALACION, AZUL_CHAT_ORIGEN_PUBLICO: ORIGEN, AZUL_CHAT_TOKEN_ENCRYPTION_KEY: CLAVE }),
+    config: leerConfigAzulChat({ AZUL_CHAT_INSTALACION_ID: INSTALACION, AZUL_CHAT_ORIGEN_PUBLICO: ORIGEN, AZUL_CHAT_TOKEN_ENCRYPTION_KEY: CLAVE, AZUL_CHAT_ADMINISTRADORES: ADMINISTRADORES_DE_PRUEBA }),
     db: base.db,
     erp: crearClienteErp({ entorno: { ERP_BASE_URL: erp.origen, AZUL_CHAT_INTEGRACION_SECRET: SECRETO_PRUEBA }, timeoutMs: 2000, registrar }),
     limitador: crearLimitador({ maxPorIp: 1000, maxPorProceso: 1000 }),
@@ -213,7 +214,7 @@ describe("(b) la app no compite con el fondo por el cupo del ERP", () => {
     const cookie = await vincular(ADMIN);
     erp.cupo.activar({ ahora: () => relojErp });
     // La corrida de antes de la Tanda 5B: mi_alcance + las 20 capacidades, sin tope.
-    await conAutorizacionViva(new Headers(conCookie(cookie)), deps(), async (a) => {
+    await conAutorizacionViva(new Headers(conCookie(cookie)), deps(), "entrar", async (a) => {
       await sincronizarAutorizados(deps(), a, a.autorizados, Number.POSITIVE_INFINITY);
       return { ok: true, datos: null, requestId: "" };
     });

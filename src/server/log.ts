@@ -80,6 +80,8 @@ export type RegistroTarea = {
   readonly consultasErp: number;
   /** Tanda 14: personas que no entraron en el tope de la corrida (o quedaron después de un corte por cupo). */
   readonly personasPospuestas: number;
+  /** Tanda 15: personas vinculadas sin acceso a Azul Chat: ni consultas ni avisos. */
+  readonly personasSinAcceso: number;
 };
 
 /**
@@ -116,7 +118,21 @@ export type RegistroVigia = {
   readonly suscripcionesBorradas: number;
 };
 
-export type Registro = RegistroConsultaErp | RegistroVinculacion | RegistroInvalidacion | RegistroFallaLocal | RegistroTarea | RegistroIa | RegistroVigia;
+/**
+ * Tanda 15: AZUL_CHAT_ADMINISTRADORES está vacía o mal escrita, así que nadie
+ * administra y solo entra quien tenga un acceso guardado. Una vez por proceso.
+ */
+export type RegistroAccesos = { readonly evento: "accesos.sin_administradores"; readonly motivo: "VACIA" | "INVALIDA" };
+
+export type Registro =
+  | RegistroConsultaErp
+  | RegistroVinculacion
+  | RegistroInvalidacion
+  | RegistroFallaLocal
+  | RegistroTarea
+  | RegistroIa
+  | RegistroVigia
+  | RegistroAccesos;
 
 export type Registrador = (registro: Registro) => void;
 

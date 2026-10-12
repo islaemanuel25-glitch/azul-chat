@@ -86,6 +86,7 @@ const VARIABLES_APP = [
   "AZUL_CHAT_IA_TOPE_USD",
   // Tanda 12: a quién avisar si la sincronización se cae (el vigía).
   "AZUL_CHAT_AVISOS_SISTEMA",
+  "AZUL_CHAT_ADMINISTRADORES",
 ];
 
 /** Las violaciones del compose. Vacío = cumple. */

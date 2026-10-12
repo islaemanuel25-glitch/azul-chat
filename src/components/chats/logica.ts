@@ -244,6 +244,17 @@ export type DestinoDeFalla =
   | "NO_DISPONIBLE"
   | "IGNORAR";
 
+/**
+ * ¿Esta falla manda a la pantalla de sesión? Sin sesión, o (Tanda 15) sin
+ * "entrar" en Azul Chat: ahí la sesión dice "Todavía no tenés acceso".
+ */
+export function pideSesion(f: FallaCliente): f is Extract<FallaCliente, { estado: "SIN_SESION" | "SIN_ACCESO" }> {
+  return f.estado === "SIN_SESION" || (f.estado === "SIN_ACCESO" && f.motivo === "ENTRAR");
+}
+
+/** El motivo para la pantalla de sesión: solo un vínculo invalidado lo tiene. */
+export const motivoDeSesion = (f: FallaCliente): "VINCULO_INVALIDO" | undefined => (f.estado === "SIN_SESION" ? f.motivo : undefined);
+
 export function destinoDeFalla(f: FallaCliente): DestinoDeFalla {
   switch (f.estado) {
     case "SIN_SESION":
@@ -262,6 +273,9 @@ export function destinoDeFalla(f: FallaCliente): DestinoDeFalla {
     case "SERVICIO_NO_DISPONIBLE":
     case "ORIGEN_NO_PERMITIDO":
       return "NO_DISPONIBLE";
+    case "SIN_ACCESO":
+      // Tanda 15: sin "entrar", la sesión muestra "Todavía no tenés acceso"; sin una sección, como un local que no se ve.
+      return f.motivo === "ENTRAR" ? "SESION" : "NO_AUTORIZADO";
   }
 }
 

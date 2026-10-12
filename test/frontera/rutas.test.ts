@@ -115,6 +115,11 @@ const RUTAS = {
     metodos: ["PUT"],
     importa: ["../../../../server/sesion/configuracion.ts", "../../../../server/sesion/dependencias.ts"],
   },
+  // Tanda 15: la sección Accesos, solo para administradores. GET la lista, PUT los permisos de una persona.
+  "src/app/api/sesion/accesos/route.ts": {
+    metodos: ["GET", "PUT"],
+    importa: ["../../../../server/sesion/accesos.ts", "../../../../server/sesion/dependencias.ts"],
+  },
   "src/app/api/sesion/otras/route.ts": {
     metodos: ["DELETE"],
     importa: ["../../../../server/sesion/configuracion.ts", "../../../../server/sesion/dependencias.ts"],
@@ -226,6 +231,11 @@ describe("las rutas son acciones concretas", () => {
       configuracionPut: { "src/app/api/sesion/configuracion/route.ts": `${arbol["src/app/api/sesion/configuracion/route.ts"]}\nexport function PUT() {}\n` },
       silencioGet: { "src/app/api/sesion/silencio/route.ts": `${arbol["src/app/api/sesion/silencio/route.ts"]}\nexport function GET() {}\n` },
       silencioCuerpo: { "src/app/api/sesion/silencio/route.ts": `${arbol["src/app/api/sesion/silencio/route.ts"]}\nconst c = (request: Request) => request.json();\n` },
+      // Tanda 15: Accesos no borra, no habla con el ERP, no lee el cuerpo en la ruta ni tiene una por persona.
+      accesosDelete: { "src/app/api/sesion/accesos/route.ts": `${arbol["src/app/api/sesion/accesos/route.ts"]}\nexport function DELETE() {}\n` },
+      accesosErp: { "src/app/api/sesion/accesos/route.ts": `${arbol["src/app/api/sesion/accesos/route.ts"]}\nconst e3 = () => fetch("/api/integraciones/azul-chat/consultar");\n` },
+      accesosCuerpo: { "src/app/api/sesion/accesos/route.ts": `${arbol["src/app/api/sesion/accesos/route.ts"]}\nconst c3 = (request: Request) => request.json();\n` },
+      accesosPorPersona: { "src/app/api/sesion/accesos/[personaId]/route.ts": "export async function PUT() {}\n" },
       otrasPost: { "src/app/api/sesion/otras/route.ts": `${arbol["src/app/api/sesion/otras/route.ts"]}\nexport function POST() {}\n` },
       otrasErp: { "src/app/api/sesion/otras/route.ts": `${arbol["src/app/api/sesion/otras/route.ts"]}\nconst e2 = () => fetch("/api/integraciones/azul-chat/consultar");\n` },
       otraPorSegmento: { "src/app/api/sesion/otras/[sesionId]/route.ts": "export async function DELETE() {}\n" },

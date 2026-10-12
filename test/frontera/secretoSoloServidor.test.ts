@@ -63,6 +63,14 @@ describe("el secreto solo existe del lado del servidor", () => {
     assert.equal(lineas.find((l) => l.startsWith("AZUL_CHAT_AVISOS_SISTEMA=")), "AZUL_CHAT_AVISOS_SISTEMA=");
   });
 
+  it("15. la lista de administradores se lee en un único archivo de src/server, y .env.example la trae vacía", () => {
+    // No es un secreto, pero decide quién administra los accesos: un solo lugar
+    // la lee, y nada la acerca al navegador.
+    assert.deepEqual(dondeAparece(/AZUL_CHAT_ADMINISTRADORES/), ["src/server/accesos/accesos.ts"]);
+    const lineas = readFileSync(path.join(RAIZ, ".env.example"), "utf8").split("\n");
+    assert.equal(lineas.find((l) => l.startsWith("AZUL_CHAT_ADMINISTRADORES=")), "AZUL_CHAT_ADMINISTRADORES=");
+  });
+
   it("process.env se lee solo en src/server", () => {
     const fuera = dondeAparece(/process\.env/).filter((f) => !f.startsWith("src/server/"));
     assert.deepEqual(fuera, []);

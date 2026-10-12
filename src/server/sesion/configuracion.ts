@@ -32,11 +32,14 @@ import { reservaPorPregunta } from "../ia/tarifa.ts";
 import { mesEnArgentina } from "../preguntas/intencion.ts";
 import { sesionDeLaSolicitud, type Contexto } from "./delegacion.ts";
 import type { DependenciasSesion } from "./dependencias.ts";
+import type { AccesoDePersona } from "../accesos/accesos.ts";
+import { accesoDelContexto } from "../chats/autorizacion.ts";
 
 const MAX_BYTES_SILENCIO = 256;
 
 const STATUS: Record<FallaConfiguracion["estado"], number> = {
   SIN_SESION: 401,
+  SIN_ACCESO: 403,
   ORIGEN_NO_PERMITIDO: 403,
   SOLICITUD_INVALIDA: 400,
   SERVICIO_NO_DISPONIBLE: 503,
@@ -44,13 +47,26 @@ const STATUS: Record<FallaConfiguracion["estado"], number> = {
 const responder = <R extends { estado: string }>(r: R) => json(r, { status: r.estado === "OK" ? 200 : STATUS[r.estado as FallaConfiguracion["estado"]] });
 
 /** La sesión vigente, o la falla. `conOrigen`: las que escriben. */
-async function contexto(request: Request, deps: DependenciasSesion, conOrigen: boolean): Promise<{ ok: true; contexto: Contexto } | { ok: false; falla: FallaConfiguracion }> {
+async function contexto(
+  request: Request,
+  deps: DependenciasSesion,
+  conOrigen: boolean,
+): Promise<{ ok: true; contexto: Contexto; acceso: AccesoDePersona } | { ok: false; falla: FallaConfiguracion }> {
   if (!deps.config.ok) return { ok: false, falla: { estado: "SERVICIO_NO_DISPONIBLE" } };
   if (conOrigen && !origenPermitido(request.headers, deps.config.config.origenPublico)) return { ok: false, falla: { estado: "ORIGEN_NO_PERMITIDO" } };
   const leida = await sesionDeLaSolicitud(request.headers, deps);
   if (leida.tipo === "SIN_SESION") return { ok: false, falla: { estado: "SIN_SESION" } };
   if (leida.tipo === "SERVICIO_NO_DISPONIBLE") return { ok: false, falla: { estado: "SERVICIO_NO_DISPONIBLE" } };
-  return { ok: true, contexto: leida.contexto };
+  // Tanda 15: la configuración propia es parte de "entrar".
+  let acceso: AccesoDePersona;
+  try {
+    acceso = await accesoDelContexto(leida.contexto, deps);
+  } catch {
+    deps.registrar({ evento: "sesion.falla_local", etapa: "base" });
+    return { ok: false, falla: { estado: "SERVICIO_NO_DISPONIBLE" } };
+  }
+  if (!acceso.permisos.entrar) return { ok: false, falla: { estado: "SIN_ACCESO" } };
+  return { ok: true, contexto: leida.contexto, acceso };
 }
 
 /** Una falla de la base: SERVICIO_NO_DISPONIBLE, sin mensaje. */
@@ -127,7 +143,9 @@ export async function manejarConfiguracion(request: Request, deps: DependenciasS
     return {
       estado: "OK",
       silencio: { activo: v.silencioActivo, desde: v.silencioDesde, hasta: v.silencioHasta },
-      ia: await saldoIa(c.contexto, deps, ahora),
+      // Tanda 15: el saldo de IA, solo a quien tiene el permiso "ia".
+      ia: c.acceso.permisos.ia ? await saldoIa(c.contexto, deps, ahora) : null,
+      administrador: c.acceso.administrador,
       dispositivos,
     };
   });

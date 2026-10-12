@@ -21,7 +21,7 @@ import { ShellMovil } from "../shell/ShellMovil.tsx";
 import { pedirBuscar, type AmbitoBusqueda, type FallaCliente } from "./clienteChats.ts";
 import { useEsperaTrasCupo } from "./esperaCupo.ts";
 import { cantidadDeResultados, diaDe, etiquetaDeDia, noEncontre } from "./formato.ts";
-import { claveDeResultado, destinoDeFalla, reducirBusqueda, type EstadoBusqueda } from "./logica.ts";
+import { claveDeResultado, destinoDeFalla, motivoDeSesion, pideSesion, reducirBusqueda, type EstadoBusqueda } from "./logica.ts";
 import { EstadoChat, EstadoCupoErp, EstadoErpNoDisponible, TarjetaEvento } from "./Piezas.tsx";
 import { PreguntaGuardadaVista } from "./Preguntas.tsx";
 import { retenerRecarga } from "./version.ts";
@@ -198,8 +198,8 @@ export function PantallaBuscar({
 
   const alFallar = useCallback(
     (f: FallaCliente) => {
-      if (f.estado === "SIN_SESION") {
-        alPerderSesion(f.motivo);
+      if (pideSesion(f)) {
+        alPerderSesion(motivoDeSesion(f));
         return true;
       }
       anotar(f);

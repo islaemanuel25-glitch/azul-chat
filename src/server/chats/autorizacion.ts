@@ -42,6 +42,8 @@ import { conDelegacion, type Contexto, type ResultadoDelegado } from "../sesion/
 import { CAPACIDAD_VENTAS_RESUMEN } from "../erp/ventasResumen.ts";
 import { TIPO_DE_CAPACIDAD } from "../eventos/capacidades.ts";
 import type { DependenciasSesion } from "../sesion/dependencias.ts";
+import { accesoDePersona, type AccesoDePersona } from "../accesos/accesos.ts";
+import { permite, type Permiso } from "../../shared/sesion/accesos.ts";
 
 /** Un local de `mi_alcance` con una capacidad anunciada, con lo que el ERP dijo de él en esta solicitud. */
 export type LocalAutorizado = {
@@ -116,22 +118,55 @@ export type Autorizacion = {
   readonly conStock: readonly LocalAutorizado[];
   /** Tanda 9B: los locales que anuncian `pedidos_pendientes` o `cajas_resumen` (el chip "Pendientes"). */
   readonly conPendientes: readonly LocalDePendientes[];
+  /**
+   * Tanda 15: lo que esta persona puede usar en Azul Chat, leído en este
+   * pedido. Las listas de arriba YA vienen cruzadas con estos permisos: sin
+   * "ventas", `conVentas` está vacía aunque el ERP anuncie ventas_resumen.
+   */
+  readonly acceso: AccesoDePersona;
 };
+
+/** Tanda 15: le falta el permiso de esta ruta. `ENTRAR`: le falta entrar, no solo esta sección. */
+export type SinAcceso = { readonly tipo: "SIN_ACCESO"; readonly motivo: "ENTRAR" | "PERMISO" };
+
+/** Lo que devuelve una solicitud autorizada: lo de siempre, o que la persona no tiene ese acceso en Azul Chat. */
+export type ResultadoAutorizado<T> = ResultadoDelegado<T> | SinAcceso;
+
+/** El acceso de la persona de este contexto, leído de la base. */
+export function accesoDelContexto(contexto: Contexto, deps: DependenciasSesion): Promise<AccesoDePersona> {
+  return accesoDePersona(
+    contexto.db,
+    { instalacionId: contexto.config.instalacionId, administradores: contexto.config.administradores, erpUsuarioId: contexto.sesion.vinculo.erpUsuarioId },
+    deps.registrar,
+  );
+}
 
 /**
  * Corre `trabajo` con la autorización de AHORA. Una sola llamada a
  * `mi_alcance` por solicitud. Si el trabajo vuelve a llamar al ERP y recibe
  * VINCULO_NO_VALIDO, lo devuelve y `conDelegacion` invalida el vínculo.
+ *
+ * Tanda 15: ANTES de llamar al ERP, el acceso de la persona en Azul Chat. Sin
+ * `permiso` (o sin "entrar"), SIN_ACCESO, y el ERP ni se consulta.
  */
-export function conAutorizacionViva<T>(
+export async function conAutorizacionViva<T>(
   headers: Headers,
   deps: DependenciasSesion,
+  permiso: Permiso,
   trabajo: (a: Autorizacion) => Promise<ResultadoConsulta<T>>,
-): Promise<ResultadoDelegado<T>> {
-  return conDelegacion<T>(headers, deps, async (token, contexto) => {
-    const a = await autorizacionViva(deps, token, contexto);
+): Promise<ResultadoAutorizado<T>> {
+  let sinAcceso: SinAcceso | null = null;
+  const r = await conDelegacion<T | null>(headers, deps, async (token, contexto) => {
+    const acceso = await accesoDelContexto(contexto, deps);
+    if (!permite(acceso.permisos, permiso)) {
+      sinAcceso = { tipo: "SIN_ACCESO", motivo: acceso.permisos.entrar ? "PERMISO" : "ENTRAR" };
+      return { ok: true, requestId: "", datos: null };
+    }
+    const a = await autorizacionViva(deps, token, contexto, acceso);
     return a.ok ? trabajo(a.datos) : a;
   });
+  if (sinAcceso) return sinAcceso;
+  return r as ResultadoDelegado<T>;
 }
 
 /**
@@ -139,9 +174,17 @@ export function conAutorizacionViva<T>(
  * La usa cada solicitud de chats y, desde la Tanda 5A, la sincronización de
  * fondo para cada persona: el mismo criterio, sin caché.
  */
-export async function autorizacionViva(deps: DependenciasSesion, token: string, contexto: Contexto): Promise<ResultadoConsulta<Autorizacion>> {
+export async function autorizacionViva(
+  deps: DependenciasSesion,
+  token: string,
+  contexto: Contexto,
+  acceso: AccesoDePersona,
+): Promise<ResultadoConsulta<Autorizacion>> {
   const alcance = await deps.erp.miAlcance(token);
   if (!alcance.ok) return alcance;
+  // Tanda 15: lo que da el ERP, CRUZADO con lo que la persona puede usar acá. Solo resta.
+  const p = acceso.permisos;
+  const si = <L>(puede: boolean, locales: L[]): L[] => (puede ? locales : []);
   return {
     ok: true,
     requestId: alcance.requestId,
@@ -149,11 +192,15 @@ export async function autorizacionViva(deps: DependenciasSesion, token: string, 
       token,
       contexto,
       usuario: { nombre: alcance.datos.usuario.nombre },
-      autorizados: localesAutorizadosAhora(alcance.datos),
-      conVentas: localesConCapacidad(alcance.datos, CAPACIDAD_VENTAS_RESUMEN),
-      conCaja: localesConCapacidad(alcance.datos, CAPACIDAD_CAJAS_RESUMEN),
-      conStock: localesConCapacidad(alcance.datos, CAPACIDAD_STOCK_CONSULTA),
-      conPendientes: localesDePendientes(alcance.datos),
+      autorizados: si(permite(p, "entrar"), localesAutorizadosAhora(alcance.datos)),
+      conVentas: si(permite(p, "ventas"), localesConCapacidad(alcance.datos, CAPACIDAD_VENTAS_RESUMEN)),
+      conCaja: si(permite(p, "caja"), localesConCapacidad(alcance.datos, CAPACIDAD_CAJAS_RESUMEN)),
+      conStock: si(permite(p, "stock"), localesConCapacidad(alcance.datos, CAPACIDAD_STOCK_CONSULTA)),
+      // Pendientes trae cajas sin cerrar: esa parte es de Caja, y sin "caja" no va.
+      conPendientes: si(permite(p, "pendientes"), localesDePendientes(alcance.datos))
+        .map((l) => ({ ...l, cajas: l.cajas && permite(p, "caja") }))
+        .filter((l) => l.pedidos || l.cajas),
+      acceso,
     },
   };
 }
