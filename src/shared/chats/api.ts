@@ -146,6 +146,11 @@ export type RespuestaLocal =
         readonly caja: boolean;
         /** Tanda 8B: lo mismo para `stock_consulta` y el chip "Stock". GET /api/chats/stock lo vuelve a decidir. */
         readonly stock: boolean;
+        /**
+         * Tanda 9B: el local anuncia `pedidos_pendientes` o `cajas_resumen`:
+         * el chip "Pendientes". GET /api/chats/pendientes lo vuelve a decidir.
+         */
+        readonly pendientes: boolean;
       };
       readonly sincronizacion: EstadoSincronizacion;
       /**
@@ -183,6 +188,8 @@ export type RespuestaGeneral =
       readonly preguntas: boolean;
       /** Los locales autorizados cuyo estado es DEMORADA (mismo criterio que la lista). */
       readonly localesDemorados: readonly number[];
+      /** Tanda 9B: algún local anuncia `pedidos_pendientes` o `cajas_resumen`: el chip "Pendientes" de General. */
+      readonly pendientes: boolean;
     }
   | FallaChats;
 
@@ -349,6 +356,69 @@ export type ProductosDelLocal = {
  */
 export type RespuestaStock = ({ readonly estado: "OK" } & BajoMinimoDelLocal) | FallaChats;
 
+// ── Pendientes de un local (Tanda 9B) ───────────────────────────────────────
+//
+// Dos fuentes del ERP, copiadas campo por campo: los pedidos que el local pidió
+// y siguen sin enviar (`pedidos_pendientes`) y, de `cajas_resumen` de hoy y de
+// ayer, las cajas con diferencia o sin verificar en Tesorería. La etiqueta y el
+// orden los pone src/shared/chats/pendientes.ts con reglas fijas del dueño:
+// ningún número se calcula.
+
+/** IMPORTANTE: pedido de más de 24 h, o caja con faltante. El resto, NORMAL. */
+export type EtiquetaPendiente = "IMPORTANTE" | "NORMAL";
+
+export type PendientePedido = {
+  readonly tipo: "PEDIDO";
+  readonly etiqueta: EtiquetaPendiente;
+  readonly pedidoId: number;
+  readonly solicitadoAt: string | null;
+  readonly origen: { readonly id: number; readonly nombre: string };
+  readonly lineas: number;
+  /** Horas completas al consultar, como las dio el ERP. */
+  readonly antiguedadHoras: number | null;
+};
+
+/** Por qué una caja está pendiente: la diferencia (FALTA o SOBRA) o, sin diferencia, que falta verificarla. */
+export type MotivoCajaPendiente = "FALTA" | "SOBRA" | "FALTA_VERIFICAR";
+
+export type PendienteCaja = {
+  readonly tipo: "CAJA";
+  readonly etiqueta: EtiquetaPendiente;
+  readonly cajaId: number;
+  readonly operador: string | null;
+  /** El nombre de la caja que da el ERP ("Caja de Bruno"), para cuando no hay operador. */
+  readonly nombreCaja: string;
+  /** El nombre del turno operativo, o "Sin turno asignado". */
+  readonly turno: string;
+  readonly dia: "hoy" | "ayer";
+  readonly apertura: string;
+  readonly motivo: MotivoCajaPendiente;
+  /** El monto de la diferencia (decimal en texto del ERP); null si el motivo es FALTA_VERIFICAR. */
+  readonly monto: string | null;
+};
+
+export type Pendiente = PendientePedido | PendienteCaja;
+
+/** Las consultas de las que salen los pendientes. */
+export type FuentePendientes = "PEDIDOS" | "CAJAS_HOY" | "CAJAS_AYER";
+
+/**
+ * Lo pendiente de un local. `faltaron`: las fuentes que se consultaron y no
+ * contestaron (la lista puede estar incompleta, y se dice). Una fuente que el
+ * local no anuncia no se consulta y no está acá.
+ */
+export type PendientesDelLocal = {
+  readonly local: { readonly id: number; readonly nombre: string };
+  readonly pendientes: readonly Pendiente[];
+  readonly faltaron: readonly FuentePendientes[];
+};
+
+/** GET /api/chats/pendientes?localId=… — nada se guarda. */
+export type RespuestaPendientes = ({ readonly estado: "OK" } & PendientesDelLocal) | FallaChats;
+
+/** GET /api/chats/pendientes/general — un bloque por local; los que no tienen nada, al final. */
+export type RespuestaPendientesGeneral = { readonly estado: "OK"; readonly locales: readonly PendientesDelLocal[] } | FallaChats;
+
 /** Las rutas, para la interfaz. */
 export const RUTAS_CHATS = Object.freeze({
   chats: "/api/chats",
@@ -358,5 +428,7 @@ export const RUTAS_CHATS = Object.freeze({
   ventas: "/api/chats/ventas",
   caja: "/api/chats/caja",
   stock: "/api/chats/stock",
+  pendientes: "/api/chats/pendientes",
+  pendientesGeneral: "/api/chats/pendientes/general",
   preguntar: "/api/chats/preguntar",
 });

@@ -140,6 +140,7 @@ export function BarraVentas({
   conVentas = true,
   caja = null,
   stock = null,
+  pendientes = null,
   etiqueta = "Acciones del local",
   children,
 }: {
@@ -151,6 +152,8 @@ export function BarraVentas({
   caja?: { readonly cargando: boolean; readonly alPedir: () => void } | null;
   /** Tanda 8B: el chip "Stock", al lado de "Caja" (Figma 1:150), si el local anuncia `stock_consulta`. */
   stock?: { readonly cargando: boolean; readonly alPedir: () => void } | null;
+  /** Tanda 9B: el chip "Pendientes", al final, si el local (o, en General, algún local) anuncia `pedidos_pendientes` o `cajas_resumen`. */
+  pendientes?: { readonly cargando: boolean; readonly alPedir: () => void } | null;
   etiqueta?: string;
   children?: ReactNode;
 }) {
@@ -181,6 +184,17 @@ export function BarraVentas({
           aria-busy={stock.cargando || undefined}
         >
           {stock.cargando ? "Consultando stock…" : "Stock"}
+        </button>
+      )}
+      {pendientes && (
+        <button
+          type="button"
+          className="ac-chip ac-chip--accion"
+          onClick={pendientes.alPedir}
+          disabled={pendientes.cargando || enEspera}
+          aria-busy={pendientes.cargando || undefined}
+        >
+          {pendientes.cargando ? "Consultando pendientes…" : "Pendientes"}
         </button>
       )}
       {children}

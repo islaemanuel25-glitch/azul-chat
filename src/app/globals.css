@@ -903,3 +903,48 @@ body {
   font-size: var(--ac-letra-chica);
   font-weight: 600;
 }
+
+/* ── Tanda 9B: la tarjeta de pendientes (Figma 04 "Pendientes", nodos
+   1:204-1:240). Las pills IMPORTANTE / NORMAL con los tokens de siempre:
+   IMPORTANTE con la marca de alerta (la de "recibida con diferencias" y "bajo
+   mínimo"), NORMAL con el tono suave. Ningún color nuevo. ── */
+
+.ac-pendiente {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ac-espacio-1);
+  width: 100%;
+  padding: var(--ac-espacio-2) 0;
+  border-top: 1px solid var(--ac-color-borde);
+}
+
+.ac-pendiente--importante {
+  border-top-color: var(--ac-color-alerta);
+}
+
+.ac-pendiente__titulo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ac-espacio-2);
+  font-size: var(--ac-letra-chica);
+  font-weight: 600;
+}
+
+.ac-pill {
+  flex-shrink: 0;
+  padding: 2px var(--ac-espacio-2);
+  border: 1px solid var(--ac-color-borde);
+  border-radius: var(--ac-radio-pastilla);
+  background: var(--ac-color-superficie);
+  color: var(--ac-color-texto-suave);
+  font-size: var(--ac-letra-mini);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.ac-pill--importante {
+  border-color: var(--ac-color-alerta);
+  background: var(--ac-color-alerta-fondo);
+  color: var(--ac-color-alerta);
+}

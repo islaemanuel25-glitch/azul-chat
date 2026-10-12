@@ -31,6 +31,7 @@ import type { TipoEvento } from "@prisma/client";
 import {
   anunciaCapacidad,
   CAPACIDAD_CAJAS_RESUMEN,
+  CAPACIDAD_PEDIDOS_PENDIENTES,
   CAPACIDAD_STOCK_CONSULTA,
   CAPACIDADES_EVENTOS,
   type CapacidadEventos,
@@ -58,6 +59,26 @@ export function localesConCapacidad(datos: DatosMiAlcance, capacidad: string): L
   return datos.locales
     .filter((l) => anunciaCapacidad(l, capacidad))
     .map((l) => ({ localId: l.id, grupoId: l.grupoId, nombre: l.nombre, esDeposito: l.esDeposito }));
+}
+
+/** Tanda 9B: un local con lo que anuncia hoy de las dos fuentes de "Pendientes". */
+export type LocalDePendientes = LocalAutorizado & {
+  /** Anuncia `pedidos_pendientes`. */
+  readonly pedidos: boolean;
+  /** Anuncia `cajas_resumen`. */
+  readonly cajas: boolean;
+};
+
+/** Los locales de `mi_alcance` que anuncian `pedidos_pendientes` o `cajas_resumen`, en el orden de `mi_alcance`. */
+export function localesDePendientes(datos: DatosMiAlcance): LocalDePendientes[] {
+  const salida: LocalDePendientes[] = [];
+  for (const l of datos.locales) {
+    const pedidos = anunciaCapacidad(l, CAPACIDAD_PEDIDOS_PENDIENTES);
+    const cajas = anunciaCapacidad(l, CAPACIDAD_CAJAS_RESUMEN);
+    if (!pedidos && !cajas) continue;
+    salida.push({ localId: l.id, grupoId: l.grupoId, nombre: l.nombre, esDeposito: l.esDeposito, pedidos, cajas });
+  }
+  return salida;
 }
 
 /** Los locales de `mi_alcance` que anuncian al menos una capacidad de eventos: los de los chats. */
@@ -93,6 +114,8 @@ export type Autorizacion = {
   readonly conCaja: readonly LocalAutorizado[];
   /** Tanda 8B: los locales que anuncian `stock_consulta`, con el mismo criterio. */
   readonly conStock: readonly LocalAutorizado[];
+  /** Tanda 9B: los locales que anuncian `pedidos_pendientes` o `cajas_resumen` (el chip "Pendientes"). */
+  readonly conPendientes: readonly LocalDePendientes[];
 };
 
 /**
@@ -130,6 +153,7 @@ export async function autorizacionViva(deps: DependenciasSesion, token: string, 
       conVentas: localesConCapacidad(alcance.datos, CAPACIDAD_VENTAS_RESUMEN),
       conCaja: localesConCapacidad(alcance.datos, CAPACIDAD_CAJAS_RESUMEN),
       conStock: localesConCapacidad(alcance.datos, CAPACIDAD_STOCK_CONSULTA),
+      conPendientes: localesDePendientes(alcance.datos),
     },
   };
 }

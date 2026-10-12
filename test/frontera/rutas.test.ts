@@ -71,6 +71,17 @@ const RUTAS = {
     metodos: ["GET"],
     importa: ["../../../../server/chats/manejadores.ts", "../../../../server/sesion/dependencias.ts"],
   },
+  // Tanda 9B: lo pendiente de un local (pedidos sin enviar, cajas a revisar) y
+  // de todos. Dos acciones concretas, sin capacidad ni período elegibles: el
+  // local por query en una, nada en la otra. No es un pase a ninguna capacidad.
+  "src/app/api/chats/pendientes/route.ts": {
+    metodos: ["GET"],
+    importa: ["../../../../server/chats/manejadores.ts", "../../../../server/sesion/dependencias.ts"],
+  },
+  "src/app/api/chats/pendientes/general/route.ts": {
+    metodos: ["GET"],
+    importa: ["../../../../../server/chats/manejadores.ts", "../../../../../server/sesion/dependencias.ts"],
+  },
   // Tanda 6A: una pregunta en lenguaje natural. Una acción concreta —la IA solo
   // elige una intención de un catálogo cerrado; ventas y eventos los arma el
   // código—, no un pase genérico al ERP ni a la IA. Con sesión y Origin.
@@ -159,6 +170,16 @@ describe("las rutas son acciones concretas", () => {
         "src/app/api/chats/stock/route.ts": `${arbol["src/app/api/chats/stock/route.ts"]}\nconst t = (r: Request) => new URL(r.url).searchParams.get("texto");\n`,
       },
       stockPorSegmento: { "src/app/api/chats/stock/[texto]/route.ts": "export async function GET() {}\n" },
+      // Tanda 9B: las de pendientes solo delegan, solo GET, y no reciben una capacidad ni un local por segmento.
+      pendientesPost: { "src/app/api/chats/pendientes/route.ts": `${arbol["src/app/api/chats/pendientes/route.ts"]}\nexport function POST() {}\n` },
+      pendientesCapacidad: {
+        "src/app/api/chats/pendientes/route.ts": `${arbol["src/app/api/chats/pendientes/route.ts"]}\nconst k = (r: Request) => new URL(r.url).searchParams.get("capacidad");\n`,
+      },
+      pendientesGeneralErp: {
+        "src/app/api/chats/pendientes/general/route.ts": `${arbol["src/app/api/chats/pendientes/general/route.ts"]}\nconst g = () => fetch("/api/integraciones/azul-chat/consultar");\n`,
+      },
+      pendientesPorSegmento: { "src/app/api/chats/pendientes/[localId]/route.ts": "export async function GET() {}\n" },
+      pendientesOtra: { "src/app/api/chats/pendientes/todos/route.ts": "export async function GET() {}\n" },
     };
     for (const [nombre, cambio] of Object.entries(casos)) {
       assert.notDeepEqual(violacionesDeRutas({ ...arbol, ...cambio }), [], nombre);

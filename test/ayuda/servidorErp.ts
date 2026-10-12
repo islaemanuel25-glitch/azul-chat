@@ -226,6 +226,26 @@ export const FIXTURES_ERP_41F702B = JSON.parse(readFileSync(path.join(import.met
 };
 
 /**
+ * `pedidos_pendientes` del ERP en producción (erpmanual ccf2894, PR #171,
+ * Tanda 9A). Es una COPIA SIN TOCAR de
+ * `docs/integraciones/azul-chat/erp-pedidos-pendientes.json` de ese commit: lo
+ * generó `scripts/pruebas-db/azulChatPedidosPendientes.mjs` del ERP EJECUTANDO
+ * su puerta contra una base descartable, en 3f19c48 (ver su `_origen`; el merge
+ * ccf2894 no cambió el código de la capacidad), con el reloj de la consulta
+ * 26 h 30 min después. Varios pendientes de dos orígenes, ninguno, un cancelado
+ * que no aparece, sin permiso y con un parámetro de más. No se edita a mano: se
+ * vuelve a copiar.
+ */
+export const FIXTURES_ERP_CCF2894 = JSON.parse(readFileSync(path.join(import.meta.dirname, "../fixtures/erp-ccf2894.json"), "utf8")) as {
+  ahora: string;
+  canceladoQueNoAparece: { id: number; estado: string };
+  varios: IntercambioErp;
+  ninguno: IntercambioErp;
+  sinPermiso: IntercambioErp;
+  conParametro: IntercambioErp;
+};
+
+/**
  * Los códigos públicos del ERP en producción, con su status y su cuerpo
  * reales: los de 8920516, más TURNO_OPERATIVO_INVALIDO, que agregó 14ae247, y
  * STOCK_MINIMO_NO_DISPONIBLE, que agregó 41f702b (`respuestaPublica.js`), con

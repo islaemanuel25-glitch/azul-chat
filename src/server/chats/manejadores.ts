@@ -1,6 +1,6 @@
 // src/server/chats/manejadores.ts
 //
-// LAS SIETE RUTAS DE CHATS. Las de src/app solo delegan acá.
+// LAS NUEVE RUTAS DE CHATS. Las de src/app solo delegan acá.
 //
 //   GET  /api/chats                          la lista: General y cada local autorizado
 //   GET  /api/chats/local?localId=&cursor=   el historial de un local
@@ -9,6 +9,8 @@
 //   GET  /api/chats/ventas?localId=          las ventas de hoy de un local (Tanda 3A)
 //   GET  /api/chats/caja?localId=            las cajas de hoy de un local, por turno (Tanda 7B)
 //   GET  /api/chats/stock?localId=           los productos bajo mínimo de un local (Tanda 8B)
+//   GET  /api/chats/pendientes?localId=      lo pendiente de un local: pedidos sin enviar y cajas a revisar (Tanda 9B)
+//   GET  /api/chats/pendientes/general       lo mismo, de cada local con alguna de esas dos fuentes (Tanda 9B)
 //
 // Las cuatro primeras: sesión → `mi_alcance` vivo, UNA vez → locales con al
 // menos una capacidad de eventos, y de cada uno los tipos de esas capacidades
@@ -38,6 +40,8 @@ import type {
   RespuestaLeido,
   RespuestaCaja,
   RespuestaLocal,
+  RespuestaPendientes,
+  RespuestaPendientesGeneral,
   RespuestaStock,
   RespuestaVentas,
 } from "../../shared/chats/api.ts";
@@ -52,7 +56,8 @@ import type { ResultadoDelegado } from "../sesion/delegacion.ts";
 import type { DependenciasSesion } from "../sesion/dependencias.ts";
 import { ventasResumenDeSesion } from "../ventas/ventasResumen.ts";
 import { bajoMinimoPublico, esSinMinimo, sinMinimoPublico, stockConsultaDeSesion } from "../stock/stockConsulta.ts";
-import { conAutorizacionViva, tiposVisibles, type Autorizacion, type LocalAutorizado, type LocalDeEventos } from "./autorizacion.ts";
+import { conAutorizacionViva, tiposVisibles, type Autorizacion, type LocalAutorizado, type LocalDeEventos, type LocalDePendientes } from "./autorizacion.ts";
+import { ordenDeGeneral, pendientesDeLocales } from "../pendientes/pendientes.ts";
 import {
   decodificarCursor,
   leerIdEvento,
@@ -236,6 +241,7 @@ export function manejarLocal(request: Request, deps: DependenciasSesion): Promis
         ventas: a.conVentas.some((l) => l.localId === localId),
         caja: a.conCaja.some((l) => l.localId === localId),
         stock: a.conStock.some((l) => l.localId === localId),
+        pendientes: a.conPendientes.some((l) => l.localId === localId),
       },
       sincronizacion: local.sincronizacion,
       preguntas: deps.ia?.ok === true,
@@ -272,6 +278,7 @@ export function manejarGeneral(request: Request, deps: DependenciasSesion): Prom
       siguiente: pagina.siguiente,
       preguntas: deps.ia?.ok === true,
       localesDemorados: preparados.filter((l) => l.sincronizacion === "DEMORADA").map((l) => l.localId),
+      pendientes: a.conPendientes.length > 0,
     });
   });
 }
@@ -467,4 +474,65 @@ export function manejarStock(request: Request, deps: DependenciasSesion): Promis
     },
     (r, local): RespuestaStock | null => (esSinMinimo(r) ? { estado: "OK", ...sinMinimoPublico(pedido(local)) } : null),
   );
+}
+
+// ── GET /api/chats/pendientes y /api/chats/pendientes/general ──────────────
+//
+// Lo pendiente (Tanda 9B): los pedidos que el local pidió y siguen sin enviar
+// (`pedidos_pendientes`) y las cajas de hoy y de ayer con diferencia o sin
+// verificar (`cajas_resumen`). Primero la autorización viva —el local, o los
+// locales, que anuncian alguna de las dos en el `mi_alcance` de ahora, con el
+// `grupoId` de ahí—; después, por local, solo las fuentes que anuncia
+// (pendientes/pendientes.ts). Una fuente que falla no tira las otras: la
+// respuesta dice cuál faltó. Nada se guarda y no se toca la lectura.
+//
+// Dos rutas y no un `?localId=todos`: cada una con sus parámetros exactos, como
+// el resto. El local va por query; General no lleva ninguno.
+//
+// Cupo: 1 `mi_alcance` + hasta 3 por local (pedidos, cajas de hoy, cajas de
+// ayer). General: 1 + 3 por local con alguna de las dos.
+
+/** La autorización viva y los locales de "Pendientes" de ahora, o la falla. */
+async function localesDePendientesAhora(
+  request: Request,
+  deps: DependenciasSesion,
+  elegir: (a: Autorizacion) => readonly LocalDePendientes[] | null,
+): Promise<{ ok: true; locales: readonly LocalDePendientes[] } | { ok: false; respuesta: Response }> {
+  let autorizacion: ResultadoDelegado<Trabajo<readonly LocalDePendientes[]>>;
+  try {
+    autorizacion = await conAutorizacionViva(request.headers, deps, async (a) => {
+      const elegidos = elegir(a);
+      return elegidos ? ok(elegidos) : localNoAutorizado();
+    });
+  } catch {
+    deps.registrar({ evento: "sesion.falla_local", etapa: "base" });
+    return { ok: false, respuesta: falla({ estado: "SERVICIO_NO_DISPONIBLE" }, request, deps) };
+  }
+  if (autorizacion.tipo !== "OK") return { ok: false, respuesta: falla(fallaDeDelegacion(autorizacion), request, deps) };
+  if (autorizacion.datos.tipo === "NO_AUTORIZADO") return { ok: false, respuesta: falla({ estado: "NO_AUTORIZADO" }, request, deps) };
+  return { ok: true, locales: autorizacion.datos.respuesta };
+}
+
+export async function manejarPendientes(request: Request, deps: DependenciasSesion): Promise<Response> {
+  const p = parametros(request, ["localId"]);
+  const crudo = p?.get("localId");
+  if (!p || !crudo || !LOCAL_ID.test(crudo)) return falla({ estado: "SOLICITUD_INVALIDA" }, request, deps);
+  const localId = Number(crudo);
+  const elegidos = await localesDePendientesAhora(request, deps, (a) => {
+    const l = a.conPendientes.find((x) => x.localId === localId);
+    return l ? [l] : null;
+  });
+  if (!elegidos.ok) return elegidos.respuesta;
+  const r = await pendientesDeLocales(request.headers, deps, elegidos.locales);
+  if (r.tipo === "FALLA") return falla(r.falla, request, deps);
+  return json({ estado: "OK", ...r.locales[0]! } satisfies RespuestaPendientes);
+}
+
+export async function manejarPendientesGeneral(request: Request, deps: DependenciasSesion): Promise<Response> {
+  if (parametros(request, []) === null) return falla({ estado: "SOLICITUD_INVALIDA" }, request, deps);
+  const elegidos = await localesDePendientesAhora(request, deps, (a) => (a.conPendientes.length > 0 ? a.conPendientes : null));
+  if (!elegidos.ok) return elegidos.respuesta;
+  const r = await pendientesDeLocales(request.headers, deps, elegidos.locales);
+  if (r.tipo === "FALLA") return falla(r.falla, request, deps);
+  return json({ estado: "OK", locales: ordenDeGeneral(r.locales) } satisfies RespuestaPendientesGeneral);
 }

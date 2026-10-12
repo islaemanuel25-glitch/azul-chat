@@ -23,7 +23,8 @@ export type RegistroConsultaErp = {
     | "envios_eventos"
     | "cancelaciones_eventos"
     | "cajas_resumen"
-    | "stock_consulta";
+    | "stock_consulta"
+    | "pedidos_pendientes";
   /** Milisegundos desde que se empezó a armar la llamada. */
   readonly duracionMs: number;
   /** Status HTTP del ERP, o `null` si no hubo respuesta (timeout, red, config). */

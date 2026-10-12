@@ -432,3 +432,68 @@ export function tituloDeProductosTodos(texto: string): string {
 }
 
 export const TITULO_BAJO_MINIMO_TODOS = "Bajo mínimo · Todos los locales";
+
+// ── Pendientes (Tanda 9B) ───────────────────────────────────────────────────
+//
+// Las plantillas de la pantalla "Pendientes" (Figma 04, nodos 1:204-1:240).
+// Las horas, las líneas y los montos son los del ERP.
+
+export const TITULO_PENDIENTES_TODOS = "Pendientes · Todos los locales";
+export const ETIQUETA_PILL: Readonly<Record<"IMPORTANTE" | "NORMAL", string>> = Object.freeze({ IMPORTANTE: "IMPORTANTE", NORMAL: "NORMAL" });
+
+/** "Pendientes · Casiano". */
+export function tituloDePendientes(nombre: string): string {
+  return `Pendientes · ${nombre}`;
+}
+
+/** "Nada pendiente en Casiano." */
+export function nadaPendiente(nombre: string): string {
+  return `Nada pendiente en ${nombre}.`;
+}
+
+/** "Pedido #42". */
+export function tituloDePedidoPendiente(pedidoId: number): string {
+  return `Pedido #${pedidoId}`;
+}
+
+/**
+ * "hace 3 días" a partir de las 24 h; antes, "hace 5 h"; con menos de una
+ * hora, "hace menos de 1 h". Las horas completas son las del ERP.
+ */
+export function desdeHace(horas: number): string {
+  if (horas >= 24) {
+    const dias = Math.floor(horas / 24);
+    return dias === 1 ? "1 día" : `${dias.toLocaleString(IDIOMA)} días`;
+  }
+  return horas < 1 ? "menos de 1 h" : `${horas} h`;
+}
+
+/** "Pendiente de envío · desde hace 3 días". Sin la antigüedad (el ERP no la dio), sin el "desde hace". */
+export function estadoDePedidoPendiente(antiguedadHoras: number | null): string {
+  return antiguedadHoras === null ? "Pendiente de envío" : `Pendiente de envío · desde hace ${desdeHace(antiguedadHoras)}`;
+}
+
+/** "A Depósito · 3 líneas": a quién se le pidió y cuántas líneas tiene. */
+export function detalleDePedidoPendiente(p: { readonly origen: { readonly nombre: string }; readonly lineas: number }): string {
+  return `A ${p.origen.nombre} · ${cantidadDeLineas(p.lineas)}`;
+}
+
+/** "Caja de Bruno · Turno Mañana · hoy". Sin operador, el nombre de la caja del ERP; "Sin turno asignado" queda como está. */
+export function tituloDeCajaPendiente(c: { readonly operador: string | null; readonly nombreCaja: string; readonly turno: string; readonly dia: "hoy" | "ayer" }): string {
+  const caja = c.operador ? `Caja de ${c.operador}` : c.nombreCaja;
+  const turno = c.turno === "Sin turno asignado" ? c.turno : nombreDeTurno(c.turno);
+  return `${caja} · ${turno} · ${c.dia}`;
+}
+
+/** "Falta $ 1.000,00", "Sobra $ 1.000,00" o "Falta verificar en Tesorería". */
+export function motivoDeCajaPendiente(c: { readonly motivo: "FALTA" | "SOBRA" | "FALTA_VERIFICAR"; readonly monto: string | null }): string {
+  if (c.motivo === "FALTA_VERIFICAR" || c.monto === null) return "Falta verificar en Tesorería";
+  return `${c.motivo === "FALTA" ? "Falta" : "Sobra"} ${formatearMonto(c.monto)}`;
+}
+
+/** Lo que faltó consultar, para decirlo: "No se pudo consultar: los pedidos, las cajas de hoy." */
+export function avisoDeFuentesFaltantes(faltaron: readonly ("PEDIDOS" | "CAJAS_HOY" | "CAJAS_AYER")[]): string | null {
+  if (faltaron.length === 0) return null;
+  const nombre = { PEDIDOS: "los pedidos", CAJAS_HOY: "las cajas de hoy", CAJAS_AYER: "las cajas de ayer" } as const;
+  return `No se pudo consultar: ${faltaron.map((f) => nombre[f]).join(", ")}. La lista puede estar incompleta.`;
+}

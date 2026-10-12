@@ -33,6 +33,10 @@
 //     local no la anuncia, el NO_AUTORIZADO real de `sinPermiso` del fixture
 //     erp-41f702b.json) y el caso del fixture para ese modo y ese texto, con
 //     el local y el grupo pedidos;
+//   · `pedidos_pendientes` (Tanda 9B): como el ERP ccf2894, el portón (si el
+//     local no la anuncia, el NO_AUTORIZADO real de `sinPermiso` del fixture
+//     erp-ccf2894.json; un parámetro de más, su SOLICITUD_INVALIDA) y el caso
+//     "varios", con el local y el grupo pedidos, o los pedidos cargados;
 //   · modos para simular caída (503 del ERP) y cuelgue (no contesta);
 //   · Tanda 5B: el CUPO del ERP, apagado salvo que el test lo prenda
 //     (`cupo.activar()`). Es el de erpmanual lib/integraciones/azul-chat/
@@ -56,6 +60,7 @@ import {
   FIXTURES_ERP_25172FE,
   FIXTURES_ERP_41F702B,
   FIXTURES_ERP_76B9A71,
+  FIXTURES_ERP_CCF2894,
   SECRETO_PRUEBA,
   levantarServidorErp,
   responderErrorErp,
@@ -111,6 +116,13 @@ export type ErpConEstado = ServidorErp & {
    * por local va en `respuestaParaCapacidad` con `"stock_consulta:<localId>"`.
    */
   readonly respuestasStock: RespuestaVentasCargada[];
+  /**
+   * Tanda 9B: los pedidos que contesta `pedidos_pendientes` para un local (por
+   * id), en la forma del ERP. Sin entrada: los dos del caso "varios" de
+   * erp-ccf2894.json. Una respuesta fija va en `respuestaParaCapacidad` con
+   * `"pedidos_pendientes:<localId>"`.
+   */
+  readonly pedidosPorLocal: Map<number, object[]>;
   /** Lo que la persona hace en el ERP: generar un código. */
   emitirCodigo(usuarioId: number): string;
   /** Lo que la persona (o un admin) hace en el ERP: desvincular. */
@@ -151,6 +163,7 @@ export async function levantarErpConEstado(): Promise<ErpConEstado> {
   const respuestaParaCapacidad = new Map<string, { status: number; cuerpo: unknown }>();
   const respuestasCajas: RespuestaVentasCargada[] = [];
   const respuestasStock: RespuestaVentasCargada[] = [];
+  const pedidosPorLocal = new Map<number, object[]>();
 
   const estado = { modo: "normal" as ModoErp };
 
@@ -333,6 +346,32 @@ export async function levantarErpConEstado(): Promise<ErpConEstado> {
         if (parametros.modo === "producto") datos.texto = parametros.texto;
         return responderJson(res, 200, { ok: true, datos });
       }
+      if (cuerpo.capacidad === "pedidos_pendientes") {
+        // Tanda 9B: lo que hace el ERP ccf2894. Una respuesta fija por local
+        // va primero; si no, el portón —el local anuncia `pedidos_pendientes`—
+        // y el caso grabado "varios" (dos pedidos, uno de cada origen), con el
+        // local y el grupo pedidos, como los devuelve el ERP. Con
+        // `pedidosPorLocal` cargado para el local, esos pedidos.
+        const pedido = cuerpo.alcance as { grupoId?: unknown; localId?: unknown } | undefined;
+        const fija = typeof pedido?.localId === "number" ? respuestaParaCapacidad.get(`pedidos_pendientes:${pedido.localId}`) : undefined;
+        if (fija) return responderJson(res, fija.status, fija.cuerpo);
+        const locales = (alcances.get(v.usuarioId)?.locales ?? []) as { id: number; nombre: string; grupoId: number; capacidades?: unknown }[];
+        const local = locales.find((l) => l.id === pedido?.localId && l.grupoId === pedido?.grupoId);
+        if (!local || !Array.isArray(local.capacidades) || !local.capacidades.includes("pedidos_pendientes")) {
+          const negado = FIXTURES_ERP_CCF2894.sinPermiso.respuesta;
+          return responderJson(res, negado.status, negado.cuerpo);
+        }
+        if (Object.keys((cuerpo.parametros ?? {}) as object).length > 0) {
+          const r = FIXTURES_ERP_CCF2894.conParametro.respuesta;
+          return responderJson(res, r.status, r.cuerpo);
+        }
+        const datos = structuredClone(FIXTURES_ERP_CCF2894.varios.respuesta.cuerpo.datos) as Record<string, unknown>;
+        datos.local = { id: local.id, nombre: local.nombre };
+        datos.grupoId = local.grupoId;
+        const cargados = pedidosPorLocal.get(local.id);
+        if (cargados) datos.pedidos = cargados;
+        return responderJson(res, 200, { ok: true, datos });
+      }
       return responderErrorErp(res, "CAPACIDAD_NO_DISPONIBLE");
     }
 
@@ -363,6 +402,7 @@ export async function levantarErpConEstado(): Promise<ErpConEstado> {
     respuestaParaCapacidad,
     respuestasCajas,
     respuestasStock,
+    pedidosPorLocal,
     emitirCodigo(usuarioId: number) {
       // Como autorizarVinculo: revoca el vigente y crea otro, en el mismo paso.
       for (const x of vinculos) if (x.usuarioId === usuarioId) x.revocado = true;

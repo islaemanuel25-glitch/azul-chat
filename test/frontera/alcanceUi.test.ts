@@ -70,7 +70,9 @@ const TEXTOS_FUERA_DE_ALCANCE = [
  * Los chips del diseño que no están implementados, como texto visible: literal o hijo de JSX.
  * Tanda 7B: "Caja" SALE de esta lista porque existe (Figma 1:144), y solo como
  * el chip de la barra, en UN archivo (CHIPS_IMPLEMENTADOS, abajo). Tanda 8B:
- * "Stock" también (Figma 1:150), con la misma regla.
+ * "Stock" también (Figma 1:150), con la misma regla. Tanda 9B: "Pendientes"
+ * (Figma 04, pantalla "Pendientes"), en la barra del Local y en la de General,
+ * con la misma regla: como texto visible, solo en Piezas.tsx.
  */
 const CHIPS_NO_IMPLEMENTADOS = ["Transferencias", "Pedidos"];
 const comoTextoVisible = (t: string) => new RegExp(`["'\`>]\\s*${t}\\s*["'\`<]`);
@@ -78,6 +80,7 @@ const comoTextoVisible = (t: string) => new RegExp(`["'\`>]\\s*${t}\\s*["'\`<]`)
 const CHIPS_IMPLEMENTADOS: readonly { readonly texto: string; readonly archivo: string }[] = [
   { texto: "Caja", archivo: "src/components/chats/Piezas.tsx" },
   { texto: "Stock", archivo: "src/components/chats/Piezas.tsx" },
+  { texto: "Pendientes", archivo: "src/components/chats/Piezas.tsx" },
 ];
 
 /** Textos que existen, cada uno en un solo archivo de la interfaz. */
@@ -246,6 +249,15 @@ describe("alcance de la interfaz de chats", () => {
     assert.ok(comoTextoVisible("Stock").test(piezas), "el chip Stock está donde el permiso dice");
     const stock = arbol["src/components/chats/Stock.tsx"]!;
     assert.notDeepEqual(problemas({ ...arbol, "src/components/chats/Stock.tsx": `${stock}\nexport const K3 = () => <button className="ac-chip">Stock</button>;\n` }), [], "chip Stock en la tarjeta");
+    // Tanda 9B: "Pendientes" también solo en la barra: en la tarjeta de pendientes o en la conversación, rojo.
+    assert.ok(comoTextoVisible("Pendientes").test(piezas), "el chip Pendientes está donde el permiso dice");
+    const pendientes = arbol["src/components/chats/Pendientes.tsx"]!;
+    assert.notDeepEqual(
+      problemas({ ...arbol, "src/components/chats/Pendientes.tsx": `${pendientes}\nexport const K4 = () => <button className="ac-chip">Pendientes</button>;\n` }),
+      [],
+      "chip Pendientes en la tarjeta",
+    );
+    assert.notDeepEqual(problemas({ ...arbol, "src/components/chats/Pendientes.tsx": `${pendientes}\nexport const V = () => <button>Ver detalle</button>;\n` }), [], "Ver detalle en la tarjeta de pendientes");
     const cajas = arbol["src/components/chats/Cajas.tsx"]!;
     assert.notDeepEqual(problemas({ ...arbol, "src/components/chats/Cajas.tsx": `${cajas}\nexport const K2 = () => <button className="ac-chip">Caja</button>;\n` }), [], "chip Caja en la tarjeta");
     // Un texto que solo CONTIENE el nombre de un chip no es el chip: "Transferencia #182 recibida" sigue bien.

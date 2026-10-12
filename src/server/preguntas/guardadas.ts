@@ -29,6 +29,7 @@ import type { PosicionHistorial } from "../chats/historial.ts";
 import { CAPACIDAD_VENTAS_RESUMEN } from "../erp/ventasResumen.ts";
 import { CAPACIDAD_CAJAS_RESUMEN } from "../erp/cajasResumen.ts";
 import { CAPACIDAD_STOCK_CONSULTA } from "../erp/stockConsulta.ts";
+import { CAPACIDAD_PEDIDOS_PENDIENTES } from "../erp/pedidosPendientes.ts";
 import { EVENTO_DE_PREGUNTA, type Intencion } from "./intencion.ts";
 
 /**
@@ -36,14 +37,17 @@ import { EVENTO_DE_PREGUNTA, type Intencion } from "./intencion.ts";
  * saber leer los dos. Tanda 7B: la 2 agrega los estados CAJA y VENTAS_TURNO;
  * los de la 1 no cambiaron, así que una fila de la 1 se sigue leyendo igual.
  * Tanda 8B: la 3 agrega STOCK, y tampoco cambia los de antes.
+ * Tanda 9B: la 4 agrega PENDIENTES, sin cambiar los de antes.
  */
-export const VERSION_RESULTADO = 3;
+export const VERSION_RESULTADO = 4;
 /** Las versiones que se saben leer. */
-export const VERSIONES_LEGIBLES: readonly number[] = Object.freeze([1, 2, 3]);
+export const VERSIONES_LEGIBLES: readonly number[] = Object.freeze([1, 2, 3, 4]);
 /** Los estados que existían en la versión 1: una fila v1 con otro estado no se muestra. */
 const ESTADOS_V1: readonly string[] = ["VENTAS", "EVENTOS", "NO_ENTIENDO", "SALDO_AGOTADO", "IA_NO_DISPONIBLE", "ERP_NO_DISPONIBLE", "ERP_CUPO_EXCEDIDO"];
 /** Los de la versión 2: los de la 1, CAJA y VENTAS_TURNO. Una fila v2 con STOCK no se muestra. */
 const ESTADOS_V2: readonly string[] = [...ESTADOS_V1, "CAJA", "VENTAS_TURNO"];
+/** Los de la versión 3: los de la 2 y STOCK. Una fila v3 con PENDIENTES no se muestra. */
+const ESTADOS_V3: readonly string[] = [...ESTADOS_V2, "STOCK"];
 /** Cuántos días se guarda una pregunta. */
 export const DIAS_DE_RETENCION = 90;
 const UN_DIA_MS = 24 * 60 * 60 * 1000;
@@ -61,6 +65,8 @@ export type AlcanceDeHoy = {
   readonly conCaja: readonly { readonly localId: number }[];
   /** Tanda 8B: los locales con `stock_consulta` hoy. */
   readonly conStock: readonly { readonly localId: number }[];
+  /** Tanda 9B: los locales con `pedidos_pendientes` o `cajas_resumen` hoy, con cuál anuncian. */
+  readonly conPendientes: readonly { readonly localId: number; readonly pedidos: boolean }[];
 };
 
 const esGuardable = (r: RespuestaPregunta): r is RespuestaGuardada => (ESTADOS_GUARDADOS as readonly string[]).includes(r.estado);
@@ -76,6 +82,13 @@ export function requisitosDe(intencion: Intencion | null, respuesta: RespuestaGu
   // Tanda 7B: caja y ventas de un turno salen de `cajas_resumen`; para mostrarlas hoy hace falta esa capacidad.
   // Tanda 8B: stock, de `stock_consulta`.
   if (intencion.tipo === "STOCK") return intencion.locales.map((l) => ({ localId: l.localId, capacidad: CAPACIDAD_STOCK_CONSULTA }));
+  // Tanda 9B: pendientes, de cada fuente que se consultó en cada local.
+  if (intencion.tipo === "PENDIENTES") {
+    return intencion.locales.flatMap((l) => [
+      ...(l.pedidos ? [{ localId: l.localId, capacidad: CAPACIDAD_PEDIDOS_PENDIENTES }] : []),
+      ...(l.cajas ? [{ localId: l.localId, capacidad: CAPACIDAD_CAJAS_RESUMEN }] : []),
+    ]);
+  }
   if (intencion.tipo === "CAJA") return intencion.locales.map((l) => ({ localId: l.localId, capacidad: CAPACIDAD_CAJAS_RESUMEN }));
   if (intencion.tipo === "VENTAS") {
     if (intencion.porTurno) return intencion.porTurno.locales.map((l) => ({ localId: l.localId, capacidad: CAPACIDAD_CAJAS_RESUMEN }));
@@ -95,6 +108,7 @@ export function cumpleRequisitos(requisitos: unknown, hoy: AlcanceDeHoy): boolea
     if (capacidad === CAPACIDAD_VENTAS_RESUMEN) return hoy.conVentas.some((l) => l.localId === localId);
     if (capacidad === CAPACIDAD_CAJAS_RESUMEN) return hoy.conCaja.some((l) => l.localId === localId);
     if (capacidad === CAPACIDAD_STOCK_CONSULTA) return hoy.conStock.some((l) => l.localId === localId);
+    if (capacidad === CAPACIDAD_PEDIDOS_PENDIENTES) return hoy.conPendientes.some((l) => l.localId === localId && l.pedidos);
     return hoy.autorizados.some((l) => l.localId === localId && l.capacidades.includes(capacidad));
   });
 }
@@ -136,7 +150,8 @@ function aPreguntaGuardada(f: { id: bigint; texto: string; creadaEn: Date; resul
   if (!VERSIONES_LEGIBLES.includes(f.resultadoVersion)) return null;
   const r = f.resultado;
   if (r === null || typeof r !== "object" || Array.isArray(r)) return null;
-  const estados: readonly unknown[] = f.resultadoVersion === 1 ? ESTADOS_V1 : f.resultadoVersion === 2 ? ESTADOS_V2 : ESTADOS_GUARDADOS;
+  const estados: readonly unknown[] =
+    f.resultadoVersion === 1 ? ESTADOS_V1 : f.resultadoVersion === 2 ? ESTADOS_V2 : f.resultadoVersion === 3 ? ESTADOS_V3 : ESTADOS_GUARDADOS;
   if (!estados.includes((r as Record<string, unknown>).estado)) return null;
   return { id: f.id.toString(), pregunta: f.texto, creadaEn: f.creadaEn.toISOString(), respuesta: r as unknown as RespuestaGuardada };
 }
