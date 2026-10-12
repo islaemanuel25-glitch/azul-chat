@@ -33,9 +33,10 @@ import type { RespuestaGeneral, RespuestaLocal } from "../../src/shared/chats/ap
 import { EJEMPLOS_DE_PREGUNTAS, RESTRICCIONES_NO_SOPORTADAS, type RespuestaPregunta } from "../../src/shared/chats/preguntas.ts";
 import type { DatosMiAlcance, EventoTransferenciaRecibida } from "../../src/shared/erp/contrato.ts";
 import { crearBaseDescartable, type BaseDescartable } from "../ayuda/baseDescartable.ts";
+import { cajasDelDiaDelFixture } from "../ayuda/cajas.ts";
 import { levantarErpConEstado, type ErpConEstado } from "../ayuda/erpConEstado.ts";
 import { recepcion } from "../ayuda/paginadorErp.ts";
-import { DATOS_ERP, FIXTURES_ERP, FIXTURES_ERP_25172FE, SECRETO_PRUEBA, type Rompible } from "../ayuda/servidorErp.ts";
+import { DATOS_ERP, ERRORES_ERP, FIXTURES_ERP, FIXTURES_ERP_25172FE, SECRETO_PRUEBA, type Rompible } from "../ayuda/servidorErp.ts";
 
 const ORIGEN = "https://chat.ejemplo.invalid";
 const INSTALACION = "instalacion-prueba";
@@ -79,6 +80,7 @@ beforeEach(async () => {
   erp.eventosPorCapacidad.clear();
   erp.respuestaParaCapacidad.clear();
   erp.respuestasVentas.length = 0;
+  erp.respuestasCajas.length = 0;
   erp.ponerModo("normal");
   erp.cupo.desactivar();
   erp.alcances.clear();
@@ -103,7 +105,8 @@ function respuestaGemini(
   salida: Record<string, unknown>,
   { uso = { promptTokenCount: 600, candidatesTokenCount: 40, thoughtsTokenCount: 120 }, finishReason = "STOP", texto }: { uso?: Record<string, number>; finishReason?: string; texto?: string } = {},
 ): Response {
-  const completa = { intencion: null, tipoEvento: null, local: null, periodo: null, desde: null, hasta: null, restriccionesNoSoportadas: [], ...salida };
+  // Tanda 7B: la salida lleva `turno` (null si la pregunta no nombra uno).
+  const completa = { intencion: null, tipoEvento: null, local: null, periodo: null, desde: null, hasta: null, turno: null, restriccionesNoSoportadas: [], ...salida };
   return new Response(
     JSON.stringify({
       candidates: [{ finishReason, content: { role: "model", parts: [{ text: texto ?? JSON.stringify(completa) }] } }],
@@ -820,7 +823,7 @@ describe("6C. las preguntas se guardan con su respuesta y vuelven en el historia
     reloj += 60_000;
     await preguntar(cookie, { pregunta: "nueva", localId: CASIANO.id });
     const vinculo = (await base.db.vinculo.findFirst({ select: { id: true } }))!;
-    const hoy = { autorizados: [{ localId: CASIANO.id, capacidades: ["transferencias_eventos"] }], conVentas: [] };
+    const hoy = { autorizados: [{ localId: CASIANO.id, capacidades: ["transferencias_eventos"] }], conVentas: [], conCaja: [] };
     const aLos = (ms: number) => fuenteDePreguntas(base.db, { vinculoId: vinculo.id, erpLocalId: CASIANO.id, hoy, ahora: new Date(ms) })(null, 10);
     const NOVENTA = DIAS_DE_RETENCION * 24 * 60 * 60 * 1000;
     assert.deepEqual((await aLos(reloj - 60_000 + NOVENTA)).map((p) => p.pregunta.pregunta), ["nueva", "vieja"], "el día 90 todavía está");
@@ -859,7 +862,7 @@ describe("6C. la paginación intercala preguntas y eventos sin repetir ni perder
     for (const [i, creadaEn] of momentos.entries()) {
       await guardarPregunta(base.db, { vinculoId: vinculo.id, erpLocalId: CASIANO.id, texto: `p${i}`, creadaEn, respuesta, intencion: null });
     }
-    const hoy = { autorizados: [{ localId: CASIANO.id, capacidades: ["transferencias_eventos"] }], conVentas: [] };
+    const hoy = { autorizados: [{ localId: CASIANO.id, capacidades: ["transferencias_eventos"] }], conVentas: [], conCaja: [] };
     const fuente = fuenteDePreguntas(base.db, { vinculoId: vinculo.id, erpLocalId: CASIANO.id, hoy, ahora: new Date(reloj) });
     const locales = [{ localId: CASIANO.id, tipos: ["TRANSFERENCIA_RECIBIDA" as const] }];
     return { fuente, locales };
@@ -918,5 +921,186 @@ describe("6C. la paginación intercala preguntas y eventos sin repetir ni perder
     assert.equal(r.guardadas.length, 5);
     assert.ok(r.eventos.length > 0);
     assert.deepEqual(r.guardadas.map((g) => g.pregunta), ["p4", "p3", "p2", "p1", "p0"], "del más reciente al más antiguo; a igual hora, el id mayor");
+  });
+});
+
+// ── Tanda 7B: caja y ventas por turno ────────────────────────────────────────
+//
+// `cajas_resumen` del ERP de mentira contesta el día del fixture del ERP
+// 14ae247 (Mañana, Tarde y una caja sin turno), con el local pedido. La IA
+// solo dice "caja" o "ventas" y el turno como texto; el código pide el día
+// entero y elige el turno por los nombres del ERP.
+
+describe("7B. caja y ventas por turno: el ERP calcula, el código elige el turno", () => {
+  type Local = Extract<RespuestaLocal, { estado: "OK" }>;
+  const verLocal = async (cookie: string, localId = CASIANO.id) => {
+    const res = await manejarLocal(new Request(`${ORIGEN}/api/chats/local?localId=${localId}`, { headers: conCookie(cookie) }), deps());
+    return JSON.parse(await res.text()) as Local;
+  };
+  /** Suma `cajas_resumen` a esos locales en el mi_alcance del admin (el de 25172fe es anterior a la capacidad). */
+  const conCaja = (...ids: number[]) => {
+    const a = erp.alcances.get(ADMIN) as Rompible<DatosMiAlcance>;
+    for (const l of a.locales) if (ids.includes(l.id)) l.capacidades = [...(l.capacidades ?? []), "cajas_resumen"] as never;
+  };
+  const DIA = cajasDelDiaDelFixture("hoy").fecha;
+  const PERIODO = { tipo: "hoy", desde: DIA, hasta: DIA };
+  const delLocal = (id: number, nombre: string) => ({ ...cajasDelDiaDelFixture("hoy"), local: { id, nombre } });
+  const nombres = (c: { turnos: readonly { turno: { nombre: string } }[] }) => c.turnos.map((t) => t.turno.nombre);
+
+  it("caja de un local: 1 mi_alcance + 1 cajas_resumen, las cajas del día tal cual; a la IA no le llega ni un turno ni un monto", async () => {
+    conCaja(CASIANO.id);
+    const cookie = await vincular(ADMIN);
+    respuestaIa = () => respuestaGemini({ intencion: "caja", local: "Casiano", periodo: "hoy" });
+    erp.recibidas.length = 0;
+    const r = await preguntar(cookie, { pregunta: "¿Cómo cerró la caja?", localId: CASIANO.id });
+    assert.equal(r.status, 200, r.texto);
+    assert.deepEqual(capacidadesPedidas(), ["mi_alcance", "cajas_resumen"]);
+    assert.deepEqual(r.cuerpo, { estado: "CAJA", alcance: "LOCAL", periodo: PERIODO, turnoPedido: null, turnoNoEncontrado: false, cajas: delLocal(3, "Casiano") });
+    const pedido = erp.cuerposA("consultar").find((c) => c.capacidad === "cajas_resumen")!;
+    assert.deepEqual(pedido.parametros, { periodo: { tipo: "hoy" } });
+    const alaIa = JSON.stringify(llamadasIa.at(-1)!.cuerpo);
+    for (const dato of ["Tarde", "Mañana", "Diego", "Caja fuerte", "83000", "16000"]) assert.ok(!alaIa.includes(dato), `a la IA le llegó ${dato}`);
+    // CONTRAPRUEBA: el chequeo ve un dato si viajara.
+    assert.ok(JSON.stringify({ ...llamadasIa.at(-1)!.cuerpo, x: "Diego" }).includes("Diego"));
+  });
+
+  it("caja con turno: solo ese turno; uno que no está, o 'ayer' de un día con turnos distintos, muestra todos con el aviso", async () => {
+    conCaja(CASIANO.id);
+    const cookie = await vincular(ADMIN);
+    respuestaIa = () => respuestaGemini({ intencion: "caja", local: "Casiano", periodo: "hoy", turno: "la tarde" });
+    const tarde = await preguntar(cookie, { pregunta: "¿Hubo retiros en la tarde?", localId: CASIANO.id });
+    assert.ok(tarde.cuerpo.estado === "CAJA" && tarde.cuerpo.alcance === "LOCAL");
+    assert.deepEqual([nombres(tarde.cuerpo.cajas), tarde.cuerpo.turnoPedido, tarde.cuerpo.turnoNoEncontrado], [["Tarde"], "la tarde", false]);
+    respuestaIa = () => respuestaGemini({ intencion: "caja", local: "Casiano", periodo: "hoy", turno: "noche" });
+    const noche = await preguntar(cookie, { pregunta: "¿Cómo cerró la noche?", localId: CASIANO.id });
+    assert.ok(noche.cuerpo.estado === "CAJA" && noche.cuerpo.alcance === "LOCAL");
+    assert.deepEqual([nombres(noche.cuerpo.cajas), noche.cuerpo.turnoNoEncontrado], [["Mañana", "Tarde", "Sin turno asignado"], true]);
+  });
+
+  it("caja de varios días o de un local sin cajas_resumen: NO_ENTIENDO, sin consultar cajas", async () => {
+    conCaja(CASIANO.id);
+    const cookie = await vincular(ADMIN);
+    for (const salida of [
+      { intencion: "caja", local: "Casiano", periodo: "rango", desde: "2026-10-01", hasta: "2026-10-07" },
+      { intencion: "caja", local: "Belgrano", periodo: "hoy" },
+    ]) {
+      respuestaIa = () => respuestaGemini(salida);
+      erp.recibidas.length = 0;
+      const r = await preguntar(cookie, { pregunta: "¿Y la caja?" });
+      assert.equal(r.cuerpo.estado, "NO_ENTIENDO", JSON.stringify(salida));
+      assert.deepEqual(capacidadesPedidas(), ["mi_alcance"]);
+    }
+  });
+
+  it("ventas de un turno en un local: de cajas_resumen (sin ventas_resumen), solo ese turno, y 'turno' sale de lo que no se separa", async () => {
+    conCaja(CASIANO.id);
+    const cookie = await vincular(ADMIN);
+    respuestaIa = () => respuestaGemini({ intencion: "ventas", local: "Casiano", periodo: "hoy", turno: "tarde", restriccionesNoSoportadas: ["turno"] });
+    erp.recibidas.length = 0;
+    const r = await preguntar(cookie, { pregunta: "¿Cuánto vendió el turno tarde?", localId: CASIANO.id });
+    assert.equal(r.status, 200, r.texto);
+    assert.deepEqual(capacidadesPedidas(), ["mi_alcance", "cajas_resumen"]);
+    const tarde = delLocal(3, "Casiano");
+    assert.deepEqual(r.cuerpo, {
+      estado: "VENTAS_TURNO",
+      alcance: "LOCAL",
+      periodo: PERIODO,
+      turnoPedido: "tarde",
+      turnoNoEncontrado: false,
+      noSeparaPor: [],
+      cajas: { ...tarde, turnos: [tarde.turnos[1]!] },
+    });
+  });
+
+  it("ventas de un turno en un local SIN cajas_resumen: como antes, ventas_resumen del día con el aviso de turno", async () => {
+    const cookie = await vincular(ADMIN);
+    respuestaIa = () => respuestaGemini({ intencion: "ventas", local: "Casiano", periodo: "hoy", turno: "tarde", restriccionesNoSoportadas: ["turno"] });
+    erp.recibidas.length = 0;
+    const r = await preguntar(cookie, { pregunta: "¿Cuánto vendió el turno tarde?", localId: CASIANO.id });
+    assert.deepEqual(capacidadesPedidas(), ["mi_alcance", "ventas_resumen"]);
+    assert.ok(r.cuerpo.estado === "VENTAS");
+    assert.deepEqual(r.cuerpo.noSeparaPor, ["turno"]);
+  });
+
+  it("ventas de un turno en todos: 1 + N, y la suma del turno la hace el código; un local sin ese turno aporta cero", async () => {
+    conCaja(CASIANO.id, DEPOSITO.id);
+    const cookie = await vincular(ADMIN);
+    respuestaIa = () => respuestaGemini({ intencion: "ventas", local: "todos", periodo: "hoy", turno: "tarde", restriccionesNoSoportadas: ["turno"] });
+    erp.recibidas.length = 0;
+    const r = await preguntar(cookie, { pregunta: "¿Cuánto vendieron todos a la tarde?" });
+    assert.deepEqual(capacidadesPedidas(), ["mi_alcance", "cajas_resumen", "cajas_resumen"]);
+    assert.ok(r.cuerpo.estado === "VENTAS_TURNO" && r.cuerpo.alcance === "TODOS", r.texto);
+    assert.deepEqual(r.cuerpo.locales.map((c) => [c.local.nombre, nombres(c)]), [["Casiano", ["Tarde"]], ["Depósito Central", ["Tarde"]]]);
+    const t = r.cuerpo.total!;
+    assert.deepEqual([t.cantidadVentas, t.totalVendido, t.ventasEfectivo], [8, "52000.00", "42000.00"]);
+    assert.deepEqual(t.ventasPorMedio.map((m) => [m.medio, m.total]), [["EFECTIVO", "42000.00"], ["CREDITO", "8000.00"], ["MERCADOPAGO", "2000.00"]]);
+    assert.deepEqual([r.cuerpo.fallidos, r.cuerpo.noSeparaPor, r.cuerpo.turnoNoEncontrado], [[], [], false]);
+  });
+
+  it("todos con un local caído: se dice cuál y NO hay total parcial; con el cupo lleno en el primero, no se sigue gastando", async () => {
+    conCaja(CASIANO.id, DEPOSITO.id);
+    const cookie = await vincular(ADMIN);
+    respuestaIa = () => respuestaGemini({ intencion: "ventas", local: "todos", periodo: "hoy", turno: "tarde", restriccionesNoSoportadas: ["turno"] });
+    erp.respuestaParaCapacidad.set(`cajas_resumen:${DEPOSITO.id}`, ERRORES_ERP.INTEGRACION_NO_DISPONIBLE!);
+    const r = await preguntar(cookie, { pregunta: "¿Cuánto vendieron todos a la tarde?" });
+    assert.ok(r.cuerpo.estado === "VENTAS_TURNO" && r.cuerpo.alcance === "TODOS", r.texto);
+    assert.deepEqual([r.cuerpo.total, r.cuerpo.fallidos, r.cuerpo.locales.map((c) => c.local.nombre)], [null, [{ id: DEPOSITO.id, nombre: "Depósito Central" }], ["Casiano"]]);
+
+    erp.respuestaParaCapacidad.clear();
+    erp.respuestaParaCapacidad.set(`cajas_resumen:${CASIANO.id}`, ERRORES_ERP.LIMITE_EXCEDIDO!);
+    respuestaIa = () => respuestaGemini({ intencion: "caja", local: "todos", periodo: "hoy" });
+    erp.recibidas.length = 0;
+    const cupo = await preguntar(cookie, { pregunta: "¿Cómo cerraron las cajas?" });
+    assert.equal(cupo.status, 429);
+    assert.deepEqual(cupo.cuerpo, { estado: "ERP_CUPO_EXCEDIDO" });
+    assert.deepEqual(capacidadesPedidas(), ["mi_alcance", "cajas_resumen"], "el segundo local no se consultó");
+  });
+
+  it("un turno que no está en ningún local: el aviso y todos los turnos de cada uno, sin total", async () => {
+    conCaja(CASIANO.id, DEPOSITO.id);
+    const cookie = await vincular(ADMIN);
+    respuestaIa = () => respuestaGemini({ intencion: "ventas", local: "todos", periodo: "hoy", turno: "noche", restriccionesNoSoportadas: ["turno"] });
+    const r = await preguntar(cookie, { pregunta: "¿Cuánto vendió la noche?" });
+    assert.ok(r.cuerpo.estado === "VENTAS_TURNO" && r.cuerpo.alcance === "TODOS", r.texto);
+    assert.deepEqual([r.cuerpo.turnoNoEncontrado, r.cuerpo.total], [true, null]);
+    assert.deepEqual(r.cuerpo.locales.map(nombres), [["Mañana", "Tarde", "Sin turno asignado"], ["Mañana", "Tarde", "Sin turno asignado"]]);
+  });
+
+  it("guardado: caja y ventas por turno vuelven en el historial como foto (versión 2); sin cajas_resumen hoy, no se muestran", async () => {
+    conCaja(CASIANO.id);
+    const cookie = await vincular(ADMIN);
+    respuestaIa = () => respuestaGemini({ intencion: "caja", local: "Casiano", periodo: "hoy" });
+    const c = await preguntar(cookie, { pregunta: "¿Cómo cerró la caja?", localId: CASIANO.id });
+    respuestaIa = () => respuestaGemini({ intencion: "ventas", local: "Casiano", periodo: "hoy", turno: "tarde", restriccionesNoSoportadas: ["turno"] });
+    reloj += 60_000;
+    const v = await preguntar(cookie, { pregunta: "¿Cuánto vendió la tarde?", localId: CASIANO.id });
+    const guardadas = (await verLocal(cookie)).guardadas;
+    assert.deepEqual(guardadas.map((g) => [g.id, g.respuesta]), [[v.guardadaId, v.cuerpo], [c.guardadaId, c.cuerpo]]);
+    const filas = await base.db.pregunta.findMany({ orderBy: { id: "asc" }, select: { resultadoVersion: true, requisitos: true } });
+    assert.deepEqual(filas, [
+      { resultadoVersion: 2, requisitos: [{ localId: CASIANO.id, capacidad: "cajas_resumen" }] },
+      { resultadoVersion: 2, requisitos: [{ localId: CASIANO.id, capacidad: "cajas_resumen" }] },
+    ]);
+    // Hoy Casiano ya no anuncia cajas_resumen: no se muestran (siguen guardadas).
+    const a = erp.alcances.get(ADMIN) as Rompible<DatosMiAlcance>;
+    a.locales.find((l) => l.id === CASIANO.id)!.capacidades = ["ventas_resumen", "transferencias_eventos"] as never;
+    assert.deepEqual((await verLocal(cookie)).guardadas, []);
+  });
+
+  it("una fila de la versión 1 se sigue leyendo; una v1 con un estado que la v1 no tenía, no (CONTRAPRUEBA)", async () => {
+    const cookie = await vincular(ADMIN);
+    const vinculo = (await base.db.vinculo.findFirst({ select: { id: true } }))!;
+    const fila = (texto: string, estado: string, segundos: number) => ({
+      vinculoId: vinculo.id,
+      erpLocalId: CASIANO.id,
+      texto,
+      creadaEn: new Date(reloj - segundos * 1000),
+      resultadoVersion: 1,
+      resultado: { estado, ejemplos: [] },
+      requisitos: [],
+    });
+    await base.db.pregunta.create({ data: fila("vieja", "NO_ENTIENDO", 20) });
+    await base.db.pregunta.create({ data: fila("imposible", "CAJA", 10) });
+    assert.deepEqual((await verLocal(cookie)).guardadas.map((g) => g.pregunta), ["vieja"]);
   });
 });

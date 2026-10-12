@@ -30,6 +30,7 @@ import type { TipoEvento } from "@prisma/client";
 
 import {
   anunciaCapacidad,
+  CAPACIDAD_CAJAS_RESUMEN,
   CAPACIDADES_EVENTOS,
   type CapacidadEventos,
   type DatosMiAlcance,
@@ -87,6 +88,8 @@ export type Autorizacion = {
    * `autorizados`: lo que el ERP anuncia hoy, sin guardar ni inferir nada.
    */
   readonly conVentas: readonly LocalAutorizado[];
+  /** Tanda 7B: los locales que anuncian `cajas_resumen`, con el mismo criterio. */
+  readonly conCaja: readonly LocalAutorizado[];
 };
 
 /**
@@ -122,6 +125,7 @@ export async function autorizacionViva(deps: DependenciasSesion, token: string, 
       usuario: { nombre: alcance.datos.usuario.nombre },
       autorizados: localesAutorizadosAhora(alcance.datos),
       conVentas: localesConCapacidad(alcance.datos, CAPACIDAD_VENTAS_RESUMEN),
+      conCaja: localesConCapacidad(alcance.datos, CAPACIDAD_CAJAS_RESUMEN),
     },
   };
 }

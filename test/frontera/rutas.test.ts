@@ -57,6 +57,13 @@ const RUTAS = {
     metodos: ["GET"],
     importa: ["../../../../server/chats/manejadores.ts", "../../../../server/sesion/dependencias.ts"],
   },
+  // Tanda 7B: las cajas de hoy de un local, por turno. Igual que ventas: una
+  // acción concreta —período fijo "hoy", el local por query—, no un pase
+  // genérico a `cajas_resumen`.
+  "src/app/api/chats/caja/route.ts": {
+    metodos: ["GET"],
+    importa: ["../../../../server/chats/manejadores.ts", "../../../../server/sesion/dependencias.ts"],
+  },
   // Tanda 6A: una pregunta en lenguaje natural. Una acción concreta —la IA solo
   // elige una intención de un catálogo cerrado; ventas y eventos los arma el
   // código—, no un pase genérico al ERP ni a la IA. Con sesión y Origin.
@@ -133,6 +140,12 @@ describe("las rutas son acciones concretas", () => {
         "src/app/api/chats/preguntar/route.ts": `${arbol["src/app/api/chats/preguntar/route.ts"]}\nconst z = () => fetch("https://generativelanguage.googleapis.com/v1beta/models");\n`,
       },
       preguntarOtra: { "src/app/api/chats/preguntar-libre/route.ts": "export async function POST() {}\n" },
+      // Tanda 7B: la ruta de caja solo delega, solo GET, y no recibe la capacidad ni el período.
+      cajaPost: { "src/app/api/chats/caja/route.ts": `${arbol["src/app/api/chats/caja/route.ts"]}\nexport function POST() {}\n` },
+      cajaErp: {
+        "src/app/api/chats/caja/route.ts": `${arbol["src/app/api/chats/caja/route.ts"]}\nconst c = (r: Request) => new URL(r.url).searchParams.get("capacidad");\n`,
+      },
+      cajaPorSegmento: { "src/app/api/chats/caja/[periodo]/route.ts": "export async function GET() {}\n" },
     };
     for (const [nombre, cambio] of Object.entries(casos)) {
       assert.notDeepEqual(violacionesDeRutas({ ...arbol, ...cambio }), [], nombre);

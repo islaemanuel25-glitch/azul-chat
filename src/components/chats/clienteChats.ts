@@ -1,4 +1,4 @@
-// EL NAVEGADOR HABLA CON LAS CINCO RUTAS DE CHATS DESDE ACÁ, Y SOLO DESDE ACÁ.
+// EL NAVEGADOR HABLA CON LAS RUTAS DE CHATS DESDE ACÁ, Y SOLO DESDE ACÁ.
 // Y, desde la Tanda 3B, con GET /api/version, para la recarga por versión.
 //
 // Las rutas son las propias de Azul Chat (docs/CHATS.md); este archivo no sabe
@@ -12,7 +12,16 @@
 // consulta (`?localId=…&cursor=…`) solo después de una de ellas.
 // test/ui/clienteChats.test.ts comprueba que coinciden con RUTAS_CHATS.
 
-import type { FallaChats, PedidoLeido, RespuestaChats, RespuestaGeneral, RespuestaLeido, RespuestaLocal, RespuestaVentas } from "../../shared/chats/api.ts";
+import type {
+  FallaChats,
+  PedidoLeido,
+  RespuestaCaja,
+  RespuestaChats,
+  RespuestaGeneral,
+  RespuestaLeido,
+  RespuestaLocal,
+  RespuestaVentas,
+} from "../../shared/chats/api.ts";
 import type { PedidoPregunta, RespuestaPregunta } from "../../shared/chats/preguntas.ts";
 import { anotarCommitDe } from "./version.ts";
 
@@ -21,6 +30,8 @@ const RUTA_LOCAL = "/api/chats/local";
 const RUTA_GENERAL = "/api/chats/general";
 const RUTA_LEIDO = "/api/chats/leido";
 const RUTA_VENTAS = "/api/chats/ventas";
+/** Tanda 7B: las cajas de hoy de un local. */
+const RUTA_CAJA = "/api/chats/caja";
 /** Tanda 6A: una pregunta en lenguaje natural. */
 const RUTA_PREGUNTAR = "/api/chats/preguntar";
 /** Tanda 3B: el commit que sirve el servidor, para recargar una pestaña que quedó con el JS de otro despliegue. */
@@ -35,6 +46,7 @@ export const RUTAS_DEL_CLIENTE = Object.freeze({
   general: RUTA_GENERAL,
   leido: RUTA_LEIDO,
   ventas: RUTA_VENTAS,
+  caja: RUTA_CAJA,
   preguntar: RUTA_PREGUNTAR,
 });
 
@@ -100,6 +112,12 @@ export function pedirGeneral(cursor: string | null, signal?: AbortSignal) {
 export function pedirVentas(localId: number, signal?: AbortSignal) {
   const q = new URLSearchParams({ localId: String(localId) }).toString();
   return pedir<RespuestaVentas>(() => fetch(`${RUTA_VENTAS}?${q}`, { ...OPCIONES, signal: signal ?? null }), signal);
+}
+
+/** GET /api/chats/caja?localId=N: las cajas de hoy, por turno (Tanda 7B). Solo cuando la persona toca "Caja". */
+export function pedirCaja(localId: number, signal?: AbortSignal) {
+  const q = new URLSearchParams({ localId: String(localId) }).toString();
+  return pedir<RespuestaCaja>(() => fetch(`${RUTA_CAJA}?${q}`, { ...OPCIONES, signal: signal ?? null }), signal);
 }
 
 /** POST /api/chats/leido: lo único que marca leído, y solo cuando una pantalla lo pide. */

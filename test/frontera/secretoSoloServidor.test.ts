@@ -187,7 +187,8 @@ describe("el cliente ERP no es genérico", () => {
     assert.deepEqual(violacionesHttp({ ...base, "src/components/x/C.tsx": "// fetch('https://x')\nexport const c = 1;\n" }), []);
   });
 
-  it("las capacidades que Azul Chat le pide al ERP son estas seis, nada más", () => {
+  it("las capacidades que Azul Chat le pide al ERP son estas siete, nada más", () => {
+    // Tanda 7B: `cajas_resumen`, con su constructor (src/server/erp/cajasResumen.ts) y su método del cliente.
     // Una capacidad nueva entra a propósito, con su constructor y sus tests: este candado se actualiza ese día.
     // mi_alcance entró en la tanda de sesión (ERP 8920516). Hasta la Tanda 4B este
     // candado miraba solo src/server, y `transferencias_eventos` (Tanda 2), que
@@ -200,6 +201,7 @@ describe("el cliente ERP no es genérico", () => {
       }
     }
     assert.deepEqual([...capacidades].sort(), [
+      "cajas_resumen",
       "cancelaciones_eventos",
       "envios_eventos",
       "mi_alcance",

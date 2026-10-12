@@ -1,12 +1,13 @@
 // src/server/chats/manejadores.ts
 //
-// LAS CINCO RUTAS DE CHATS. Las de src/app solo delegan acá.
+// LAS SEIS RUTAS DE CHATS. Las de src/app solo delegan acá.
 //
 //   GET  /api/chats                          la lista: General y cada local autorizado
 //   GET  /api/chats/local?localId=&cursor=   el historial de un local
 //   GET  /api/chats/general?cursor=          el historial de todos los locales autorizados
 //   POST /api/chats/leido                    marcar leído, explícito
 //   GET  /api/chats/ventas?localId=          las ventas de hoy de un local (Tanda 3A)
+//   GET  /api/chats/caja?localId=            las cajas de hoy de un local, por turno (Tanda 7B)
 //
 // Las cuatro primeras: sesión → `mi_alcance` vivo, UNA vez → locales con al
 // menos una capacidad de eventos, y de cada uno los tipos de esas capacidades
@@ -34,10 +35,12 @@ import type {
   RespuestaChats,
   RespuestaGeneral,
   RespuestaLeido,
+  RespuestaCaja,
   RespuestaLocal,
   RespuestaVentas,
 } from "../../shared/chats/api.ts";
 import type { DatosVentasResumen, ResultadoConsulta } from "../../shared/erp/contrato.ts";
+import { cajasPublicas, cajasResumenDeSesion } from "../caja/cajasResumen.ts";
 import { contarNoLeidos, avanzarLectura, inicializarLectura, leerLectura } from "../eventos/lectura.ts";
 import { leerObjetoJson } from "../http/cuerpo.ts";
 import { origenPermitido } from "../http/origen.ts";
@@ -223,7 +226,13 @@ export function manejarLocal(request: Request, deps: DependenciasSesion): Promis
     const pagina = await paginaDeHistorial(db, config.instalacionId, [visible(local)], desde, undefined, preguntas);
     return ok<RespuestaLocal>({
       estado: "OK",
-      local: { localId, nombre: local.nombre, esDeposito: local.esDeposito, ventas: a.conVentas.some((l) => l.localId === localId) },
+      local: {
+        localId,
+        nombre: local.nombre,
+        esDeposito: local.esDeposito,
+        ventas: a.conVentas.some((l) => l.localId === localId),
+        caja: a.conCaja.some((l) => l.localId === localId),
+      },
       sincronizacion: local.sincronizacion,
       preguntas: deps.ia?.ok === true,
       noLeidos: await contarNoLeidos(db, sesion.vinculo.id, localId, tiposVisibles(local.capacidades)),
@@ -339,7 +348,19 @@ export function ventasPublicas(d: DatosVentasResumen, local: LocalAutorizado): E
   };
 }
 
-export async function manejarVentas(request: Request, deps: DependenciasSesion): Promise<Response> {
+/**
+ * Las dos rutas que consultan UN local "hoy" (ventas, Tanda 3A; caja, Tanda
+ * 7B) hacen lo mismo con distinta capacidad: autorización viva (el local en
+ * `mi_alcance` CON la capacidad, `grupoId` de ahí), una consulta al ERP con
+ * período "hoy", y la copia de lo contestado si es lo pedido. Escrito una vez.
+ */
+async function consultarLocalHoy<D, R>(
+  request: Request,
+  deps: DependenciasSesion,
+  locales: (a: Autorizacion) => readonly LocalAutorizado[],
+  consultar: (local: LocalAutorizado) => Promise<ResultadoDelegado<D>>,
+  publicar: (d: D, local: LocalAutorizado) => R | null,
+): Promise<Response> {
   const p = parametros(request, ["localId"]);
   const crudo = p?.get("localId");
   if (!p || !crudo || !LOCAL_ID.test(crudo)) return falla({ estado: "SOLICITUD_INVALIDA" }, request, deps);
@@ -348,7 +369,7 @@ export async function manejarVentas(request: Request, deps: DependenciasSesion):
   let autorizacion: ResultadoDelegado<Trabajo<LocalAutorizado>>;
   try {
     autorizacion = await conAutorizacionViva(request.headers, deps, async (a) => {
-      const local = a.conVentas.find((l) => l.localId === localId);
+      const local = locales(a).find((l) => l.localId === localId);
       return local ? ok(local) : localNoAutorizado();
     });
   } catch {
@@ -359,9 +380,9 @@ export async function manejarVentas(request: Request, deps: DependenciasSesion):
   if (autorizacion.datos.tipo === "NO_AUTORIZADO") return falla({ estado: "NO_AUTORIZADO" }, request, deps);
   const local = autorizacion.datos.respuesta;
 
-  let r: ResultadoDelegado<DatosVentasResumen>;
+  let r: ResultadoDelegado<D>;
   try {
-    r = await ventasResumenDeSesion(request.headers, { alcance: { grupoId: local.grupoId, localId }, periodo: { tipo: "hoy" } }, deps);
+    r = await consultar(local);
   } catch {
     deps.registrar({ evento: "sesion.falla_local", etapa: "base" });
     return falla({ estado: "SERVICIO_NO_DISPONIBLE" }, request, deps);
@@ -376,8 +397,40 @@ export async function manejarVentas(request: Request, deps: DependenciasSesion):
       // NO_AUTORIZADO acá también es ERP_NO_DISPONIBLE (el local ya se autorizó con mi_alcance); el cupo, el suyo.
       return falla(esFalloDeCupo(r.resultado) ? { estado: "ERP_CUPO_EXCEDIDO" } : { estado: "ERP_NO_DISPONIBLE" }, request, deps);
     case "OK": {
-      const publica = ventasPublicas(r.datos, local);
+      const publica = publicar(r.datos, local);
       return publica ? json(publica) : falla({ estado: "ERP_NO_DISPONIBLE" }, request, deps);
     }
   }
+}
+
+export function manejarVentas(request: Request, deps: DependenciasSesion): Promise<Response> {
+  return consultarLocalHoy(
+    request,
+    deps,
+    (a) => a.conVentas,
+    (local) => ventasResumenDeSesion(request.headers, { alcance: { grupoId: local.grupoId, localId: local.localId }, periodo: { tipo: "hoy" } }, deps),
+    ventasPublicas,
+  );
+}
+
+// ── GET /api/chats/caja ─────────────────────────────────────────────────────
+//
+// Las cajas de HOY de un local (Tanda 7B), por turno operativo. El mismo
+// camino que ventas, con `cajas_resumen`: el local tiene que anunciarla en el
+// `mi_alcance` de ahora. Cupo: 1 `mi_alcance` + 1 `cajas_resumen`. Nada se
+// guarda. TURNO_OPERATIVO_INVALIDO no puede venir (no se pide turno); si viene,
+// como cualquier otro rechazo, es ERP_NO_DISPONIBLE.
+
+export function manejarCaja(request: Request, deps: DependenciasSesion): Promise<Response> {
+  return consultarLocalHoy(
+    request,
+    deps,
+    (a) => a.conCaja,
+    (local) => cajasResumenDeSesion(request.headers, { alcance: { grupoId: local.grupoId, localId: local.localId }, periodo: { tipo: "hoy" } }, deps),
+    (d, local): RespuestaCaja | null => {
+      const c = cajasPublicas(d, { localId: local.localId, grupoId: local.grupoId, periodo: { tipo: "hoy" } });
+      // El nombre de HOY, de `mi_alcance`: el mismo del encabezado del chat.
+      return c ? { estado: "OK", ...c, local: { id: local.localId, nombre: local.nombre } } : null;
+    },
+  );
 }

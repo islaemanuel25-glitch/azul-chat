@@ -66,22 +66,24 @@ export type ResultadoEntrada = { readonly ok: true; readonly cuerpo: CuerpoVenta
 const UN_DIA_MS = 24 * 60 * 60 * 1000;
 const SOLO_FECHA = /^\d{4}-\d{2}-\d{2}$/;
 
-const esObjetoPlano = (v: unknown): v is Record<string, unknown> =>
+// Exportadas desde la Tanda 7B: `cajas_resumen` (cajasResumen.ts) valida su
+// entrada con las MISMAS reglas de forma, no con una copia.
+export const esObjetoPlano = (v: unknown): v is Record<string, unknown> =>
   v !== null && typeof v === "object" && !Array.isArray(v) && Object.getPrototypeOf(v) === Object.prototype;
 
-const soloEstas = (obj: Record<string, unknown>, claves: readonly string[]): boolean =>
+export const soloEstas = (obj: Record<string, unknown>, claves: readonly string[]): boolean =>
   Object.keys(obj).every((k) => claves.includes(k));
 
-const tieneTodas = (obj: Record<string, unknown>, claves: readonly string[]): boolean =>
+export const tieneTodas = (obj: Record<string, unknown>, claves: readonly string[]): boolean =>
   claves.every((k) => Object.prototype.hasOwnProperty.call(obj, k));
 
-const esEnteroPositivo = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v > 0;
+export const esEnteroPositivo = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v > 0;
 
 const invalida = (detalle: string): RechazoEntrada => ({ ok: false, codigo: "SOLICITUD_INVALIDA", detalle });
 const periodoInvalido = (detalle: string): RechazoEntrada => ({ ok: false, codigo: "PERIODO_INVALIDO", detalle });
 
 /** ¿Es una fecha de calendario real? "2026-02-30" no lo es. Misma regla que el ERP. */
-function esFechaReal(texto: unknown): texto is string {
+export function esFechaReal(texto: unknown): texto is string {
   if (typeof texto !== "string" || !SOLO_FECHA.test(texto)) return false;
   const d = new Date(`${texto}T12:00:00.000Z`);
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === texto;

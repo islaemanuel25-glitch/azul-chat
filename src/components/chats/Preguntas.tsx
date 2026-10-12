@@ -25,7 +25,22 @@ import { useCallback, useEffect, useId, useReducer, useRef, useState, type FormE
 
 import { MAX_LARGO_PREGUNTA, type PreguntaGuardada, type RespuestaGuardada } from "../../shared/chats/preguntas.ts";
 import { preguntar, type FallaCliente, type RespuestaDePregunta } from "./clienteChats.ts";
-import { avisoNoSepara, cantidadDeEventos, etiquetaDePeriodo, formatearHora, formatearMonto, respuestaGuardadaDel, tituloDeVentasDe } from "./formato.ts";
+import {
+  avisoNoSepara,
+  avisoTurnoNoEncontrado,
+  cantidadDeEventos,
+  cantidadDeVentas,
+  etiquetaDePeriodo,
+  formatearHora,
+  formatearMonto,
+  lineaDeMedioDePago,
+  lineaDeNoCobrado,
+  respuestaGuardadaDel,
+  tituloDeCajas,
+  tituloDeVentasDe,
+  tituloDeVentasDeTurno,
+} from "./formato.ts";
+import { TarjetaCajas } from "./Cajas.tsx";
 import { destinoDeFalla, hayPreguntaEnCurso, reducirPreguntas, type IntercambioDePregunta } from "./logica.ts";
 import { retenerRecarga } from "./version.ts";
 import { AvisoDeRespuesta, SubtituloDeTarjeta, TarjetaEvento, TarjetaVentas, TEXTO_CUPO_ERP } from "./Piezas.tsx";
@@ -142,6 +157,10 @@ export function RespuestaDePreguntaVista({
           {respuesta.restantes > 0 && <p className="ac-ventas__linea">{respuesta.restantes === 1 ? "y 1 más" : `y ${respuesta.restantes} más`}</p>}
         </article>
       );
+    case "CAJA":
+      return <RespuestaDeCajas respuesta={respuesta} {...(zona ? { zona } : {})} />;
+    case "VENTAS_TURNO":
+      return <RespuestaVentasDeTurno respuesta={respuesta} {...(zona ? { zona } : {})} />;
     case "NO_ENTIENDO":
       return (
         <article className="ac-ventas">
@@ -199,6 +218,93 @@ function TarjetaVentasTodos({ respuesta }: { respuesta: Extract<RespuestaDePregu
       <p className="ac-ventas__titulo">{titulo}</p>
       {porLocal}
       {fallidos}
+    </article>
+  );
+}
+
+// ── Tanda 7B: caja y ventas de un turno ─────────────────────────────────────
+
+/** Los locales que no se pudieron consultar, en una línea. */
+function NoSePudo({ fallidos }: { fallidos: readonly { readonly nombre: string }[] }) {
+  if (fallidos.length === 0) return null;
+  return <p className="ac-ventas__advertencia">No se pudo consultar: {fallidos.map((f) => f.nombre).join(", ")}.</p>;
+}
+
+/** Caja: la tarjeta de cajas de cada local (filtrada por el turno si se encontró). */
+function RespuestaDeCajas({ respuesta, zona }: { respuesta: Extract<RespuestaDePregunta, { estado: "CAJA" }>; zona?: string }) {
+  const aviso = respuesta.turnoNoEncontrado && respuesta.turnoPedido ? avisoTurnoNoEncontrado(respuesta.turnoPedido) : null;
+  const z = zona ? { zona } : {};
+  if (respuesta.alcance === "LOCAL") {
+    return <TarjetaCajas cajas={respuesta.cajas} titulo={tituloDeCajas(respuesta.periodo, respuesta.cajas.local.nombre)} aviso={aviso} {...z} />;
+  }
+  return (
+    <div className="ac-respuesta-cajas">
+      {aviso && <AvisoDeRespuesta texto={aviso} />}
+      {respuesta.locales.map((c) => (
+        <TarjetaCajas key={c.local.id} cajas={c} titulo={tituloDeCajas(respuesta.periodo, c.local.nombre)} {...z} />
+      ))}
+      <NoSePudo fallidos={respuesta.fallidos} />
+    </div>
+  );
+}
+
+/**
+ * Ventas de un turno. Un local: el turno con su desglose y sus cajas. Todos:
+ * el total del turno (si no faltó ningún local) y una línea por local; si el
+ * turno no está en ninguno, el aviso y todos los turnos de cada local.
+ */
+function RespuestaVentasDeTurno({ respuesta, zona }: { respuesta: Extract<RespuestaDePregunta, { estado: "VENTAS_TURNO" }>; zona?: string }) {
+  const z = zona ? { zona } : {};
+  const avisoTurno = respuesta.turnoNoEncontrado ? avisoTurnoNoEncontrado(respuesta.turnoPedido) : null;
+  const aviso = avisoTurno ?? avisoNoSepara(respuesta.periodo, respuesta.noSeparaPor);
+  if (respuesta.alcance === "LOCAL") {
+    const c = respuesta.cajas;
+    const titulo = respuesta.turnoNoEncontrado ? tituloDeCajas(respuesta.periodo, c.local.nombre) : tituloDeVentasDeTurno(c.turnos[0]?.turno.nombre ?? respuesta.turnoPedido, respuesta.periodo, c.local.nombre);
+    return <TarjetaCajas cajas={c} titulo={titulo} aviso={aviso} conMedios={!respuesta.turnoNoEncontrado} {...z} />;
+  }
+  if (respuesta.turnoNoEncontrado) {
+    return (
+      <div className="ac-respuesta-cajas">
+        {aviso && <AvisoDeRespuesta texto={aviso} />}
+        {respuesta.locales.map((c) => (
+          <TarjetaCajas key={c.local.id} cajas={c} titulo={tituloDeCajas(respuesta.periodo, c.local.nombre)} {...z} />
+        ))}
+        <NoSePudo fallidos={respuesta.fallidos} />
+      </div>
+    );
+  }
+  const nombreTurno = respuesta.locales.flatMap((c) => c.turnos)[0]?.turno.nombre ?? respuesta.turnoPedido;
+  const titulo = tituloDeVentasDeTurno(nombreTurno, respuesta.periodo, "Todos los locales");
+  return (
+    <article className="ac-ventas" aria-label={titulo}>
+      {aviso && <AvisoDeRespuesta texto={aviso} />}
+      <p className="ac-ventas__titulo">{titulo}</p>
+      {respuesta.total && (
+        <>
+          <p className="ac-ventas__total">{formatearMonto(respuesta.total.totalVendido)}</p>
+          <p className="ac-ventas__linea">{cantidadDeVentas(respuesta.total.cantidadVentas)}</p>
+          <SubtituloDeTarjeta texto={TEXTO_POR_MEDIO} />
+          {respuesta.total.ventasPorMedio.map((m) => (
+            <p key={m.medio} className="ac-ventas__linea">
+              {lineaDeMedioDePago(m)}
+            </p>
+          ))}
+          {respuesta.total.ventasNoCobradas.map((m) => (
+            <p key={m.medio} className="ac-ventas__advertencia">
+              {lineaDeNoCobrado(m)}
+            </p>
+          ))}
+        </>
+      )}
+      <SubtituloDeTarjeta texto={TEXTO_POR_LOCAL} />
+      {respuesta.locales.map((c) => (
+        <p key={c.local.id} className="ac-ventas__linea">
+          {c.local.nombre} · {c.turnos[0] ? formatearMonto(c.turnos[0].totales.totalVendido) : "sin ese turno"}
+        </p>
+      ))}
+      {respuesta.fallidos.length > 0 && (
+        <p className="ac-ventas__advertencia">No se pudo consultar: {respuesta.fallidos.map((f) => f.nombre).join(", ")}. Sin total: faltan locales.</p>
+      )}
     </article>
   );
 }

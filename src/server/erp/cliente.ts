@@ -2,7 +2,7 @@
 //
 // EL CLIENTE DE AZUL CHAT HACIA EL ERP. Server-side, y NO genérico.
 //
-// Conoce DOS rutas del ERP, fijas, y SIETE operaciones:
+// Conoce DOS rutas del ERP, fijas, y OCHO operaciones:
 //
 //   · canjear(codigo)                         → POST /api/integraciones/azul-chat/vinculo/canjear
 //   · miAlcance(token)                        → POST /api/integraciones/azul-chat/consultar
@@ -11,6 +11,7 @@
 //   · pedidosEventos(token, entrada)          → POST /api/integraciones/azul-chat/consultar
 //   · enviosEventos(token, entrada)           → POST /api/integraciones/azul-chat/consultar
 //   · cancelacionesEventos(token, entrada)    → POST /api/integraciones/azul-chat/consultar
+//   · cajasResumen(token, entrada)            → POST /api/integraciones/azul-chat/consultar (Tanda 7B)
 //
 // No recibe URLs, rutas, métodos, cabeceras ni nombres de capacidad de quien lo
 // usa: no hay forma de pedirle que llame otra cosa. Una capacidad nueva es un
@@ -56,6 +57,8 @@ import {
   type DatosEnviosEventos,
   type DatosPedidosEventos,
   esDatosVentasResumen,
+  esDatosCajasResumen,
+  type DatosCajasResumen,
   type CodigoErrorLocal,
   type DatosMiAlcance,
   type DatosTransferenciasEventos,
@@ -72,6 +75,7 @@ import { construirCuerpoMiAlcance } from "./miAlcance.ts";
 import { construirCuerpoEventos } from "./eventos.ts";
 import { construirCuerpoTransferenciasEventos } from "./transferenciasEventos.ts";
 import { construirCuerpoVentasResumen } from "./ventasResumen.ts";
+import { construirCuerpoCajasResumen } from "./cajasResumen.ts";
 
 /** Las únicas dos rutas del ERP que este cliente sabe llamar. */
 export const RUTA_CONSULTAR = "/api/integraciones/azul-chat/consultar";
@@ -114,6 +118,8 @@ export type ClienteErp = {
   enviosEventos(token: string, entrada: unknown): Promise<ResultadoConsulta<DatosEnviosEventos>>;
   /** Una página de las transferencias a un local que se CANCELARON (Tanda 4B). */
   cancelacionesEventos(token: string, entrada: unknown): Promise<ResultadoConsulta<DatosCancelacionesEventos>>;
+  /** Las cajas de un local en UN día, por turno operativo (Tanda 7B). `entrada` = `{ alcance, periodo }`. */
+  cajasResumen(token: string, entrada: unknown): Promise<ResultadoConsulta<DatosCajasResumen>>;
 };
 
 /** Lee el cuerpo de la respuesta sin pasarse de `max` bytes, en UTF-8 estricto. */
@@ -305,5 +311,11 @@ export function crearClienteErp(deps: DependenciasCliente = {}): ClienteErp {
         const cuerpo = construirCuerpoEventos(CONTRATO_CANCELACIONES_EVENTOS, token, entrada);
         return cuerpo ? { ok: true, cuerpo } : { ok: false, codigo: "SOLICITUD_INVALIDA" };
       }, esDatosCancelacionesEventos),
+
+    cajasResumen: (token: string, entrada: unknown) =>
+      llamar("cajas_resumen", RUTA_CONSULTAR, (): CuerpoArmado => {
+        const construido = construirCuerpoCajasResumen(token, entrada);
+        return construido.ok ? { ok: true, cuerpo: construido.cuerpo } : { ok: false, codigo: construido.codigo };
+      }, esDatosCajasResumen),
   });
 }
