@@ -99,6 +99,15 @@ cualquiera, `/api/salud` contesta 503 y no se crean sesiones.
   (`"sinEnvio":"SIN_DESTINATARIOS"`); mal escrita (`9;11`, `dueño`), tampoco
   manda y dice `DESTINATARIOS_INVALIDOS`, sin adivinar a quién. No es un
   secreto ni una autorización. Ver "Vigía de la sincronización".
+- **`AZUL_CHAT_ADMINISTRADORES`** (Tanda 15): quién administra los accesos
+  de Azul Chat. IDs de persona del ERP separados por coma, con el mismo formato
+  que la de arriba (el dueño: `9`). Un administrador tiene todo y, desde
+  ☰ → Configuración → Accesos, decide quién más entra y a qué partes; sus
+  propios accesos no se pueden tocar. **Obligatoria en la práctica: SIN ELLA
+  (vacía, ausente o mal escrita) NADIE administra y nadie que no tenga un acceso
+  ya guardado puede entrar, el dueño incluido.** Cerrado por defecto, con una
+  línea `accesos.sin_administradores` en el log. No es un secreto. Ver
+  "Tanda 15: accesos".
 - **`AZUL_CHAT_GEMINI_API_KEY`** (Tanda 6A): la clave de Google Gemini para las
   preguntas en lenguaje natural. **Es la MISMA que usa el ERP** (su
   `GEMINI_API_KEY`); se copia de archivo a archivo sin imprimirla (abajo).
@@ -227,6 +236,36 @@ pregunta y el cupo del ERP que gasta (1 + N) están en `docs/CHATS.md`.
 - Las rutas nuevas (`/api/push/estado`, `/api/sesion/configuracion`,
   `/api/sesion/silencio`, `/api/sesion/otras`) no necesitan nada en nginx: van
   por el mismo `location` de la app.
+
+### Tanda 15: accesos (migración y variable)
+
+- **ANTES de desplegar esta imagen**, poner en `app.env` el id de persona del
+  dueño en `AZUL_CHAT_ADMINISTRADORES` (hoy `9`). Si no, al arrancar nadie
+  administra y el dueño mismo ve "Todavía no tenés acceso a Azul Chat.":
+
+  ```sh
+  cd /srv/produccion/azul-chat
+  grep -c '^AZUL_CHAT_ADMINISTRADORES=' app.env      # si da 1, editarla en vez de agregar
+  printf 'AZUL_CHAT_ADMINISTRADORES=%s\n' '9' >> app.env
+  ```
+
+  Después del DEPLOY: `docker logs azul-chat-app 2>&1 | grep accesos.sin_administradores`
+  no tiene que mostrar nada.
+- La migración es `20261016120000_accesos`: crea la tabla `AccesoPersona`
+  (seis permisos por persona del ERP —entrar, ventas, caja, stock,
+  pendientes, ia—, todos en false por defecto, y quién y cuándo los cambió) y
+  agrega a `Vinculo` la columna `erpNombre` (el nombre que dio el ERP, solo
+  para mostrarlo). Aditiva: no toca ninguna fila. Hoy la única persona
+  vinculada es el dueño, que entra por la variable: no hace falta cargar nada.
+  Volver a la imagen anterior es seguro (el código viejo no mira ni la tabla
+  ni la columna, y deja entrar a todos como antes).
+- **Cómo habilita el dueño a otra persona**, en palabras simples: la persona
+  genera su código en el ERP y lo pega en Azul Chat (docs/CHATS.md, "Cómo se
+  suma un dueño"); ve "Todavía no tenés acceso a Azul Chat.". El dueño, en su
+  teléfono, abre ☰ → Configuración → Accesos, busca a esa persona por su
+  nombre y prende "Entrar" y lo que quiera que vea (Ventas, Caja, Stock,
+  Pendientes, IA). Rige en el próximo toque de esa persona, sin que tenga que
+  volver a entrar.
 
 ### Tanda 14: migración del turno de fondo
 

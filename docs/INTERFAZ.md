@@ -269,6 +269,13 @@ grande se centra en una columna de 480 px; no hay un diseño de escritorio.
     "Gastado este mes, entre todos: US$ X de US$ {tope}" (el gasto de todo el
     negocio, Tanda 14), "Tus preguntas este mes: N" (las de esta persona) y, si una
     pregunta más ya no entra, "Saldo agotado hasta el 1/{mes siguiente}".
+  - *Accesos* (Tanda 15), solo si quien mira es administrador
+    (`AZUL_CHAT_ADMINISTRADORES`): cada persona que alguna vez se vinculó, con
+    su nombre y "Vinculado el D/M a las HH:MM", y seis interruptores (Entrar,
+    Ventas, Caja, Stock, Pendientes, IA) con las mismas piezas que el horario de
+    silencio. Sin "Entrar", los otros quietos; un administrador, todo prendido y
+    quieto. Se guarda al tocar; si falla, vuelve atrás y dice "No se pudo
+    guardar. Probá de nuevo." (docs/CHATS.md, "Accesos").
   - *Sesiones.* "Dispositivos": cuántas sesiones abiertas y, de cada una,
     "Este dispositivo" u "Otro dispositivo" y desde cuándo (Azul Chat no guarda
     la última actividad ni el navegador, así que no se muestran). "Cerrar las
