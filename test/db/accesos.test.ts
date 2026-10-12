@@ -445,6 +445,50 @@ describe("Tanda 15: la sección Accesos, solo para administradores", () => {
     });
   }
 
+  it("Tanda 16: GET y PUT le preguntan a mi_alcance en ese mismo pedido, y con el ERP OK andan", async () => {
+    const a = await vincular(ADMIN);
+    await vincular(ENCARGADO);
+    erp.recibidas.length = 0;
+    assert.equal((await pedir(manejarAccesos, "/api/sesion/accesos", a)).status, 200);
+    assert.equal(consultasDe(ADMIN), 1, "una consulta a mi_alcance en el GET");
+    assert.equal((await darAcceso(a, ENCARGADO, { entrar: true })).status, 200);
+    assert.equal(consultasDe(ADMIN), 2, "y otra en el PUT");
+  });
+
+  it("Tanda 16: si el ERP ya no autoriza al administrador (NO_AUTORIZADO): 403, sin lista y sin guardar; la sesión sigue", async () => {
+    const a = await vincular(ADMIN);
+    await vincular(ENCARGADO);
+    erp.alcances.delete(ADMIN); // mi_alcance contesta NO_AUTORIZADO
+    const r = await pedir(manejarAccesos, "/api/sesion/accesos", a);
+    assert.deepEqual(r, { status: 403, cuerpo: { estado: "NO_AUTORIZADO" } });
+    const g = await darAcceso(a, ENCARGADO, { entrar: true, caja: true });
+    assert.deepEqual(g, { status: 403, cuerpo: { estado: "NO_AUTORIZADO" } });
+    assert.equal(await base.db.accesoPersona.count(), 0, "el PUT rechazado no guardó nada");
+    // NO_AUTORIZADO no cierra la sesión: vuelve el ERP y vuelve a andar.
+    assert.equal(await base.db.sesion.count({ where: { revocadaEn: null } }), 2);
+    erp.alcances.set(ADMIN, alcanceDe(ADMIN, "Emanuel"));
+    assert.equal((await pedir(manejarAccesos, "/api/sesion/accesos", a)).status, 200);
+  });
+
+  it("Tanda 16: si el ERP no contesta: ERP_NO_DISPONIBLE (como las rutas de datos), sin lista y sin guardar", async () => {
+    const a = await vincular(ADMIN);
+    await vincular(ENCARGADO);
+    erp.ponerModo("caido");
+    assert.deepEqual(await pedir(manejarAccesos, "/api/sesion/accesos", a), { status: 503, cuerpo: { estado: "ERP_NO_DISPONIBLE" } });
+    assert.deepEqual(await darAcceso(a, ENCARGADO, { entrar: true }), { status: 503, cuerpo: { estado: "ERP_NO_DISPONIBLE" } });
+    erp.ponerModo("colgado");
+    assert.deepEqual(await darAcceso(a, ENCARGADO, { entrar: true }), { status: 503, cuerpo: { estado: "ERP_NO_DISPONIBLE" } });
+    assert.equal(await base.db.accesoPersona.count(), 0);
+  });
+
+  it("Tanda 16: a quien no administra no se le gasta una consulta al ERP", async () => {
+    await vincular(ADMIN);
+    const c = await vincular(ENCARGADO);
+    erp.recibidas.length = 0;
+    assert.equal((await pedir(manejarAccesos, "/api/sesion/accesos", c)).status, 403);
+    assert.equal(consultasDe(ENCARGADO), 0);
+  });
+
   it("CONTRAPRUEBA: con la variable bien, el mismo pedido del administrador anda", async () => {
     const a = await vincular(ADMIN);
     assert.equal((await pedir(manejarAccesos, "/api/sesion/accesos", a)).status, 200);

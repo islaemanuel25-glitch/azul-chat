@@ -826,6 +826,16 @@ cualquier otro, `403 SIN_ACCESO`):
   `PERSONA_DESCONOCIDA` (404) si nunca se vinculó, `SOLICITUD_INVALIDA` (400)
   con otra forma.
 
+**Tanda 16: las dos le preguntan al ERP en ese mismo pedido.** Ser
+administrador lo dice la variable, pero, como en las rutas de datos, el
+`mi_alcance` del administrador tiene que dar OK ANTES de mostrar la lista o
+guardar nada. Si el ERP no lo autoriza: `403 NO_AUTORIZADO`; si no contesta:
+`503 ERP_NO_DISPONIBLE`; si se le pidió mucho seguido: `429
+ERP_CUPO_EXCEDIDO` (los mismos códigos que los chats, `fallaDeRechazo`). En
+ninguno de esos casos se muestra la lista ni se guarda el cambio. NO_AUTORIZADO
+no cierra la sesión; VINCULO_NO_VALIDO la revoca, como siempre. A quien no
+administra se le contesta `SIN_ACCESO` sin gastarle una consulta al ERP.
+
 Candados: `test/db/accesos.test.ts` (un administrador y dos personas comunes:
 cada ruta con y sin su permiso, el fondo, los avisos, el ERP que manda, el
 cambio que rige en el pedido siguiente, la sección solo para administradores,

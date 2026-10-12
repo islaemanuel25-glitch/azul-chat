@@ -4,8 +4,14 @@
 //
 // Solo para administradores (AZUL_CHAT_ADMINISTRADORES, accesos/accesos.ts):
 // a cualquier otra persona, 403 SIN_ACCESO, haga lo que haga con el pedido.
-// Como la configuración (Tanda 11): sesión, y Origin en la que escribe; sobre
-// la sesión de la solicitud, sin pedirle nada al ERP.
+// Como la configuración (Tanda 11): sesión, y Origin en la que escribe.
+//
+// Tanda 16: y, como las rutas de datos, `mi_alcance` VIVO en ese mismo pedido.
+// Un administrador cuyo vínculo el ERP ya no acepta no ve la lista ni guarda
+// nada: NO_AUTORIZADO (403), ERP_NO_DISPONIBLE (503) o ERP_CUPO_EXCEDIDO (429),
+// los mismos códigos que los chats (fallaDeRechazo). VINCULO_NO_VALIDO revoca
+// como en todas las rutas; NO_AUTORIZADO no cierra la sesión. Se pregunta
+// DESPUÉS de saber que administra: a los demás no se les gasta una consulta.
 //
 //   · GET: las personas que alguna vez se vincularon en esta instalación, con
 //     su nombre (el último que dio el ERP, o "Persona <id>"), cuándo se
@@ -32,10 +38,11 @@ import {
 } from "../../shared/sesion/accesos.ts";
 import { esAdministrador } from "../accesos/accesos.ts";
 import { accesoDelContexto } from "../chats/autorizacion.ts";
+import { fallaDeRechazo } from "../chats/manejadores.ts";
 import { leerObjetoJson } from "../http/cuerpo.ts";
 import { origenPermitido } from "../http/origen.ts";
 import { json } from "../http/respuestas.ts";
-import { sesionDeLaSolicitud, type Contexto } from "./delegacion.ts";
+import { delegarConContexto, sesionDeLaSolicitud, type Contexto } from "./delegacion.ts";
 import type { DependenciasSesion } from "./dependencias.ts";
 
 const MAX_BYTES_ACCESOS = 512;
@@ -47,6 +54,9 @@ const STATUS: Record<FallaAccesos["estado"], number> = {
   SOLICITUD_INVALIDA: 400,
   ES_ADMINISTRADOR: 409,
   PERSONA_DESCONOCIDA: 404,
+  NO_AUTORIZADO: 403,
+  ERP_NO_DISPONIBLE: 503,
+  ERP_CUPO_EXCEDIDO: 429,
   SERVICIO_NO_DISPONIBLE: 503,
 };
 const responder = <R extends { estado: string }>(r: R) => json(r, { status: r.estado === "OK" ? 200 : STATUS[r.estado as FallaAccesos["estado"]] });
@@ -61,7 +71,20 @@ async function deAdministrador(request: Request, deps: DependenciasSesion, conOr
   // Lo decide la variable del servidor y la sesión, nada que mande el navegador.
   const acceso = await accesoDelContexto(leida.contexto, deps);
   if (!acceso.administrador) return { ok: false, falla: { estado: "SIN_ACCESO" } };
-  return { ok: true, contexto: leida.contexto };
+  // Tanda 16: el ERP tiene que seguir aceptando a este administrador AHORA.
+  const vivo = await delegarConContexto(leida.contexto, deps, (token) => deps.erp.miAlcance(token));
+  switch (vivo.tipo) {
+    case "OK":
+      return { ok: true, contexto: leida.contexto };
+    case "SIN_SESION":
+      return { ok: false, falla: { estado: "SIN_SESION" } };
+    case "SERVICIO_NO_DISPONIBLE":
+      return { ok: false, falla: { estado: "SERVICIO_NO_DISPONIBLE" } };
+    case "RECHAZO_ERP": {
+      const f = fallaDeRechazo(vivo.resultado);
+      return { ok: false, falla: { estado: f.estado === "NO_AUTORIZADO" || f.estado === "ERP_CUPO_EXCEDIDO" ? f.estado : "ERP_NO_DISPONIBLE" } };
+    }
+  }
 }
 
 /** Una falla de la base: SERVICIO_NO_DISPONIBLE, sin mensaje. */
