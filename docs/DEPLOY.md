@@ -1,8 +1,10 @@
 # Azul Chat en producción — runbook
 
 Procedimiento para desplegar Azul Chat en el mismo VPS que ERP Azul, **completamente
-separado del ERP**. Nada de este documento se ejecutó todavía: es el procedimiento
-futuro. Cada paso dice qué se comprueba y qué hacer si no da.
+separado del ERP**. Es el procedimiento en uso: Azul Chat corre en producción en
+`https://chat.operix.cloud` desde octubre de 2026 (el commit que corre está en
+`despliegues.log` y en `GET /api/version`). Cada paso dice qué se comprueba y qué
+hacer si no da.
 
 ## Arquitectura
 
@@ -215,6 +217,18 @@ pregunta y el cupo del ERP que gasta (1 + N) están en `docs/CHATS.md`.
   `Pregunta` (las preguntas con su respuesta, por persona y chat). Entra con
   el paso 3 del DEPLOY, como todas. La retención de 90 días la hace la corrida
   de fondo de siempre: no hay timer nuevo.
+- **`/sw.js` y Cloudflare.** Informado por el dueño en la auditoría del
+  2026-10-12, no medido desde este repo: el origen manda `max-age=0` y Cloudflare entrega `max-age=14400` (4 h) —es
+  su "Browser Cache TTL", que reemplaza un `max-age` del origen más bajo—. NO
+  demora la actualización del service worker en el teléfono: la app lo registra
+  con `updateViaCache: "none"` (`src/components/push/notificaciones.ts`), así
+  que el navegador busca `sw.js` sin pasar por su caché HTTP. Lo que sí lo
+  demoraría es que Cloudflare lo guardara en su BORDE: se comprueba con
+  `curl -sI https://chat.operix.cloud/sw.js | grep -i -E '^(cache-control|cf-cache-status|age):'`;
+  con `cf-cache-status: HIT`, el teléfono recibe la copia vieja del borde. Para
+  que las dos cosas queden alineadas con el origen, una regla en Cloudflare →
+  Caching → Cache Rules: "URI Path equals `/sw.js`" → Cache eligibility
+  **Bypass cache**, y Browser TTL **Respect origin**. No la pone este repo.
 - La recarga por versión NO necesita nada en nginx ni en Cloudflare. Medido
   desde afuera el 2026-10-11 sobre `dda5b80`: `/api/version` ya contestaba
   `cache-control: no-store` y `cf-cache-status: DYNAMIC`. La página `/`
@@ -326,6 +340,18 @@ La publica el workflow **Imagen** (`.github/workflows/imagen.yml`):
 Las migraciones **no** corren al arrancar: son un paso explícito del despliegue
 (`prisma migrate deploy`, con el CLI que trae la imagen en `/opt/prisma-cli`).
 
+**El nombre de una migración nueva tiene que ordenar DESPUÉS de la última.**
+Prisma aplica las migraciones en orden alfabético de carpeta. Las de las Tandas
+11 a 15 se escribieron el 2026-10-12 con fechas adelantadas
+(`20261013120000_…` a `20261016120000_accesos`). Una migración creada con
+`prisma migrate dev` antes del 2026-10-16 12:00 UTC recibiría una fecha MENOR:
+en producción se aplicaría última (las otras ya están), pero en una base vacía
+—la CI, `npm run test:db`, una restauración sobre una base nueva— correría
+antes que esas, y si depende de una de sus tablas o columnas falla ahí y no en
+producción. Antes de commitear una migración nueva: `ls prisma/migrations | sort | tail -2`
+tiene que mostrarla última; si no, se renombra la carpeta con una fecha
+posterior (la carpeta todavía no se aplicó en ningún lado).
+
 **Acceso a GHCR desde el VPS.** Si el paquete es privado, el VPS necesita
 `docker login ghcr.io` con un token de solo lectura (`read:packages`). Se
 configura una vez, fuera de este repo, y no se escribe en ningún archivo del
@@ -396,7 +422,11 @@ $C up -d azul-chat-db
 until [ "$(docker inspect -f '{{.State.Health.Status}}' azul-chat-db)" = healthy ]; do sleep 2; done
 
 # 3. Las migraciones, a propósito y una vez. Si falla, NO levantar la app.
-$C run --rm --no-deps azul-chat-app prisma migrate deploy
+#    Escrito ENTERO y sin `$C`: es una de las tres formas exactas que la guardia
+#    de migraciones del ERP reconoce como de Azul Chat (erpmanual,
+#    lib/deploy/proyectoDelComando.mjs). Con `$C` adelante, una sesión de Claude
+#    Code del repo del ERP lo frena como ambiguo.
+docker compose -f docker-compose.prod.yml run --rm --no-deps azul-chat-app prisma migrate deploy
 
 # 4. La app.
 $C up -d azul-chat-app
@@ -419,14 +449,37 @@ Si `/api/salud` contesta 503, el cuerpo dice qué falló (`configuracion`, `base
 o `esquema`) sin decir por qué. Las causas habituales son:
 - `configuracion`: una variable de `app.env` falta o está mal;
 - `base`: `DATABASE_URL` no coincide con `db.env`;
-- `esquema`: faltó el paso 3.
+- `esquema`: faltan las tablas de la PRIMERA migración (base vacía, faltó el
+  paso 3 en el primer despliegue).
 
-## NGINX (futuro, no se configura en esta etapa)
+**`/api/salud` en 200 no prueba que estén todas las migraciones**: el chequeo de
+`esquema` mira solo `Instalacion`, `Vinculo` y `Sesion`. Si el paso 3 se salteó
+o falló sin que se viera, el contenedor queda `healthy` y las rutas fallan al
+usar una tabla o columna nueva. Lo que lo comprueba es comparar la última
+migración aplicada con la última del checkout (que está en `OBJETIVO`):
 
-El certificado Cloudflare Origin instalado es para `operix.cloud` y
-`*.operix.cloud`, así que cubre `chat.operix.cloud`. Las rutas del certificado
-son **las mismas que usa el bloque del ERP**; se copian de ahí. Falta el registro
-DNS `chat.operix.cloud` en Cloudflare, con proxy, que se crea aparte.
+```sh
+docker exec azul-chat-db sh -c 'psql -At -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT max(migration_name) FROM _prisma_migrations WHERE finished_at IS NOT NULL"'
+ls prisma/migrations | grep -v '\.toml$' | sort | tail -1     # tiene que ser la misma
+```
+
+## NGINX
+
+El bloque de `chat.operix.cloud` ya está en producción, con el registro DNS en
+Cloudflare con proxy. El certificado Cloudflare Origin instalado es para
+`operix.cloud` y `*.operix.cloud`, así que cubre `chat.operix.cloud`; las rutas
+del certificado son **las mismas que usa el bloque del ERP**.
+
+**Pendiente (al 2026-10-12, informado por el dueño): el `location /api/interno/`
+de abajo NO está aplicado** —cambiar nginx pide root—. Mientras falte, las
+rutas internas siguen protegidas por la app (secreto de 32+ caracteres
+comparado en tiempo constante, y 404 a todo lo que no llegue directo por
+127.0.0.1), pero un pedido de afuera llega hasta la app. La app reconoce "vino
+por nginx" por `X-Real-IP` y por el `Host` público: si el bloque instalado no
+pisa `Host` (`proxy_set_header Host $host`), nginx manda por defecto
+`Host: 127.0.0.1:3100`, que la app toma por local, y esa segunda barrera
+desaparece; queda solo el secreto. Comprobar el bloque instalado sin root:
+`grep -rn -A25 'server_name chat.operix.cloud' /etc/nginx/sites-enabled/ /etc/nginx/conf.d/ 2>/dev/null`.
 
 ```nginx
 server {
@@ -504,9 +557,10 @@ server {
      vinculación dice «El ERP no respondió».
 8. **`mi_alcance`**: con la sesión iniciada, la pantalla muestra el nombre y los
    locales que el ERP autoriza hoy.
-9. **`ventas_resumen`**: hoy es un servicio interno **sin ruta ni pantalla**, así
-   que no hay forma de ejercerlo desde producción sin agregar una. Queda sin
-   verificar en producción hasta que exista la pantalla que lo use.
+9. **`ventas_resumen`**: desde la Tanda 3A tiene ruta (`GET /api/chats/ventas`)
+   y pantalla: abrir un local y tocar "Ventas" tiene que mostrar las ventas de
+   hoy (quien lo pruebe necesita el permiso "Ventas" en Accesos y
+   `reportes.ver` en el ERP).
 
 ## ROLLBACK
 
@@ -526,8 +580,16 @@ curl -fsS http://127.0.0.1:3100/api/version   # commit = ANTERIOR
 es seguro mientras las migraciones nuevas sean compatibles con el código viejo
 (por ejemplo, agregar columnas o tablas). Si una migración no lo es:
 1. `$C stop azul-chat-app`;
-2. restaurar el backup del PRE (ver abajo);
+2. restaurar el backup del PRE ("Backups → Restaurar", abajo), con la imagen
+   ANTERIOR ya puesta en `.env`: el `migrate deploy` del paso 4 de la
+   restauración tiene que correr con la imagen que se va a levantar, no con la
+   nueva;
 3. levantar la imagen anterior.
+
+**Volver a una imagen anterior a la Tanda 15 abre Azul Chat a todos los
+vinculados.** El código viejo no mira `AccesoPersona` (ver "Tanda 15: accesos"):
+mientras corra, entra cualquiera que tenga un vínculo, con lo que le dé el ERP.
+Si hay personas vinculadas sin acceso, decidir antes de volver atrás.
 
 **`20261011120000_eventos_pedidos_envios_cancelaciones` (Tanda 4B).** Aplicada
 sola, sin código nuevo, es compatible con la imagen anterior: solo agrega
@@ -566,7 +628,9 @@ afectado en ningún caso.
 - saca `pg_dump` del contenedor `azul-chat-db`, comprimido, a
   `/srv/produccion/backups-azul-chat/azul-chat-AAAAMMDD_HHMMSS.sql.gz`;
 - **verifica antes de rotar**: el `gzip` íntegro, la marca de fin de `pg_dump` y
-  las cuatro tablas;
+  al menos cuatro `CREATE TABLE` (`TABLAS_MINIMAS`, de cuando había tres tablas;
+  hoy el esquema tiene doce más `_prisma_migrations`, así que un dump con menos
+  de trece está incompleto aunque el script lo acepte);
 - conserva los últimos 30 (`AZUL_CHAT_BACKUP_RETENER`);
 - si algo falla, borra el archivo parcial, sale con error y no rota;
 - no pisa un backup existente;
@@ -574,6 +638,14 @@ afectado en ningún caso.
 - se niega a escribir en el directorio de backups del ERP o en un `pgdata`;
 - lee el usuario y la base adentro del contenedor, sin recibir ni imprimir
   credenciales.
+
+**Los backups quedan en el mismo VPS.** Si se pierde el disco, se pierden la
+base y sus 30 copias juntas. Una copia fuera del servidor (junto con la
+`AZUL_CHAT_TOKEN_ENCRYPTION_KEY`, guardada aparte, ver "Variables") es lo que
+cubre ese caso; hoy no hay ninguna automatizada. Nada del ERP se pierde con
+esta base: se pierde lo propio de Azul Chat (vínculos —todos vuelven a
+vincular—, accesos, preguntas guardadas, lectura e historial de eventos
+guardado).
 
 ### El timer diario
 
@@ -619,6 +691,120 @@ systemctl --user list-timers azul-chat-backup.timer
 
 Correr un backup ahora, sin esperar al timer:
 `systemctl --user start azul-chat-backup.service` (y mirar el journal).
+
+### Restaurar
+
+Son dos procedimientos distintos: **probar** un backup, en una base aparte y
+sin tocar la que está en uso, y **restaurar** de verdad, reemplazando la base en
+uso. Un backup que nunca se restauró no se sabe si sirve: que `gzip -t` y la
+marca de fin den bien dice que el archivo está entero, no que la base vuelva.
+La prueba se hace antes de necesitarla —una vez por mes, y SIEMPRE antes de
+una restauración real, sobre el mismo archivo—.
+
+**Los backups no incluyen la clave de cifrado.** Sin la misma
+`AZUL_CHAT_TOKEN_ENCRYPTION_KEY`, los tokens restaurados no se descifran: la
+gente tendrá que volver a vincular. Por eso la clave se guarda aparte.
+
+#### 1. Probar un backup en una base aparte
+
+En el mismo contenedor `azul-chat-db`, en una base con OTRO nombre
+(`azulchat_prueba_restauracion`). La app no la ve —su `DATABASE_URL` apunta a
+la de siempre— y la base en uso solo se lee, para comparar. No toca nada del
+ERP. El dump es chico: se puede correr en cualquier momento.
+
+```sh
+set -o pipefail
+cd /srv/produccion/azul-chat
+F=/srv/produccion/backups-azul-chat/azul-chat-AAAAMMDD_HHMMSS.sql.gz
+gzip -t "$F"
+
+# 1. Una base aparte, vacía.
+docker exec azul-chat-db sh -c 'dropdb -U "$POSTGRES_USER" --if-exists azulchat_prueba_restauracion && createdb -U "$POSTGRES_USER" azulchat_prueba_restauracion'
+
+# 2. El backup adentro. ON_ERROR_STOP corta en el primer error: tiene que imprimir RESTAURADO.
+gzip -dc "$F" | docker exec -i azul-chat-db sh -c 'psql -q -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d azulchat_prueba_restauracion' > /dev/null && echo RESTAURADO
+
+# 3. Qué trajo, al lado de la base en uso (que solo se lee): migraciones
+#    aplicadas, la última, y filas de las tablas que importan. Las del backup
+#    son las de ese día: iguales o menores. Un backup anterior a la Tanda 15
+#    no tiene AccesoPersona y esa línea da error: es esperado.
+CONSULTA='SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL;
+SELECT max(migration_name) FROM _prisma_migrations WHERE finished_at IS NOT NULL;
+SELECT count(*) FROM "Vinculo"; SELECT count(*) FROM "Sesion"; SELECT count(*) FROM "Evento"; SELECT count(*) FROM "AccesoPersona";'
+printf '%s\n' "$CONSULTA" | docker exec -i azul-chat-db sh -c 'psql -At -U "$POSTGRES_USER" -d azulchat_prueba_restauracion'
+printf '%s\n' "$CONSULTA" | docker exec -i azul-chat-db sh -c 'psql -At -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+
+# 4. Borrarla. No queda nada.
+docker exec azul-chat-db sh -c 'dropdb -U "$POSTGRES_USER" azulchat_prueba_restauracion'
+```
+
+Si el paso 2 no imprime `RESTAURADO`, ese backup no sirve: probar el anterior
+y averiguar por qué antes de que haga falta.
+
+#### 2. Restaurar de verdad
+
+Solo con un archivo que ya pasó la prueba de arriba.
+
+```sh
+set -o pipefail
+cd /srv/produccion/azul-chat
+F=/srv/produccion/backups-azul-chat/azul-chat-AAAAMMDD_HHMMSS.sql.gz   # el que se probó
+gzip -t "$F"
+
+# 1. Que nada escriba en la base mientras se reemplaza: los timers y la app.
+systemctl --user stop azul-chat-sincronizar.timer azul-chat-vigia.timer azul-chat-backup.timer
+docker compose -f docker-compose.prod.yml stop azul-chat-app
+
+# 2. Un backup de lo que hay ahora, aunque se vaya a reemplazar: es la vuelta
+#    si la restauración sale mal. Si falla porque la base está rota, seguir
+#    solo si esa base ya no sirve de todos modos.
+ops/backup/backup-azul-chat.sh
+
+# 3. Reemplazar la base.
+docker exec azul-chat-db sh -c 'dropdb -U "$POSTGRES_USER" --if-exists "$POSTGRES_DB" && createdb -U "$POSTGRES_USER" "$POSTGRES_DB"'
+gzip -dc "$F" | docker exec -i azul-chat-db sh -c 'psql -q -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' > /dev/null && echo RESTAURADO
+
+# 4. Las migraciones que el backup no tenía. SIEMPRE, también si se cree que no
+#    falta ninguna (con la base al día no hace nada). Corre con la imagen de
+#    .env, que es la que se va a levantar. Forma exacta, sin $C (ver DEPLOY).
+docker compose -f docker-compose.prod.yml run --rm --no-deps azul-chat-app prisma migrate deploy
+
+# 5. Comprobar que la base quedó con TODAS las migraciones del checkout (que
+#    está en el SHA de la imagen): las dos líneas tienen que ser iguales.
+docker exec azul-chat-db sh -c 'psql -At -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT max(migration_name) FROM _prisma_migrations WHERE finished_at IS NOT NULL"'
+ls prisma/migrations | grep -v '\.toml$' | sort | tail -1
+
+# 6. La app, y comprobar.
+docker compose -f docker-compose.prod.yml up -d azul-chat-app
+until [ "$(docker inspect -f '{{.State.Health.Status}}' azul-chat-app)" = healthy ]; do sleep 2; done
+curl -fsS http://127.0.0.1:3100/api/salud      # {"ok":true,...}
+
+# 7. Los timers otra vez.
+systemctl --user start azul-chat-sincronizar.timer azul-chat-vigia.timer azul-chat-backup.timer
+```
+
+**Por qué el paso 4 no es opcional, y por qué el 5 mira la base y no
+`/api/salud`.** Un backup sacado ANTES de las últimas migraciones trae el
+esquema de ese día, y la imagen que corre espera el de hoy. `/api/salud` NO lo
+detecta: su chequeo de `esquema` mira solo las tres tablas de la primera
+migración (`Instalacion`, `Vinculo`, `Sesion`; `src/server/salud.ts`). Con un
+backup anterior a la Tanda 15, por ejemplo, el contenedor queda `healthy` y
+cada pedido de la app falla al buscar `AccesoPersona`. `migrate deploy` aplica
+únicamente las migraciones que el backup no tiene, en orden, y no toca las que
+ya están (ejercido el 2026-10-12 contra PostgreSQL 16 local: un backup con 8
+migraciones restaurado en una base aparte, y `migrate deploy` aplicó solo
+`20261015120000_turno_de_fondo` y `20261016120000_accesos`; una segunda corrida
+dijo "No pending migrations to apply"). Es el mismo comando del paso 3 del
+DEPLOY. En un rollback (volver a la imagen anterior con
+el backup del PRE) se corre con la imagen ANTERIOR ya puesta en `.env`: así no
+aplica migraciones que esa imagen no conoce.
+
+**Lo que se pierde al restaurar un backup viejo** es lo que pasó después de
+sacarlo, en la base de Azul Chat: sesiones —esos teléfonos vuelven a pedir el
+código—, vínculos canjeados después —esas personas vuelven a vincular—,
+cambios de Accesos, preguntas guardadas y lo leído. Lo del ERP no se toca. La
+sincronización vuelve a traer los eventos desde los cursores del backup, así
+que puede repetir avisos push de lo que ya se había avisado en ese rato.
 
 ## Sincronización en segundo plano (Tanda 5A)
 
@@ -739,23 +925,6 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:3100/api/inter
 
 Pararla (por ejemplo, para un rollback): `systemctl --user disable --now
 azul-chat-sincronizar.timer`. La app sigue igual; solo deja de sincronizar sola.
-
-### Restaurar
-
-En una base nueva, nunca encima de la que está en uso sin un backup previo:
-
-```sh
-F=/srv/produccion/backups-azul-chat/azul-chat-AAAAMMDD_HHMMSS.sql.gz
-gzip -t "$F"
-docker compose -f docker-compose.prod.yml stop azul-chat-app
-docker exec azul-chat-db sh -c 'dropdb -U "$POSTGRES_USER" --if-exists "$POSTGRES_DB" && createdb -U "$POSTGRES_USER" "$POSTGRES_DB"'
-gzip -dc "$F" | docker exec -i azul-chat-db sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
-docker compose -f docker-compose.prod.yml up -d azul-chat-app
-```
-
-**Los backups no incluyen la clave de cifrado.** Sin la misma
-`AZUL_CHAT_TOKEN_ENCRYPTION_KEY`, los tokens restaurados no se descifran: la
-gente tendrá que volver a vincular. Por eso la clave se guarda aparte.
 
 ## Vigía de la sincronización (Tanda 12)
 
