@@ -84,11 +84,15 @@ no toca a los demás.
   desde la 10 `chats/buscar` (GET),
   `chats/leido` (POST) y, desde la Tanda 6A, `chats/preguntar` (POST),
   descritos en `docs/CHATS.md`; desde la Tanda 5A,
-  `push/clave` (GET) y `push/suscribir` (POST, DELETE), y
-  `interno/sincronizar`, que NO es del navegador (solo el timer del VPS, por
-  127.0.0.1 y con su secreto; a todo lo demás, 404). No hay proxy genérico.
+  `push/clave` (GET) y `push/suscribir` (POST, DELETE); desde la Tanda 15
+  `sesion/accesos` (GET, PUT; solo administradores, `docs/CHATS.md`
+  "Accesos"); e `interno/sincronizar` y, desde la Tanda 12, `interno/vigia`,
+  que NO son del navegador (solo los timers del VPS, por 127.0.0.1 y con su
+  secreto; a todo lo demás, 404). No hay proxy genérico.
   - `GET /api/salud` — healthcheck: 200 si la configuración es válida, la base
-    contesta y está migrada. No llama al ERP ni escribe.
+    contesta y tiene las tablas de la PRIMERA migración (`Instalacion`,
+    `Vinculo`, `Sesion`). No mira las migraciones posteriores: que estén todas
+    se comprueba aparte (`docs/DEPLOY.md`, DEPLOY). No llama al ERP ni escribe.
   - `GET /api/version` — el SHA del commit con que se construyó la imagen
     (`APP_BUILD_ID`), con `no-store`. Desde la Tanda 6C la página `/` se arma
     en cada pedido y trae ese mismo commit, que es la referencia de la recarga
@@ -186,7 +190,9 @@ no toca a los demás.
   guarda solo la hora del último aviso mostrado por etiqueta) y los
   íconos de la app instalable (Tanda 5A).
 - `ops/sincronizar/` — el script y las unidades de systemd del timer de
-  sincronización (Tanda 5A).
+  sincronización (Tanda 5A); `ops/vigia/`, las del vigía (Tanda 12);
+  `ops/backup/`, el backup diario y su timer; `ops/produccion/`, los ejemplos
+  de `app.env` y `db.env`.
 - `scripts/verificar-bundle-cliente.mjs` — compila con secretos canario y los
   busca en todo lo que baja al navegador.
 
@@ -240,6 +246,15 @@ Desde la Tanda 6A, opcionales también:
   ERP. Sin ella no hay caja de preguntas. Distinta de los otros secretos.
 - `AZUL_CHAT_IA_TOPE_USD` — el tope de gasto en IA por mes (por defecto 5).
 
+Desde la Tanda 12 y la 15, ids de persona del ERP separados por coma (no son
+secretos):
+
+- `AZUL_CHAT_AVISOS_SISTEMA` — a quién avisa el vigía si la sincronización de
+  fondo se cae. Opcional: vacía, no se avisa a nadie.
+- `AZUL_CHAT_ADMINISTRADORES` — quién administra los accesos. **Obligatoria en
+  la práctica**: vacía o mal escrita, nadie administra y no entra nadie que no
+  tenga un acceso ya guardado, el dueño incluido.
+
 Cómo generarlas (o copiarlas del ERP) en el VPS sin imprimirlas: `docs/DEPLOY.md`.
 
 Ninguna lleva `NEXT_PUBLIC_`.
@@ -268,9 +283,14 @@ sobre bytes UTF-8, con `marca` = Unix timestamp en segundos y `cuerpo` =
   cajas de hoy y de ayer) y, en General, 1 + hasta 3 por local con alguna de
   las dos capacidades: con 5 locales, 16, que con el fondo (18) suman 34 de 120.
   Lo nuevo llega a la app solo por el fondo, cada 2 minutos; con 5 locales
-  cada capacidad se trae al menos cada 4. Con 9 o más locales por persona, o
-  más de 6 personas a la vez (cupo de 120 por aplicación), hay que revisar la
-  cuenta (`docs/DEPLOY.md`, "Sincronización en segundo plano").
+  cada capacidad se trae al menos cada 4. Con 9 o más locales por persona hay
+  que revisar la cuenta (`docs/DEPLOY.md`, "Sincronización en segundo plano").
+  El cupo por aplicación es 240 (todas las personas juntas): desde la Tanda 14
+  el fondo gasta como mucho 120 por corrida y deja el resto a las apps
+  abiertas; con más personas que las que entran, las que faltan van primero en
+  la corrida siguiente (`docs/CHATS.md`, "Varias personas"). Azul Chat
+  presupuesta el fondo sobre 30 por persona (`CUPO_ERP_POR_PERSONA`), no sobre
+  120: es el lado seguro.
 
 - Cada pregunta en lenguaje natural (Tanda 6A) gasta del cupo del ERP 1 + N:
   una `mi_alcance` y, si es de ventas, una `ventas_resumen` por local (N = 1
@@ -281,7 +301,10 @@ sobre bytes UTF-8, con `marca` = Unix timestamp en segundos y `cuerpo` =
   Eventos, 1. La IA se
   paga aparte, con tope mensual (`AZUL_CHAT_IA_TOPE_USD`); la tarifa y la
   cuenta por pregunta están en `docs/CHATS.md`. La IA solo interpreta la
-  pregunta: no recibe ventas, eventos ni ids.
+  pregunta: no recibe ventas, eventos, ids ni quién pregunta. Sí recibe, además
+  de la pregunta, la fecha de hoy y los NOMBRES de los locales que la persona
+  puede ver (para reconocer "Casiano" en la pregunta;
+  `instruccionesDeIntencion`, `src/server/preguntas/intencion.ts`).
 
 - El cupo de vinculación vive en memoria del proceso (5 por IP y 15 en total
   por minuto, por debajo de los 20 canjes por minuto que el ERP da a la
