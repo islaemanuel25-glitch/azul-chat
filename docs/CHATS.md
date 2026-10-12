@@ -722,6 +722,42 @@ Tres rutas más, ninguna llama al ERP:
   colgada de la sesión de la solicitud; el mismo endpoint otra vez la actualiza.
 - `DELETE /api/push/suscribir`: `{ endpoint }`. Borra solo una suscripción de
   la persona de la sesión.
+- `GET /api/push/estado?endpoint=E` (Tanda 11): `{ estado: "OK", registrada }`.
+  `registrada` es true solo si el servidor tiene esa suscripción para la
+  SESIÓN de la solicitud (y de esa persona): es lo que decide si el panel dice
+  "Activadas". Una de otra sesión u otra persona, false. Con sesión, sin
+  Origin (es un GET que no escribe); exactamente `endpoint`, de un servicio de
+  push conocido, o `SOLICITUD_INVALIDA`.
+
+**Horario de silencio (Tanda 11).** Mientras la persona está en su horario
+(hora de Argentina, `[desde, hasta)`, puede cruzar la medianoche), la corrida
+de fondo no le manda push, pero la marca de avisos AVANZA igual
+(`avisarNovedades` sin envío): los eventos se ingieren y quedan sin leer, y al
+salir del horario no llega el atraso. Lo decide `src/server/push/silencio.ts`.
+
+## Configuración de la persona (Tanda 11)
+
+Tres rutas, ninguna llama al ERP; todas sobre el vínculo de la sesión de la
+solicitud, nunca sobre un id que mande el navegador
+(`src/server/sesion/configuracion.ts`):
+
+- `GET /api/sesion/configuracion`: `{ estado: "OK", silencio: { activo,
+  desde, hasta }, ia, dispositivos }`. `ia` es null sin IA configurada; si no,
+  `{ gastadoCentavos, topeCentavos, preguntas, agotado, reiniciaEl }` del mes
+  de Argentina en `ConsumoIa` (centavos redondeados para arriba; `agotado`
+  es lo mismo que decide `reservarPregunta`: que la reserva de una pregunta más
+  ya no entre). `dispositivos`: las sesiones vigentes de la persona, `{
+  creadaEn, esEste }`, la de este navegador primero; sin ids. Sin Origin (GET).
+- `PUT /api/sesion/silencio`: el horario entero, exactamente `{ activo,
+  desde, hasta }`, horas enteras de 0 a 23 distintas. Sesión y Origin.
+- `DELETE /api/sesion/otras`: revoca todas las sesiones vigentes de la persona
+  MENOS la de la solicitud y borra las suscripciones push de esas sesiones, en
+  una transacción. `{ estado: "OK", cerradas }`. Sesión y Origin. El vínculo
+  con el ERP no se toca.
+
+Fallas: `SIN_SESION` 401, `ORIGEN_NO_PERMITIDO` 403, `SOLICITUD_INVALIDA` 400,
+`SERVICIO_NO_DISPONIBLE` 503. Candados: `test/db/configuracion.test.ts`,
+`test/unidad/silencio.test.ts` y `test/ui/configuracion.test.ts`.
 
 Qué se avisa y cuándo lo decide la sincronización de fondo, con `mi_alcance`
 vivo en cada corrida (`docs/EVENTOS.md`): guardar una suscripción no autoriza
