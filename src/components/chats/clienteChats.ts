@@ -26,6 +26,7 @@ import type {
   RespuestaVentas,
 } from "../../shared/chats/api.ts";
 import type { PedidoPregunta, RespuestaPregunta } from "../../shared/chats/preguntas.ts";
+import type { FiltroBusqueda, RespuestaBuscar } from "../../shared/chats/buscar.ts";
 import { anotarCommitDe } from "./version.ts";
 
 const RUTA_CHATS = "/api/chats";
@@ -42,6 +43,8 @@ const RUTA_PENDIENTES = "/api/chats/pendientes";
 const RUTA_PENDIENTES_GENERAL = "/api/chats/pendientes/general";
 /** Tanda 6A: una pregunta en lenguaje natural. */
 const RUTA_PREGUNTAR = "/api/chats/preguntar";
+/** Tanda 10: buscar en el historial guardado. */
+const RUTA_BUSCAR = "/api/chats/buscar";
 /** Tanda 3B: el commit que sirve el servidor, para recargar una pestaña que quedó con el JS de otro despliegue. */
 const RUTA_VERSION = "/api/version";
 
@@ -59,6 +62,7 @@ export const RUTAS_DEL_CLIENTE = Object.freeze({
   pendientes: RUTA_PENDIENTES,
   pendientesGeneral: RUTA_PENDIENTES_GENERAL,
   preguntar: RUTA_PREGUNTAR,
+  buscar: RUTA_BUSCAR,
 });
 
 const ESTADOS_DE_FALLA: readonly FallaChats["estado"][] = [
@@ -146,6 +150,27 @@ export function pedirPendientes(localId: number, signal?: AbortSignal) {
 /** GET /api/chats/pendientes/general: lo mismo, de cada local (Tanda 9B). Solo cuando la persona toca "Pendientes" en General. */
 export function pedirPendientesGeneral(signal?: AbortSignal) {
   return pedir<RespuestaPendientesGeneral>(() => fetch(RUTA_PENDIENTES_GENERAL, { ...OPCIONES, signal: signal ?? null }), signal);
+}
+
+/** Dónde se busca (Tanda 10): un Local, o General. */
+export type AmbitoBusqueda = { readonly tipo: "LOCAL"; readonly localId: number } | { readonly tipo: "GENERAL" };
+
+/**
+ * GET /api/chats/buscar?texto=T&filtro=F&(localId=N | general=1)[&cursor=C]
+ * (Tanda 10). Solo cuando la persona envía la búsqueda, cambia el filtro o
+ * toca "Ver más": nunca mientras escribe.
+ */
+export function pedirBuscar(
+  pedido: { readonly texto: string; readonly filtro: FiltroBusqueda; readonly ambito: AmbitoBusqueda; readonly cursor: string | null },
+  signal?: AbortSignal,
+) {
+  const q = new URLSearchParams({
+    texto: pedido.texto,
+    filtro: pedido.filtro,
+    ...(pedido.ambito.tipo === "LOCAL" ? { localId: String(pedido.ambito.localId) } : { general: "1" }),
+    ...(pedido.cursor ? { cursor: pedido.cursor } : {}),
+  }).toString();
+  return pedir<RespuestaBuscar>(() => fetch(`${RUTA_BUSCAR}?${q}`, { ...OPCIONES, signal: signal ?? null }), signal);
 }
 
 /** POST /api/chats/leido: lo único que marca leído, y solo cuando una pantalla lo pide. */

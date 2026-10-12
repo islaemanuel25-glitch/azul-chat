@@ -2,7 +2,9 @@
 
 // LA APLICACIÓN: QUÉ PANTALLA SE VE Y CÓMO SE NAVEGA.
 //
-// Tres vistas —la lista, un Local y General— y la sesión. La vista va en la URL
+// Tres vistas —la lista, un Local y General— y la sesión; desde la Tanda 10,
+// también Buscar en un Local o en General (`/?vista=buscar&localId=N`,
+// `/?vista=buscar&general=1`), cuya flecha vuelve a ese chat. La vista va en la URL
 // como consulta (`/?vista=local&localId=N`, `/?vista=general`), no como
 // segmento de ruta: la app no tiene segmentos dinámicos. Así el botón "atrás"
 // del teléfono vuelve a la vista anterior, y además cada pantalla tiene su
@@ -24,7 +26,8 @@ import { PanelSesion } from "../sesion/PanelSesion.tsx";
 import { ShellMovil } from "../shell/ShellMovil.tsx";
 import { pedirVersion } from "./clienteChats.ts";
 import { PantallaGeneral, PantallaLocal } from "./Conversacion.tsx";
-import { leerVista, urlDeVista, type Vista } from "./logica.ts";
+import { PantallaBuscar } from "./Buscar.tsx";
+import { chatDeBusqueda, leerVista, urlDeVista, type Vista } from "./logica.ts";
 import { PantallaChats } from "./PantallaChats.tsx";
 import {
   comprobarAlAbrir,
@@ -87,15 +90,17 @@ export function AzulChat({ commit = null }: { commit?: string | null }) {
     if (version.current) comprobarAlAbrir(v, version.current);
   }, []);
 
-  const volverAChats = useCallback(() => {
+  /** Vuelve con el "atrás" si la entrada es nuestra; si no (se entró por la URL), reemplaza por `destino`. */
+  const volverA = useCallback((destino: Vista) => {
     const estado = window.history.state as Record<string, unknown> | null;
     if (estado?.[MARCA_HISTORIAL]) {
       window.history.back(); // popstate lee la URL anterior
       return;
     }
-    window.history.replaceState(null, "", urlDeVista({ tipo: "CHATS" }));
-    setVista({ tipo: "CHATS" });
+    window.history.replaceState(null, "", urlDeVista(destino));
+    setVista(destino);
   }, []);
+  const volverAChats = useCallback(() => volverA({ tipo: "CHATS" }), [volverA]);
 
   const perderSesion = useCallback((motivo?: "VINCULO_INVALIDO") => setModo(motivo ? { tipo: "SESION", motivo } : { tipo: "SESION" }), []);
   const verSesion = useCallback(() => setModo({ tipo: "SESION" }), []);
@@ -120,9 +125,22 @@ export function AzulChat({ commit = null }: { commit?: string | null }) {
           {...(vista.nombre ? { nombreConocido: vista.nombre } : {})}
           alVolver={volverAChats}
           alPerderSesion={perderSesion}
+          alBuscar={() => abrir({ tipo: "BUSCAR", chat: vista })}
         />
       );
     case "GENERAL":
-      return <PantallaGeneral alVolver={volverAChats} alPerderSesion={perderSesion} />;
+      return <PantallaGeneral alVolver={volverAChats} alPerderSesion={perderSesion} alBuscar={() => abrir({ tipo: "BUSCAR", chat: { tipo: "GENERAL" } })} />;
+    case "BUSCAR": {
+      const chat = vista.chat;
+      return (
+        <PantallaBuscar
+          key={chat.tipo === "GENERAL" ? "general" : chat.localId}
+          ambito={chat.tipo === "GENERAL" ? { tipo: "GENERAL" } : { tipo: "LOCAL", localId: chat.localId }}
+          {...(chat.tipo === "LOCAL" && chat.nombre ? { nombre: chat.nombre } : {})}
+          alVolver={() => volverA(chatDeBusqueda(vista))}
+          alPerderSesion={perderSesion}
+        />
+      );
+    }
   }
 }

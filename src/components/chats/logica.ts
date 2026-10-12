@@ -22,6 +22,7 @@ import type {
 } from "../../shared/chats/api.ts";
 import type { FallaCliente, RespuestaDePregunta, Resultado } from "./clienteChats.ts";
 import type { PreguntaGuardada } from "../../shared/chats/preguntas.ts";
+import type { FiltroBusqueda, RespuestaBuscar, ResultadoBusqueda } from "../../shared/chats/buscar.ts";
 
 // ── La lista ────────────────────────────────────────────────────────────────
 
@@ -380,6 +381,73 @@ export function reducirPendientes(estado: EstadoPendientes, accion: AccionPendie
   return trasFallaDeConsulta(r.falla);
 }
 
+// ── Buscar en el historial (Tanda 10) ───────────────────────────────────────
+//
+// Se busca al ENVIAR (botón o Enter) y al cambiar de filtro con una búsqueda
+// ya hecha; nunca mientras se escribe. Cada búsqueda nueva reemplaza la
+// anterior. "Ver más" agrega la página siguiente sin repetir un resultado. Una
+// falla al buscar reemplaza los resultados (fallo cerrado, como el historial);
+// sin red en "Ver más", lo que ya se ve sigue.
+
+export type EstadoBusqueda =
+  /** Todavía no se buscó nada. */
+  | { readonly fase: "QUIETO" }
+  | { readonly fase: "BUSCANDO"; readonly texto: string; readonly filtro: FiltroBusqueda }
+  | {
+      readonly fase: "LISTA";
+      readonly texto: string;
+      readonly filtro: FiltroBusqueda;
+      readonly total: number;
+      /** Del más nuevo al más viejo, como los manda la API. */
+      readonly resultados: readonly ResultadoBusqueda[];
+      readonly siguiente: string | null;
+      readonly mas: "QUIETO" | "CARGANDO" | "SIN_RED";
+    }
+  | { readonly fase: "FALLA"; readonly texto: string; readonly filtro: FiltroBusqueda; readonly falla: FallaCliente };
+
+type PaginaDeBusqueda = Extract<RespuestaBuscar, { estado: "OK" }>;
+
+export type AccionBusqueda =
+  | { readonly tipo: "BUSCAR"; readonly texto: string; readonly filtro: FiltroBusqueda }
+  | { readonly tipo: "RESPUESTA"; readonly resultado: Resultado<PaginaDeBusqueda> }
+  | { readonly tipo: "PIDIENDO_MAS" }
+  | { readonly tipo: "MAS"; readonly resultado: Resultado<PaginaDeBusqueda> };
+
+/** La clave de un resultado: un evento y una pregunta pueden tener el mismo id. */
+export const claveDeResultado = (r: ResultadoBusqueda) => (r.tipo === "EVENTO" ? `e${r.evento.id}` : `p${r.guardada.id}`);
+
+export function reducirBusqueda(estado: EstadoBusqueda, accion: AccionBusqueda): EstadoBusqueda {
+  switch (accion.tipo) {
+    case "BUSCAR":
+      return { fase: "BUSCANDO", texto: accion.texto, filtro: accion.filtro };
+    case "RESPUESTA": {
+      if (estado.fase !== "BUSCANDO") return estado;
+      const r = accion.resultado;
+      if (!r.ok) return r.falla.estado === "CANCELADA" ? estado : { fase: "FALLA", texto: estado.texto, filtro: estado.filtro, falla: r.falla };
+      return { fase: "LISTA", texto: estado.texto, filtro: estado.filtro, total: r.datos.total, resultados: r.datos.resultados, siguiente: r.datos.siguiente, mas: "QUIETO" };
+    }
+    case "PIDIENDO_MAS":
+      return estado.fase === "LISTA" && estado.siguiente ? { ...estado, mas: "CARGANDO" } : estado;
+    case "MAS": {
+      if (estado.fase !== "LISTA" || estado.mas !== "CARGANDO") return estado;
+      const r = accion.resultado;
+      if (!r.ok) {
+        if (r.falla.estado === "CANCELADA") return { ...estado, mas: "QUIETO" };
+        if (r.falla.estado === "RED") return { ...estado, mas: "SIN_RED" };
+        return { fase: "FALLA", texto: estado.texto, filtro: estado.filtro, falla: r.falla };
+      }
+      const vistos = new Set(estado.resultados.map(claveDeResultado));
+      return {
+        ...estado,
+        total: r.datos.total,
+        resultados: [...estado.resultados, ...r.datos.resultados.filter((x) => !vistos.has(claveDeResultado(x)))],
+        siguiente: r.datos.siguiente,
+        mas: "QUIETO",
+      };
+    }
+  }
+}
+
 // ── Preguntas (Tanda 6A) ────────────────────────────────────────────────────
 //
 // Cada pregunta queda en la conversación como una burbuja propia y, debajo, su
@@ -450,25 +518,47 @@ export function reducirPreguntas(lista: readonly IntercambioDePregunta[], accion
 export type Vista =
   | { readonly tipo: "CHATS" }
   | { readonly tipo: "LOCAL"; readonly localId: number; readonly nombre?: string }
-  | { readonly tipo: "GENERAL" };
+  | { readonly tipo: "GENERAL" }
+  /** Tanda 10: buscar en el historial de un Local o de General. "Volver" vuelve a ese chat (`chatDeBusqueda`). */
+  | { readonly tipo: "BUSCAR"; readonly chat: { readonly tipo: "LOCAL"; readonly localId: number; readonly nombre?: string } | { readonly tipo: "GENERAL" } };
+
+/** El chat de una búsqueda: adonde vuelve "Volver". */
+export function chatDeBusqueda(v: Extract<Vista, { tipo: "BUSCAR" }>): Vista {
+  return v.chat;
+}
 
 const LOCAL_ID = /^[1-9][0-9]{0,9}$/;
 /** Un nombre de local en la URL: texto corto, sin caracteres de control. Si no, se ignora. */
 const MAX_NOMBRE = 80;
 const nombreValido = (v: string | null): v is string => v !== null && v.trim().length > 0 && v.length <= MAX_NOMBRE && !/\p{Cc}/u.test(v);
 
-/** La vista de la URL (`?vista=local&localId=N[&nombre=…]`, `?vista=general`). Cualquier otra cosa es la lista. */
+/**
+ * La vista de la URL (`?vista=local&localId=N[&nombre=…]`, `?vista=general`;
+ * Tanda 10: `?vista=buscar&localId=N[&nombre=…]` o `?vista=buscar&general=1`).
+ * Cualquier otra cosa es la lista.
+ */
 export function leerVista(busqueda: string): Vista {
   const p = new URLSearchParams(busqueda);
   const vista = p.get("vista");
   if (vista === "general") return { tipo: "GENERAL" };
   const localId = p.get("localId");
-  if (vista === "local" && localId !== null && LOCAL_ID.test(localId)) {
+  const local = (): Extract<Vista, { tipo: "LOCAL" }> | null => {
+    if (localId === null || !LOCAL_ID.test(localId)) return null;
     const nombre = p.get("nombre");
     return nombreValido(nombre) ? { tipo: "LOCAL", localId: Number(localId), nombre: nombre.trim() } : { tipo: "LOCAL", localId: Number(localId) };
+  };
+  if (vista === "local") return local() ?? { tipo: "CHATS" };
+  if (vista === "buscar") {
+    if (p.get("general") === "1" && localId === null) return { tipo: "BUSCAR", chat: { tipo: "GENERAL" } };
+    const l = p.has("general") ? null : local();
+    return l ? { tipo: "BUSCAR", chat: l } : { tipo: "CHATS" };
   }
   return { tipo: "CHATS" };
 }
+
+/** La consulta de un Local en la URL: `localId` y, si es válido, `nombre`. */
+const consultaDeLocal = (v: { readonly localId: number; readonly nombre?: string }): Record<string, string> =>
+  nombreValido(v.nombre ?? null) ? { localId: String(v.localId), nombre: v.nombre!.trim() } : { localId: String(v.localId) };
 
 export function urlDeVista(v: Vista): string {
   switch (v.tipo) {
@@ -478,8 +568,10 @@ export function urlDeVista(v: Vista): string {
       return "/?vista=general";
     case "LOCAL":
       return nombreValido(v.nombre ?? null)
-        ? `/?${new URLSearchParams({ vista: "local", localId: String(v.localId), nombre: v.nombre!.trim() }).toString()}`
+        ? `/?${new URLSearchParams({ vista: "local", ...consultaDeLocal(v) }).toString()}`
         : `/?vista=local&localId=${v.localId}`;
+    case "BUSCAR":
+      return v.chat.tipo === "GENERAL" ? "/?vista=buscar&general=1" : `/?${new URLSearchParams({ vista: "buscar", ...consultaDeLocal(v.chat) }).toString()}`;
   }
 }
 

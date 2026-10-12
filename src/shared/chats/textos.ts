@@ -18,14 +18,29 @@ import type { EventoPublico } from "./api.ts";
  *   · "Transferencia #184 cancelada".
  */
 export function resumenDeEvento(e: EventoPublico): string {
+  const { que, accion } = ROTULO_DE_TIPO[e.tipo];
   switch (e.tipo) {
     case "TRANSFERENCIA_RECIBIDA":
-      return `Transferencia #${e.transferenciaId} recibida${e.tieneDiferencias ? " con diferencias" : ""}`;
+      return `${que} #${e.transferenciaId} ${accion}${e.tieneDiferencias ? ` ${CON_DIFERENCIAS}` : ""}`;
     case "PEDIDO_SOLICITADO":
-      return `Pedido #${e.pedidoId} solicitado`;
+      return `${que} #${e.pedidoId} ${accion}`;
     case "TRANSFERENCIA_ENVIADA":
-      return `Transferencia #${e.transferenciaId} enviada`;
     case "TRANSFERENCIA_CANCELADA":
-      return `Transferencia #${e.transferenciaId} cancelada`;
+      return `${que} #${e.transferenciaId} ${accion}`;
   }
 }
+
+/**
+ * Las palabras del título de cada tipo, alrededor del número. Tanda 10: la
+ * búsqueda del historial busca en ESTOS textos —los que se ven—, así que salen
+ * de acá y no de una copia.
+ */
+export const ROTULO_DE_TIPO: Readonly<Record<EventoPublico["tipo"], { readonly que: string; readonly accion: string }>> = Object.freeze({
+  TRANSFERENCIA_RECIBIDA: { que: "Transferencia", accion: "recibida" },
+  PEDIDO_SOLICITADO: { que: "Pedido", accion: "solicitado" },
+  TRANSFERENCIA_ENVIADA: { que: "Transferencia", accion: "enviada" },
+  TRANSFERENCIA_CANCELADA: { que: "Transferencia", accion: "cancelada" },
+});
+
+/** Lo que se agrega al título de una recepción con diferencias. */
+export const CON_DIFERENCIAS = "con diferencias";

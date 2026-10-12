@@ -1,6 +1,6 @@
 // src/server/chats/manejadores.ts
 //
-// LAS NUEVE RUTAS DE CHATS. Las de src/app solo delegan acá.
+// LAS DIEZ RUTAS DE CHATS. Las de src/app solo delegan acá.
 //
 //   GET  /api/chats                          la lista: General y cada local autorizado
 //   GET  /api/chats/local?localId=&cursor=   el historial de un local
@@ -11,6 +11,8 @@
 //   GET  /api/chats/stock?localId=           los productos bajo mínimo de un local (Tanda 8B)
 //   GET  /api/chats/pendientes?localId=      lo pendiente de un local: pedidos sin enviar y cajas a revisar (Tanda 9B)
 //   GET  /api/chats/pendientes/general       lo mismo, de cada local con alguna de esas dos fuentes (Tanda 9B)
+//   GET  /api/chats/buscar?texto=&filtro=&(localId= | general=1)&cursor=
+//                                            buscar en el historial guardado (Tanda 10)
 //
 // Las cuatro primeras: sesión → `mi_alcance` vivo, UNA vez → locales con al
 // menos una capacidad de eventos, y de cada uno los tipos de esas capacidades
@@ -68,6 +70,8 @@ import {
   type PosicionHistorial,
 } from "./historial.ts";
 import { fuenteDePreguntas } from "../preguntas/guardadas.ts";
+import { buscarEnHistorial } from "../buscar/buscar.ts";
+import { FILTROS_BUSQUEDA, leerTextoDeBusqueda, type RespuestaBuscar } from "../../shared/chats/buscar.ts";
 import { esFalloDeCupo, estadoDeLocales, type LocalSincronizado } from "./sincronizacion.ts";
 
 /** Un local con las capacidades que siguen en esta respuesta → qué se puede leer de él. */
@@ -526,6 +530,52 @@ export async function manejarPendientes(request: Request, deps: DependenciasSesi
   const r = await pendientesDeLocales(request.headers, deps, elegidos.locales);
   if (r.tipo === "FALLA") return falla(r.falla, request, deps);
   return json({ estado: "OK", ...r.locales[0]! } satisfies RespuestaPendientes);
+}
+
+// ── GET /api/chats/buscar ───────────────────────────────────────────────────
+//
+// Buscar en el historial (Tanda 10): eventos guardados y preguntas guardadas
+// de la persona, en la base propia (buscar/buscar.ts). Del ERP, solo
+// `mi_alcance`: es la autorización viva de siempre, y sin ella no se busca
+// (fallo cerrado, como el historial). En un Local, ese local tiene que estar
+// hoy entre los de los chats; en General, todos los de hoy. Las preguntas: en
+// un Local, las de ese Local; en General, las de General y las de cada local
+// de hoy. No marca leído y no guarda nada. Cupo: 1.
+//
+// Parámetros exactos: `texto` (1 a 60), `filtro` (todos | transferencias |
+// pedidos | preguntas), `localId=N` o `general=1` (uno de los dos) y `cursor`
+// opcional, el `siguiente` de la página anterior con el mismo texto y filtro.
+
+export function manejarBuscar(request: Request, deps: DependenciasSesion): Promise<Response> {
+  const p = parametros(request, ["texto", "filtro", "localId", "general", "cursor"]);
+  const busqueda = p?.has("texto") ? leerTextoDeBusqueda(p.get("texto")!) : null;
+  const filtro = FILTROS_BUSQUEDA.find((f) => f === p?.get("filtro"));
+  const crudo = p?.get("localId");
+  const general = p?.get("general");
+  const cursorCrudo = p?.get("cursor");
+  const desde: PosicionHistorial | null = cursorCrudo === undefined ? null : decodificarCursor(cursorCrudo);
+  const ambitoValido = crudo !== undefined ? general === undefined && LOCAL_ID.test(crudo) : general === "1";
+  if (!p || !busqueda || !filtro || !ambitoValido || (cursorCrudo !== undefined && !desde)) {
+    return Promise.resolve(falla({ estado: "SOLICITUD_INVALIDA" }, request, deps));
+  }
+  const localId = crudo === undefined ? null : Number(crudo);
+  return responder<RespuestaBuscar>(request, deps, async (a) => {
+    const elegidos = localId === null ? a.autorizados : a.autorizados.filter((l) => l.localId === localId);
+    if (localId !== null && elegidos.length === 0) return localNoAutorizado();
+    const { db, config, sesion } = a.contexto;
+    const r = await buscarEnHistorial(db, {
+      instalacionId: config.instalacionId,
+      vinculoId: sesion.vinculo.id,
+      locales: elegidos.map((l) => ({ ...visible(l), nombre: l.nombre })),
+      chatsDePreguntas: localId === null ? [null, ...elegidos.map((l) => l.localId)] : [localId],
+      hoy: a,
+      ahora: new Date(deps.ahora()),
+      busqueda,
+      filtro,
+      desde,
+    });
+    return ok<RespuestaBuscar>({ estado: "OK", ...r });
+  });
 }
 
 export async function manejarPendientesGeneral(request: Request, deps: DependenciasSesion): Promise<Response> {

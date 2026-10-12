@@ -431,4 +431,5 @@ export const RUTAS_CHATS = Object.freeze({
   pendientes: "/api/chats/pendientes",
   pendientesGeneral: "/api/chats/pendientes/general",
   preguntar: "/api/chats/preguntar",
+  buscar: "/api/chats/buscar",
 });

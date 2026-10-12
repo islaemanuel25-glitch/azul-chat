@@ -82,6 +82,13 @@ const RUTAS = {
     metodos: ["GET"],
     importa: ["../../../../../server/chats/manejadores.ts", "../../../../../server/sesion/dependencias.ts"],
   },
+  // Tanda 10: buscar en el historial guardado. Una acción concreta sobre la
+  // base propia —texto, filtro, el chat por query y el cursor—, no un pase al
+  // ERP: del ERP solo usa `mi_alcance`, como cualquier GET de chats.
+  "src/app/api/chats/buscar/route.ts": {
+    metodos: ["GET"],
+    importa: ["../../../../server/chats/manejadores.ts", "../../../../server/sesion/dependencias.ts"],
+  },
   // Tanda 6A: una pregunta en lenguaje natural. Una acción concreta —la IA solo
   // elige una intención de un catálogo cerrado; ventas y eventos los arma el
   // código—, no un pase genérico al ERP ni a la IA. Con sesión y Origin.
@@ -180,6 +187,16 @@ describe("las rutas son acciones concretas", () => {
       },
       pendientesPorSegmento: { "src/app/api/chats/pendientes/[localId]/route.ts": "export async function GET() {}\n" },
       pendientesOtra: { "src/app/api/chats/pendientes/todos/route.ts": "export async function GET() {}\n" },
+      // Tanda 10: la de buscar solo delega, solo GET, no lee la consulta ni llama al ERP, y no hay otra al lado.
+      buscarPost: { "src/app/api/chats/buscar/route.ts": `${arbol["src/app/api/chats/buscar/route.ts"]}\nexport function POST() {}\n` },
+      buscarConsulta: {
+        "src/app/api/chats/buscar/route.ts": `${arbol["src/app/api/chats/buscar/route.ts"]}\nconst b = (r: Request) => new URL(r.url).searchParams.get("texto");\n`,
+      },
+      buscarErp: {
+        "src/app/api/chats/buscar/route.ts": `${arbol["src/app/api/chats/buscar/route.ts"]}\nconst e = () => fetch("/api/integraciones/azul-chat/consultar");\n`,
+      },
+      buscarPorSegmento: { "src/app/api/chats/buscar/[texto]/route.ts": "export async function GET() {}\n" },
+      buscarOtra: { "src/app/api/chats/buscar/erp/route.ts": "export async function GET() {}\n" },
     };
     for (const [nombre, cambio] of Object.entries(casos)) {
       assert.notDeepEqual(violacionesDeRutas({ ...arbol, ...cambio }), [], nombre);

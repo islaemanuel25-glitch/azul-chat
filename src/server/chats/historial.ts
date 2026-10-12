@@ -162,7 +162,7 @@ const visibles = (locales: readonly LocalVisible[]): Prisma.EventoWhereInput[] =
 export type FuenteDePreguntas<P> = (desde: PosicionHistorial | null, limite: number) => Promise<readonly { readonly fecha: Date; readonly id: bigint; readonly pregunta: P }[]>;
 
 /** ¿`a` va antes que `b` en el historial? A igual instante, la pregunta primero; después, el id mayor. */
-function antes(a: PosicionHistorial, b: PosicionHistorial): boolean {
+export function antes(a: PosicionHistorial, b: PosicionHistorial): boolean {
   if (a.fecha.getTime() !== b.fecha.getTime()) return a.fecha > b.fecha;
   if (Boolean(a.pregunta) !== Boolean(b.pregunta)) return Boolean(a.pregunta);
   return a.id > b.id;
@@ -175,10 +175,22 @@ const eventosDespuesDe = (desde: PosicionHistorial): Prisma.EventoWhereInput =>
     : { OR: [{ fechaOperacion: { lt: desde.fecha } }, { fechaOperacion: desde.fecha, id: { lt: desde.id } }] };
 
 /**
+ * Los eventos que la persona puede ver de esos locales (de cada uno, sus tipos
+ * visibles), y además `filtro` si viene (Tanda 10: lo que se busca). Null: no
+ * puede ver ninguno, y no hace falta preguntarle a la base.
+ */
+export function eventosVisibles(instalacionId: string, locales: readonly LocalVisible[], filtro?: Prisma.EventoWhereInput): Prisma.EventoWhereInput | null {
+  const permitidos = visibles(locales);
+  if (permitidos.length === 0) return null;
+  return { instalacionId, AND: [{ OR: permitidos }, ...(filtro ? [filtro] : [])] };
+}
+
+/**
  * Una página del historial de esos locales (ya autorizados), del más reciente
  * al más antiguo, estrictamente después de `desde` en ese orden. De cada local,
  * solo los tipos que la persona puede ver hoy. Tanda 6C: con `preguntas`, la
- * página intercala las preguntas guardadas por hora (ver arriba).
+ * página intercala las preguntas guardadas por hora (ver arriba). Tanda 10:
+ * con `filtro`, solo los eventos que además lo cumplen (la búsqueda).
  */
 export async function paginaDeHistorial<P = never>(
   db: Db,
@@ -187,13 +199,14 @@ export async function paginaDeHistorial<P = never>(
   desde: PosicionHistorial | null,
   porPagina = EVENTOS_POR_PAGINA,
   preguntas?: FuenteDePreguntas<P>,
+  filtro?: Prisma.EventoWhereInput,
 ): Promise<{ filas: { readonly evento: EventoPublico; readonly erpLocalId: number }[]; preguntas: P[]; siguiente: string | null }> {
-  const permitidos = visibles(locales);
+  const permitidos = eventosVisibles(instalacionId, locales, filtro);
   const eventos =
-    permitidos.length === 0
+    permitidos === null
       ? []
       : await db.evento.findMany({
-          where: { instalacionId, AND: [{ OR: permitidos }, ...(desde ? [eventosDespuesDe(desde)] : [])] },
+          where: { AND: [permitidos, ...(desde ? [eventosDespuesDe(desde)] : [])] },
           orderBy: [{ fechaOperacion: "desc" }, { id: "desc" }],
           take: porPagina + 1,
           select: SELECT_PUBLICO,
