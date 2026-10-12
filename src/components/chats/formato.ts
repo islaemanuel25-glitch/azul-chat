@@ -356,9 +356,9 @@ export function tituloDeProductos(texto: string, nombre: string): string {
   return `Stock de «${texto}» · ${nombre}`;
 }
 
-/** "No encontré «fernet» en Casiano." El texto es el de la pregunta. */
-export function noEncontre(texto: string, nombre: string): string {
-  return `No encontré «${texto}» en ${nombre}.`;
+/** "No encontré «fernet» en Casiano." El texto es el de la pregunta. Tanda 10: sin local (Buscar), "No encontré «182»." */
+export function noEncontre(texto: string, nombre?: string): string {
+  return nombre === undefined ? `No encontré «${texto}».` : `No encontré «${texto}» en ${nombre}.`;
 }
 
 const CANTIDAD_ERP = /^(-?)(\d+)\.(\d+)$/;
@@ -496,4 +496,11 @@ export function avisoDeFuentesFaltantes(faltaron: readonly ("PEDIDOS" | "CAJAS_H
   if (faltaron.length === 0) return null;
   const nombre = { PEDIDOS: "los pedidos", CAJAS_HOY: "las cajas de hoy", CAJAS_AYER: "las cajas de ayer" } as const;
   return `No se pudo consultar: ${faltaron.map((f) => nombre[f]).join(", ")}. La lista puede estar incompleta.`;
+}
+
+// ── Buscar (Tanda 10) ───────────────────────────────────────────────────────
+
+/** "1 resultado", "37 resultados": el total de la búsqueda, no solo lo cargado. */
+export function cantidadDeResultados(n: number): string {
+  return n === 1 ? "1 resultado" : `${n.toLocaleString(IDIOMA)} resultados`;
 }

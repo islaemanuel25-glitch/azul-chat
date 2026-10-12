@@ -34,6 +34,7 @@
 // turno (Cajas.tsx), con los mismos estados que Ventas.
 // Tanda 9B: "Pendientes" (Pendientes.tsx) al final de la barra del Local y,
 // desde esta tanda, también en la de General: el primer chip de General.
+// Tanda 10: la lupa del encabezado abre Buscar en este chat (Buscar.tsx).
 
 import { Fragment, useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState, type ReactNode } from "react";
 
@@ -79,7 +80,7 @@ import {
   type InfoLocal,
 } from "./logica.ts";
 import { CajaPregunta, ListaDePreguntas, PreguntaGuardadaVista, TEXTO_CAJA, usePreguntas } from "./Preguntas.tsx";
-import { AvisoDemorada, BarraVentas, EstadoChat, EstadoCupoErp, EstadoErpNoDisponible, ResultadoVentas, TarjetaEvento } from "./Piezas.tsx";
+import { AvisoDemorada, BarraVentas, BotonBuscar, EstadoChat, EstadoCupoErp, EstadoErpNoDisponible, ResultadoVentas, TarjetaEvento } from "./Piezas.tsx";
 
 type Pagina<E, I> = { readonly eventos: readonly E[]; readonly guardadas: readonly PreguntaGuardada[]; readonly siguiente: string | null; readonly info: I };
 type PedirPagina<E, I> = (cursor: string | null, signal?: AbortSignal) => Promise<Resultado<Pagina<E, I>>>;
@@ -311,12 +312,15 @@ export function PantallaLocal({
   nombreConocido,
   alVolver,
   alPerderSesion,
+  alBuscar,
 }: {
   localId: number;
   /** El nombre que ya se conocía (de la fila de la lista, por la URL): solo para el título hasta que contesta la API. */
   nombreConocido?: string;
   alVolver: () => void;
   alPerderSesion: AlPerderSesion;
+  /** Tanda 10: la lupa del encabezado; abre Buscar en este Local. */
+  alBuscar?: () => void;
 }) {
   const pedirPagina = useCallback<PedirPagina<EventoPublico, InfoLocal>>(
     async (cursor, signal) => {
@@ -363,6 +367,7 @@ export function PantallaLocal({
       titulo={tituloDeLocal(info?.nombre ?? null, nombreConocido)}
       subtitulo={info && info.noLeidos > 0 ? (info.noLeidos === 1 ? "1 sin leer" : `${info.noLeidos} sin leer`) : undefined}
       volver={{ etiqueta: "Volver a chats", alVolver }}
+      acciones={alBuscar ? <BotonBuscar alBuscar={alBuscar} /> : undefined}
     >
       <CuerpoConversacion
         estado={estado}
@@ -623,7 +628,7 @@ export function AccionesDeGeneral({
 
 // ── General ─────────────────────────────────────────────────────────────────
 
-export function PantallaGeneral({ alVolver, alPerderSesion }: { alVolver: () => void; alPerderSesion: AlPerderSesion }) {
+export function PantallaGeneral({ alVolver, alPerderSesion, alBuscar }: { alVolver: () => void; alPerderSesion: AlPerderSesion; alBuscar?: () => void }) {
   const pedirPagina = useCallback<PedirPagina<EventoGeneral, InfoGeneral>>(async (cursor, signal) => {
     const r = await pedirGeneral(cursor, signal);
     if (!r.ok) return r;
@@ -648,7 +653,12 @@ export function PantallaGeneral({ alVolver, alPerderSesion }: { alVolver: () => 
   const conPendientes = estado.fase === "LISTA" && estado.info.pendientes;
 
   return (
-    <ShellMovil titulo="General" subtitulo="Eventos de todos los locales" volver={{ etiqueta: "Volver a chats", alVolver }}>
+    <ShellMovil
+      titulo="General"
+      subtitulo="Eventos de todos los locales"
+      volver={{ etiqueta: "Volver a chats", alVolver }}
+      acciones={alBuscar ? <BotonBuscar alBuscar={alBuscar} /> : undefined}
+    >
       <CuerpoConversacion
         estado={estado}
         vacio="Todavía no hay eventos para mostrar."

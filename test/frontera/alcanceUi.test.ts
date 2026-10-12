@@ -75,6 +75,12 @@ const TEXTOS_FUERA_DE_ALCANCE = [
  * con la misma regla: como texto visible, solo en Piezas.tsx.
  */
 const CHIPS_NO_IMPLEMENTADOS = ["Transferencias", "Pedidos"];
+/**
+ * Tanda 10: "Transferencias" y "Pedidos" existen como PILLS DE FILTRO de Buscar
+ * (Figma 05, 1:249), y solo ahí. Como chips de la barra del chat siguen sin
+ * existir: en cualquier otro archivo, rojo.
+ */
+const FILTROS_DE_BUSCAR = { archivo: "src/components/chats/Buscar.tsx", textos: ["Transferencias", "Pedidos"] } as const;
 const comoTextoVisible = (t: string) => new RegExp(`["'\`>]\\s*${t}\\s*["'\`<]`);
 /** Tanda 7B: los chips que existen, cada uno como texto visible en un solo archivo: el de la barra. */
 const CHIPS_IMPLEMENTADOS: readonly { readonly texto: string; readonly archivo: string }[] = [
@@ -94,6 +100,9 @@ const TEXTOS_PERMITIDOS: readonly { readonly texto: string; readonly archivo: st
 const TEXTO_PERMITIDO = TEXTOS_PERMITIDOS[0]!;
 /** Tanda 6A: el único campo de texto de los chats es la caja de preguntas. Uno solo. */
 const CAMPO_DE_PREGUNTAS = "src/components/chats/Preguntas.tsx";
+/** Tanda 10: y el campo de Buscar, también uno solo, en su archivo. */
+const CAMPO_DE_BUSCAR = "src/components/chats/Buscar.tsx";
+const CAMPOS_DE_TEXTO: readonly string[] = [CAMPO_DE_PREGUNTAS, CAMPO_DE_BUSCAR];
 
 /** Los únicos archivos de la interfaz que hacen HTTP (a rutas propias; lo controla secretoSoloServidor.test.ts). */
 const CLIENTES_HTTP = ["src/components/chats/clienteChats.ts", "src/components/sesion/PanelSesion.tsx", "src/components/push/notificaciones.ts"];
@@ -148,7 +157,10 @@ function problemas(archivos: Record<string, string>): string[] {
       const permiso = TEXTOS_PERMITIDOS.find((x) => x.texto === t);
       if (codigo.includes(t) && archivo !== permiso?.archivo) p.push(`${archivo}: "${t}"`);
     }
-    for (const t of CHIPS_NO_IMPLEMENTADOS) if (comoTextoVisible(t).test(codigo)) p.push(`${archivo}: chip "${t}"`);
+    for (const t of CHIPS_NO_IMPLEMENTADOS) {
+      const filtroDeBuscar = archivo === FILTROS_DE_BUSCAR.archivo && (FILTROS_DE_BUSCAR.textos as readonly string[]).includes(t);
+      if (comoTextoVisible(t).test(codigo) && !filtroDeBuscar) p.push(`${archivo}: chip "${t}"`);
+    }
     for (const c of CHIPS_IMPLEMENTADOS) if (comoTextoVisible(c.texto).test(codigo) && archivo !== c.archivo) p.push(`${archivo}: chip "${c.texto}" fuera de la barra`);
     for (const permiso of TEXTOS_PERMITIDOS) {
       if (codigo.includes(permiso.texto) && archivo !== permiso.archivo) p.push(`${archivo}: "${permiso.texto}" fuera de su lugar`);
@@ -156,7 +168,7 @@ function problemas(archivos: Record<string, string>): string[] {
     // En los chats se escribe en UN solo lugar: la caja de preguntas (Tanda 6A), con un único <input> y sin <textarea>.
     if (archivo.startsWith("src/components/chats/")) {
       const campos = codigo.match(/<(input|textarea)\b/g) ?? [];
-      const laCaja = archivo === CAMPO_DE_PREGUNTAS && campos.length === 1 && campos[0] === "<input";
+      const laCaja = CAMPOS_DE_TEXTO.includes(archivo) && campos.length === 1 && campos[0] === "<input";
       if (campos.length > 0 && !laCaja) p.push(`${archivo}: campo de texto en los chats`);
     }
     const temporizadores = codigo.match(/\b(setInterval|setTimeout|requestIdleCallback)\b|\brefetchInterval\b|WebSocket|EventSource/g) ?? [];
@@ -258,6 +270,23 @@ describe("alcance de la interfaz de chats", () => {
       "chip Pendientes en la tarjeta",
     );
     assert.notDeepEqual(problemas({ ...arbol, "src/components/chats/Pendientes.tsx": `${pendientes}\nexport const V = () => <button>Ver detalle</button>;\n` }), [], "Ver detalle en la tarjeta de pendientes");
+    // Tanda 10: Buscar tiene SU campo y sus pills "Transferencias" y "Pedidos"; ahí mismo, un segundo campo, un
+    // textarea, las pills del diseño que no existen ("Caja") o "Abrir en ERP" siguen en rojo, y esas pills fuera de Buscar también.
+    const buscar = arbol[CAMPO_DE_BUSCAR]!;
+    assert.ok(buscar.includes("<input") && comoTextoVisible("Transferencias").test(buscar) && comoTextoVisible("Pedidos").test(buscar), "Buscar está donde el permiso dice");
+    for (const [nombre, codigo] of [
+      ["otro campo en Buscar", `${buscar}\nexport const J2 = () => <input placeholder="y" />;\n`],
+      ["un textarea en Buscar", `${buscar}\nexport const T2 = () => <textarea />;\n`],
+      ["la pill Caja del diseño", `${buscar}\nexport const K5 = () => <button className="ac-chip">Caja</button>;\n`],
+      ["abrir en el ERP", `${buscar}\nexport const A2 = () => <button>Abrir en ERP</button>;\n`],
+    ] as const) {
+      assert.notDeepEqual(problemas({ ...arbol, [CAMPO_DE_BUSCAR]: codigo }), [], nombre);
+    }
+    assert.notDeepEqual(
+      problemas({ ...arbol, "src/components/chats/Piezas.tsx": `${piezas}\nexport const F = () => <button className="ac-chip">Transferencias</button>;\n` }),
+      [],
+      "pill de Buscar en la barra del chat",
+    );
     const cajas = arbol["src/components/chats/Cajas.tsx"]!;
     assert.notDeepEqual(problemas({ ...arbol, "src/components/chats/Cajas.tsx": `${cajas}\nexport const K2 = () => <button className="ac-chip">Caja</button>;\n` }), [], "chip Caja en la tarjeta");
     // Un texto que solo CONTIENE el nombre de un chip no es el chip: "Transferencia #182 recibida" sigue bien.

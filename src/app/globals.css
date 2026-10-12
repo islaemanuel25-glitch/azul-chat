@@ -948,3 +948,20 @@ body {
   background: var(--ac-color-alerta-fondo);
   color: var(--ac-color-alerta);
 }
+
+/* ── Tanda 10: buscar en el historial (Figma 05, 1:241). El campo es el de la
+   caja de preguntas y las pills, los chips de la lista: acá solo el lugar. ── */
+
+.ac-buscar__campo {
+  margin-bottom: var(--ac-espacio-3);
+}
+
+.ac-buscar__filtros {
+  flex-wrap: wrap;
+}
+
+.ac-buscar__contador {
+  margin: 0 0 var(--ac-espacio-2);
+  color: var(--ac-color-texto-suave);
+  font-size: var(--ac-letra-chica);
+}

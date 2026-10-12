@@ -233,5 +233,5 @@ export function comprobarAlVolverAPrimerPlano(documento: DocumentoVisible, venta
 
 /** Al abrir una vista: comprueba solo si es un chat (Local o General), no la lista. */
 export function comprobarAlAbrir(vista: Vista, comprobador: ComprobadorDeVersion): void {
-  if (vista.tipo === "LOCAL" || vista.tipo === "GENERAL") void comprobador.comprobar();
+  if (vista.tipo === "LOCAL" || vista.tipo === "GENERAL" || vista.tipo === "BUSCAR") void comprobador.comprobar();
 }

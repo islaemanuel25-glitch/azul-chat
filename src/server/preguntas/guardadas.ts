@@ -199,6 +199,54 @@ export function fuenteDePreguntas(
   };
 }
 
+/** Una pregunta guardada que se puede mostrar hoy, con su posición en el historial y el chat donde se hizo (null: General). */
+export type PreguntaEncontrada = { readonly fecha: Date; readonly id: bigint; readonly erpLocalId: number | null; readonly pregunta: PreguntaGuardada };
+
+/**
+ * Tanda 10: TODAS las preguntas guardadas de esta persona en esos chats
+ * (`chats`: ids de Local, y null para General) cuyo texto cumple `coincide`, y
+ * que hoy se pueden mostrar —la misma regla que el historial: retención,
+ * requisitos vivos y versión legible—, del más reciente al más antiguo.
+ *
+ * Son todas y no una página porque la búsqueda dice cuántas hay: el texto se
+ * compara en el servidor (sin acentos), así que la base no puede contarlas. Son
+ * pocas —una persona, 90 días— y la respuesta guardada se lee solo de las que
+ * coinciden.
+ */
+export async function preguntasQueCoinciden(
+  db: Db,
+  q: {
+    readonly vinculoId: string;
+    readonly chats: readonly (number | null)[];
+    readonly hoy: AlcanceDeHoy;
+    readonly ahora: Date;
+    readonly coincide: (texto: string) => boolean;
+  },
+): Promise<PreguntaEncontrada[]> {
+  const locales = q.chats.filter((c): c is number => c !== null);
+  const enChats: Prisma.PreguntaWhereInput[] = [
+    ...(q.chats.includes(null) ? [{ erpLocalId: null }] : []),
+    ...(locales.length > 0 ? [{ erpLocalId: { in: locales } }] : []),
+  ];
+  if (enChats.length === 0) return [];
+  const candidatas = await db.pregunta.findMany({
+    where: { vinculoId: q.vinculoId, creadaEn: { gte: limiteDeRetencion(q.ahora) }, OR: enChats },
+    orderBy: [{ creadaEn: "desc" }, { id: "desc" }],
+    select: { id: true, texto: true, requisitos: true },
+  });
+  const ids = candidatas.filter((c) => q.coincide(c.texto) && cumpleRequisitos(c.requisitos, q.hoy)).map((c) => c.id);
+  if (ids.length === 0) return [];
+  const filas = await db.pregunta.findMany({
+    where: { id: { in: ids }, vinculoId: q.vinculoId },
+    orderBy: [{ creadaEn: "desc" }, { id: "desc" }],
+    select: { id: true, erpLocalId: true, texto: true, creadaEn: true, resultadoVersion: true, resultado: true },
+  });
+  return filas.flatMap((f) => {
+    const p = aPreguntaGuardada(f);
+    return p ? [{ fecha: f.creadaEn, id: f.id, erpLocalId: f.erpLocalId, pregunta: p }] : [];
+  });
+}
+
 /** La retención: borra las preguntas de más de 90 días. Solo esta tabla. Devuelve cuántas. */
 export async function borrarPreguntasVencidas(db: Db, ahora: Date): Promise<number> {
   const r = await db.pregunta.deleteMany({ where: { creadaEn: { lt: limiteDeRetencion(ahora) } } });

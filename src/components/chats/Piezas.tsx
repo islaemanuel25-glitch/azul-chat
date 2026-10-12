@@ -73,6 +73,15 @@ export function EstadoChat({
   );
 }
 
+/** Tanda 10: la lupa del encabezado de un Local y de General (Figma 1:112, 1:159): abre Buscar en ese chat. */
+export function BotonBuscar({ alBuscar }: { alBuscar: () => void }) {
+  return (
+    <button type="button" className="ac-boton-icono ac-boton-icono--sobre-marca" aria-label="Buscar en el historial" onClick={alBuscar}>
+      <span aria-hidden="true">⌕</span>
+    </button>
+  );
+}
+
 /** P1: el ERP no respondió y no se pudo verificar el acceso. Reemplaza la vista: no hay historial detrás. */
 export function EstadoErpNoDisponible({ alReintentar }: { alReintentar: () => void }) {
   return (
