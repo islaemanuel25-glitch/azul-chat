@@ -141,7 +141,15 @@ async function buscar(cookie: string, texto: string, donde: number | null, filtr
 
 /** Cada resultado, en una palabra: "E182" un evento con ese número, "P<texto>" una pregunta. */
 const resumen = (r: readonly ResultadoBusqueda[]) =>
-  r.map((x) => (x.tipo === "EVENTO" ? `${x.evento.tipo === "PEDIDO_SOLICITADO" ? "Pedido" : "T"}${x.evento.tipo === "PEDIDO_SOLICITADO" ? x.evento.pedidoId : x.evento.transferenciaId}` : `P:${x.guardada.pregunta}`));
+  r.map((x) =>
+    x.tipo !== "EVENTO"
+      ? `P:${x.guardada.pregunta}`
+      : x.evento.tipo === "PEDIDO_SOLICITADO"
+        ? `Pedido${x.evento.pedidoId}`
+        : x.evento.tipo === "COMPRA_CON_SALDO"
+          ? `Compra${x.evento.pedidoId}`
+          : `T${x.evento.transferenciaId}`,
+  );
 
 const capacidadesPedidas = () => erp.cuerposA("consultar").map((c) => c.capacidad as string);
 

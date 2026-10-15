@@ -11,6 +11,7 @@
 //   · pedidosEventos(token, entrada)          → POST /api/integraciones/azul-chat/consultar
 //   · enviosEventos(token, entrada)           → POST /api/integraciones/azul-chat/consultar
 //   · cancelacionesEventos(token, entrada)    → POST /api/integraciones/azul-chat/consultar
+//   · comprasSaldoEventos(token, entrada)     → POST /api/integraciones/azul-chat/consultar (2026-10-15)
 //   · cajasResumen(token, entrada)            → POST /api/integraciones/azul-chat/consultar (Tanda 7B)
 //   · stockConsulta(token, entrada)           → POST /api/integraciones/azul-chat/consultar (Tanda 8B)
 //   · pedidosPendientes(token, entrada)       → POST /api/integraciones/azul-chat/consultar (Tanda 9B)
@@ -49,9 +50,12 @@ import {
   esCodigoErrorErp,
   esDatosMiAlcance,
   CONTRATO_CANCELACIONES_EVENTOS,
+  CONTRATO_COMPRAS_SALDO_EVENTOS,
   CONTRATO_ENVIOS_EVENTOS,
   CONTRATO_PEDIDOS_EVENTOS,
   esDatosCancelacionesEventos,
+  esDatosComprasSaldoEventos,
+  type DatosComprasSaldoEventos,
   esDatosEnviosEventos,
   esDatosPedidosEventos,
   esDatosTransferenciasEventos,
@@ -126,6 +130,8 @@ export type ClienteErp = {
   enviosEventos(token: string, entrada: unknown): Promise<ResultadoConsulta<DatosEnviosEventos>>;
   /** Una página de las transferencias a un local que se CANCELARON (Tanda 4B). */
   cancelacionesEventos(token: string, entrada: unknown): Promise<ResultadoConsulta<DatosCancelacionesEventos>>;
+  /** Una página de las compras que un local recibió dejando saldo con el proveedor (2026-10-15). */
+  comprasSaldoEventos(token: string, entrada: unknown): Promise<ResultadoConsulta<DatosComprasSaldoEventos>>;
   /** Las cajas de un local en UN día, por turno operativo (Tanda 7B). `entrada` = `{ alcance, periodo }`. */
   cajasResumen(token: string, entrada: unknown): Promise<ResultadoConsulta<DatosCajasResumen>>;
   /** El stock de un local: un producto por texto, o los que están bajo mínimo (Tanda 8B). `entrada` = `{ alcance, parametros }`. */
@@ -323,6 +329,12 @@ export function crearClienteErp(deps: DependenciasCliente = {}): ClienteErp {
         const cuerpo = construirCuerpoEventos(CONTRATO_CANCELACIONES_EVENTOS, token, entrada);
         return cuerpo ? { ok: true, cuerpo } : { ok: false, codigo: "SOLICITUD_INVALIDA" };
       }, esDatosCancelacionesEventos),
+
+    comprasSaldoEventos: (token: string, entrada: unknown) =>
+      llamar("compras_saldo_eventos", RUTA_CONSULTAR, (): CuerpoArmado => {
+        const cuerpo = construirCuerpoEventos(CONTRATO_COMPRAS_SALDO_EVENTOS, token, entrada);
+        return cuerpo ? { ok: true, cuerpo } : { ok: false, codigo: "SOLICITUD_INVALIDA" };
+      }, esDatosComprasSaldoEventos),
 
     cajasResumen: (token: string, entrada: unknown) =>
       llamar("cajas_resumen", RUTA_CONSULTAR, (): CuerpoArmado => {

@@ -223,7 +223,8 @@ describe("la migración", () => {
       const tipos = await db.$queryRawUnsafe<{ t: string }[]>(`SELECT unnest(enum_range(NULL::"TipoEvento"))::text AS t`);
       assert.deepEqual(
         tipos.map((x) => x.t),
-        ["TRANSFERENCIA_RECIBIDA", "PEDIDO_SOLICITADO", "TRANSFERENCIA_ENVIADA", "TRANSFERENCIA_CANCELADA"],
+        // COMPRA_CON_SALDO: 20261017120000_compras_saldo_eventos (2026-10-15).
+        ["TRANSFERENCIA_RECIBIDA", "PEDIDO_SOLICITADO", "TRANSFERENCIA_ENVIADA", "TRANSFERENCIA_CANCELADA", "COMPRA_CON_SALDO"],
       );
     } finally {
       await db.$disconnect();

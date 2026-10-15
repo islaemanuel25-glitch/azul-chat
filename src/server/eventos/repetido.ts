@@ -23,6 +23,7 @@
 
 import "server-only";
 
+import { esPayloadCompraConSaldoV1, mismoPayloadCompraConSaldo, PAYLOAD_VERSION_COMPRA_CON_SALDO } from "./compraConSaldo.ts";
 import {
   esPayloadPedidoSolicitadoV1,
   esPayloadTransferenciaCanceladaV1,
@@ -61,6 +62,7 @@ const COMPARADORES: Readonly<Record<string, Comparador>> = Object.freeze({
   PEDIDO_SOLICITADO: { version: PAYLOAD_VERSION_PEDIDO_SOLICITADO, es: esPayloadPedidoSolicitadoV1, mismo: mismoPayloadPedidoSolicitado },
   TRANSFERENCIA_ENVIADA: { version: PAYLOAD_VERSION_TRANSFERENCIA_ENVIADA, es: esPayloadTransferenciaEnviadaV1, mismo: mismoPayloadTransferenciaEnviada },
   TRANSFERENCIA_CANCELADA: { version: PAYLOAD_VERSION_TRANSFERENCIA_CANCELADA, es: esPayloadTransferenciaCanceladaV1, mismo: mismoPayloadTransferenciaCancelada },
+  COMPRA_CON_SALDO: { version: PAYLOAD_VERSION_COMPRA_CON_SALDO, es: esPayloadCompraConSaldoV1, mismo: mismoPayloadCompraConSaldo },
 });
 
 /** ¿Los dos payloads cuentan lo mismo? Con la versión que sabe leer el tipo, campo por campo. */

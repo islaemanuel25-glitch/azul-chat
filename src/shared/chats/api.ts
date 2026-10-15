@@ -80,12 +80,25 @@ export type EventoTransferenciaCanceladaPublico = BaseEventoPublico & {
   readonly origen: { readonly id: number; readonly nombre: string };
 };
 
-/** Un evento, como lo ve la interfaz: uno de los cuatro tipos. */
+/**
+ * Una compra que el local RECIBIÓ dejando saldo con el proveedor, confirmado a
+ * sabiendas (2026-10-15, `compras_saldo_eventos`). `texto` es el del ERP, tal
+ * cual: "{proveedor}: pedido $X · pagado $Y · quedan $Z a deber".
+ */
+export type EventoCompraConSaldoPublico = BaseEventoPublico & {
+  readonly tipo: "COMPRA_CON_SALDO";
+  readonly pedidoId: number;
+  readonly proveedor: { readonly id: number; readonly nombre: string } | null;
+  readonly texto: string;
+};
+
+/** Un evento, como lo ve la interfaz: uno de los cinco tipos. */
 export type EventoPublico =
   | EventoTransferenciaRecibidaPublico
   | EventoPedidoSolicitadoPublico
   | EventoTransferenciaEnviadaPublico
-  | EventoTransferenciaCanceladaPublico;
+  | EventoTransferenciaCanceladaPublico
+  | EventoCompraConSaldoPublico;
 
 /** Un evento de General: además, el local al que pertenece, con su nombre de HOY. */
 export type EventoGeneral = EventoPublico & { readonly local: { readonly localId: number; readonly nombre: string } };

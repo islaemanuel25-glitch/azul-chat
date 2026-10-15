@@ -679,6 +679,16 @@ const C184 = {
   transferenciaId: 184,
   origen: { id: 9, nombre: "Depósito Central" },
 } satisfies EventoPublico;
+/** La compra 12 de Casiano de test/fixtures/erp-fd1bca1.json, como evento público. */
+const PAGO12 = {
+  id: "13",
+  tipo: "COMPRA_CON_SALDO",
+  fecha: "2026-10-15T10:30:15.250Z",
+  historico: false,
+  pedidoId: 502,
+  proveedor: { id: 42, nombre: "Bebidas Norte" },
+  texto: "Bebidas Norte: pedido $80.250,50 · pagado $30.000,00 · quedan $50.250,50 a deber",
+} satisfies EventoPublico;
 
 describe("Tanda 4B: las tres tarjetas nuevas", () => {
   it("PEDIDO_SOLICITADO: 'Pedido #N solicitado' · 'A {origen}' · '{k} líneas' · hora", () => {
@@ -694,6 +704,18 @@ describe("Tanda 4B: las tres tarjetas nuevas", () => {
   it("TRANSFERENCIA_CANCELADA: 'Transferencia #N cancelada' · 'Desde {origen}' · hora, sin líneas", () => {
     assert.equal(resumenDeEvento(C184), "Transferencia #184 cancelada");
     assert.equal(texto(dibujar(createElement(TarjetaEvento, { evento: C184, zona: ZONA }))), "Transferencia #184 cancelada Desde Depósito Central · 14:00");
+  });
+
+  it("COMPRA_CON_SALDO: el texto del ERP tal cual · 'Pago parcial al proveedor' · 'Pedido #N' · hora", () => {
+    // El evento real de erp-fd1bca1.json (compra 12 de Casiano), como lo devuelve /api/chats/local.
+    assert.equal(resumenDeEvento(PAGO12), "Bebidas Norte: pedido $80.250,50 · pagado $30.000,00 · quedan $50.250,50 a deber");
+    assert.equal(
+      texto(dibujar(createElement(TarjetaEvento, { evento: PAGO12, zona: ZONA }))),
+      "Bebidas Norte: pedido $80.250,50 · pagado $30.000,00 · quedan $50.250,50 a deber Pago parcial al proveedor · Pedido #502 · 07:30",
+    );
+    const html = dibujar(createElement(TarjetaEvento, { evento: PAGO12, zona: ZONA }));
+    assert.match(html, /^<article class="ac-evento">/, "el mismo componente que los demás eventos del ERP");
+    assert.doesNotMatch(html, /<button|<a /, "sin acciones");
   });
 
   it("el mismo componente y sin alerta: solo una recepción con diferencias lleva borde y marca; ninguna lleva acciones", () => {

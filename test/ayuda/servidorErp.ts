@@ -246,6 +246,21 @@ export const FIXTURES_ERP_CCF2894 = JSON.parse(readFileSync(path.join(import.met
 };
 
 /**
+ * `compras_saldo_eventos` y `mi_alcance` con esa capacidad, del ERP en
+ * fd1bca1 (2026-10-15). Lo genera `scripts/generar-fixture-compras-saldo.mjs`
+ * EJECUTANDO la puerta del ERP (`atenderSolicitud`) con el ejecutor real
+ * `comprasSaldoEventos` sobre los mismos bytes que manda Azul Chat (ver su
+ * `_origen`). Casiano (3) con tres compras con saldo, dos en el mismo
+ * milisegundo; Centro (20) con una propia; el cajero sin `finanzas.ver`. No se
+ * edita a mano: se regenera.
+ */
+export const FIXTURES_ERP_FD1BCA1 = JSON.parse(readFileSync(path.join(import.meta.dirname, "../fixtures/erp-fd1bca1.json"), "utf8")) as {
+  ahora: string;
+  compras_saldo_eventos: Record<"pagina1" | "pagina2" | "vacia" | "completa" | "deCentro" | "sinPermiso" | "limiteFueraDeRango", IntercambioErp>;
+  miAlcance: Record<"tesoreria" | "cajero" | "adminGlobal", IntercambioErp>;
+};
+
+/**
  * Los códigos públicos del ERP en producción, con su status y su cuerpo
  * reales: los de 8920516, más TURNO_OPERATIVO_INVALIDO, que agregó 14ae247, y
  * STOCK_MINIMO_NO_DISPONIBLE, que agregó 41f702b (`respuestaPublica.js`), con

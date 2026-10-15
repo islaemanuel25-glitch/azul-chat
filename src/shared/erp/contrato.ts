@@ -587,12 +587,74 @@ export const CONTRATO_CANCELACIONES_EVENTOS: ContratoEventos<
 
 export type DatosCancelacionesEventos = DatosEventos<typeof CAPACIDAD_CANCELACIONES_EVENTOS, EventoTransferenciaCancelada, CursorCancelaciones>;
 
-/** Las cuatro capacidades de eventos, en el orden del catálogo del ERP. */
+// ── compras_saldo_eventos → COMPRA_CON_SALDO ─────────────────────────────────
+//
+// erpmanual fd1bca1 (2026-10-15), `comprasSaldoEventos.js`: la recepción de una
+// compra que dejó saldo con el proveedor y alguien confirmó a sabiendas. Un
+// evento del local DUEÑO de la compra, el que debe (el de la respuesta; el
+// evento no trae local). Permiso `finanzas.ver`. Mismo cursor compartido y
+// mismo margen de 60 s que las otras, sobre (`confirmadoEn`, id).
+//
+// `total`, `pagado` y `saldo` son los números que se vieron al CONFIRMAR, en
+// pesos con dos decimales. `texto` lo arma el ERP con la misma pieza que el
+// aviso de la recepción ("{proveedor}: pedido $X · pagado $Y · quedan $Z a
+// deber"): Azul Chat lo muestra tal cual y no lo recalcula. `proveedor` es
+// obligatorio en el ERP (`PedidoProveedor.proveedorId`); el contrato admite
+// null porque el código del ERP lo contempla. Fixture:
+// `test/fixtures/erp-fd1bca1.json`, de `scripts/generar-fixture-compras-saldo.mjs`.
+
+export const CAPACIDAD_COMPRAS_SALDO_EVENTOS = "compras_saldo_eventos";
+export const TIPO_COMPRA_CON_SALDO = "COMPRA_CON_SALDO";
+
+export type CursorComprasSaldo = { readonly confirmadoEn: string; readonly compraConSaldoId: number };
+
+export type EventoCompraConSaldo = {
+  readonly tipo: typeof TIPO_COMPRA_CON_SALDO;
+  readonly eventoId: string;
+  readonly compraConSaldoId: number;
+  readonly confirmadoEn: string;
+  readonly pedidoId: number;
+  readonly proveedor: OrigenEvento | null;
+  readonly total: number;
+  readonly pagado: number;
+  readonly saldo: number;
+  readonly texto: string;
+};
+
+/** Un monto en pesos: finito, no negativo y con a lo sumo dos decimales, como lo arma el ERP desde centavos. */
+const esMonto = (v: unknown): v is number =>
+  typeof v === "number" && Number.isFinite(v) && v >= 0 && Number.isSafeInteger(Math.round(v * 100)) && Math.abs(Math.round(v * 100) - v * 100) < 1e-6;
+
+function esEventoCompraConSaldo(v: unknown): v is EventoCompraConSaldo {
+  if (!esObjeto(v) || v.tipo !== TIPO_COMPRA_CON_SALDO) return false;
+  if (!esEnteroPositivo(v.compraConSaldoId) || !esInstanteIso(v.confirmadoEn) || !esEnteroPositivo(v.pedidoId)) return false;
+  if (v.eventoId !== claveDeEvento(TIPO_COMPRA_CON_SALDO, v.compraConSaldoId, v.confirmadoEn)) return false;
+  if (v.proveedor !== null && !esOrigen(v.proveedor)) return false;
+  return esMonto(v.total) && esMonto(v.pagado) && esMonto(v.saldo) && esTexto(v.texto) && v.texto.length > 0;
+}
+
+export const CONTRATO_COMPRAS_SALDO_EVENTOS: ContratoEventos<typeof CAPACIDAD_COMPRAS_SALDO_EVENTOS, EventoCompraConSaldo, CursorComprasSaldo> =
+  Object.freeze({
+    capacidad: CAPACIDAD_COMPRAS_SALDO_EVENTOS,
+    tipo: TIPO_COMPRA_CON_SALDO,
+    campoFecha: "confirmadoEn",
+    campoId: "compraConSaldoId",
+    esEvento: esEventoCompraConSaldo,
+  });
+
+export type DatosComprasSaldoEventos = DatosEventos<typeof CAPACIDAD_COMPRAS_SALDO_EVENTOS, EventoCompraConSaldo, CursorComprasSaldo>;
+
+export function esDatosComprasSaldoEventos(v: unknown): v is DatosComprasSaldoEventos {
+  return esDatosEventosDe(CONTRATO_COMPRAS_SALDO_EVENTOS, v);
+}
+
+/** Las cinco capacidades de eventos, en el orden del catálogo del ERP. */
 export const CAPACIDADES_EVENTOS = Object.freeze([
   CAPACIDAD_TRANSFERENCIAS_EVENTOS,
   CAPACIDAD_PEDIDOS_EVENTOS,
   CAPACIDAD_ENVIOS_EVENTOS,
   CAPACIDAD_CANCELACIONES_EVENTOS,
+  CAPACIDAD_COMPRAS_SALDO_EVENTOS,
 ] as const);
 
 export type CapacidadEventos = (typeof CAPACIDADES_EVENTOS)[number];
