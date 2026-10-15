@@ -204,7 +204,7 @@ async function suscribir(cookie: string): Promise<string> {
 }
 
 /** La conversación de un local, como la pide la app: la lista de eventos, o el estado si no hay. */
-async function conversacion(cookie: string, localId: number): Promise<{ status: number; estado?: string; eventos: EventoPublico[] }> {
+async function conversacion(cookie: string, localId: number): Promise<{ status: number; estado: string | undefined; eventos: EventoPublico[] }> {
   const res = await manejarLocal(new Request(`${ORIGEN}/api/chats/local?localId=${localId}`, { headers: conCookie(cookie) }), deps());
   const c = (await res.json()) as { estado?: string; eventos?: EventoPublico[] };
   return { status: res.status, estado: c.estado, eventos: c.eventos ?? [] };
