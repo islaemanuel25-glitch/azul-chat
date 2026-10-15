@@ -56,6 +56,7 @@ import {
   esPayloadTransferenciaCanceladaV1,
   esPayloadTransferenciaEnviadaV1,
 } from "../eventos/pedidosEnviosCancelaciones.ts";
+import { esPayloadCompraConSaldoV1 } from "../eventos/compraConSaldo.ts";
 import { esPayloadTransferenciaRecibidaV1 } from "../eventos/transferenciaRecibida.ts";
 
 /** Eventos por página de historial. */
@@ -142,6 +143,15 @@ export function aEventoPublico(f: FilaPublica): EventoPublico {
     case "TRANSFERENCIA_CANCELADA":
       if (!esPayloadTransferenciaCanceladaV1(p)) return ilegible();
       return { ...base, tipo: "TRANSFERENCIA_CANCELADA", transferenciaId: f.erpReferenciaId, origen: { id: p.origen.id, nombre: p.origen.nombre } };
+    case "COMPRA_CON_SALDO":
+      if (!esPayloadCompraConSaldoV1(p)) return ilegible();
+      return {
+        ...base,
+        tipo: "COMPRA_CON_SALDO",
+        pedidoId: p.pedidoId,
+        proveedor: p.proveedor ? { id: p.proveedor.id, nombre: p.proveedor.nombre } : null,
+        texto: p.texto,
+      };
   }
 }
 

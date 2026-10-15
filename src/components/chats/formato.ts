@@ -18,6 +18,7 @@ const IDIOMA = "es-AR";
  * src/shared/chats/textos.ts para que el servidor use exactamente el mismo.
  */
 export { resumenDeEvento } from "../../shared/chats/textos.ts";
+import { ROTULO_DE_TIPO } from "../../shared/chats/textos.ts";
 
 /** Solo una recepción con diferencias lleva marca y borde de alerta. Ningún otro tipo. */
 export function esAlerta(e: EventoPublico): boolean {
@@ -45,7 +46,8 @@ export function cantidadDeLineas(k: number): string {
  *   · recibida: [líneas con diferencias] · Desde {origen} · hora;
  *   · pedido: A {origen} · {k} línea(s) · hora (se le pide al origen);
  *   · enviada: Desde {origen} · {k} línea(s) · hora;
- *   · cancelada: Desde {origen} · hora.
+ *   · cancelada: Desde {origen} · hora;
+ *   · pago parcial: Pago parcial al proveedor · Pedido #{n} · hora.
  */
 export function metaDeEvento(e: EventoPublico, zona?: string): string {
   const hora = formatearHora(e.fecha, zona);
@@ -58,6 +60,10 @@ export function metaDeEvento(e: EventoPublico, zona?: string): string {
       return [`Desde ${e.origen.nombre}`, cantidadDeLineas(e.lineas), hora].join(" · ");
     case "TRANSFERENCIA_CANCELADA":
       return [`Desde ${e.origen.nombre}`, hora].join(" · ");
+    case "COMPRA_CON_SALDO": {
+      const { que, accion } = ROTULO_DE_TIPO.COMPRA_CON_SALDO;
+      return [`${que} ${accion}`, `Pedido #${e.pedidoId}`, hora].join(" · ");
+    }
   }
 }
 

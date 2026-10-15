@@ -15,9 +15,13 @@ import type { EventoPublico } from "./api.ts";
  *   · "Transferencia #182 recibida", o "… recibida con diferencias";
  *   · "Pedido #91 solicitado";
  *   · "Transferencia #184 enviada";
- *   · "Transferencia #184 cancelada".
+ *   · "Transferencia #184 cancelada";
+ *   · un pago parcial al proveedor: el texto del ERP tal cual, "Lácteos del
+ *     Sur: pedido $150.000,00 · pagado $100.000,00 · quedan $50.000,00 a
+ *     deber". Es también lo que dice el push.
  */
 export function resumenDeEvento(e: EventoPublico): string {
+  if (e.tipo === "COMPRA_CON_SALDO") return e.texto;
   const { que, accion } = ROTULO_DE_TIPO[e.tipo];
   switch (e.tipo) {
     case "TRANSFERENCIA_RECIBIDA":
@@ -40,6 +44,8 @@ export const ROTULO_DE_TIPO: Readonly<Record<EventoPublico["tipo"], { readonly q
   PEDIDO_SOLICITADO: { que: "Pedido", accion: "solicitado" },
   TRANSFERENCIA_ENVIADA: { que: "Transferencia", accion: "enviada" },
   TRANSFERENCIA_CANCELADA: { que: "Transferencia", accion: "cancelada" },
+  // El título es el texto del ERP; esto es lo que dice la línea de abajo y lo que encuentra la búsqueda.
+  COMPRA_CON_SALDO: { que: "Pago parcial", accion: "al proveedor" },
 });
 
 /** Lo que se agrega al título de una recepción con diferencias. */

@@ -1,6 +1,7 @@
 // src/server/eventos/capacidades.ts
 //
-// LAS CUATRO CAPACIDADES DE EVENTOS, COMO LAS INGIERE AZUL CHAT (Tanda 4B).
+// LAS CAPACIDADES DE EVENTOS, COMO LAS INGIERE AZUL CHAT (Tanda 4B; la quinta,
+// compras_saldo_eventos, desde el 2026-10-15).
 //
 // La maquinaria de ingesta (ingesta.ts: arriendo, cursor, backfill, página
 // entera o nada, idempotencia por clave) es UNA. Lo que cambia por capacidad
@@ -21,10 +22,14 @@ import { TipoEvento } from "@prisma/client";
 
 import {
   CAPACIDAD_CANCELACIONES_EVENTOS,
+  CAPACIDAD_COMPRAS_SALDO_EVENTOS,
   CAPACIDAD_ENVIOS_EVENTOS,
   CAPACIDAD_PEDIDOS_EVENTOS,
   CAPACIDAD_TRANSFERENCIAS_EVENTOS,
   CONTRATO_CANCELACIONES_EVENTOS,
+  CONTRATO_COMPRAS_SALDO_EVENTOS,
+  type CursorComprasSaldo,
+  type EventoCompraConSaldo,
   CONTRATO_ENVIOS_EVENTOS,
   CONTRATO_PEDIDOS_EVENTOS,
   CONTRATO_TRANSFERENCIAS_EVENTOS,
@@ -39,6 +44,7 @@ import {
   type EventoTransferenciaEnviada,
   type EventoTransferenciaRecibida,
 } from "../../shared/erp/contrato.ts";
+import { aFilaCompraConSaldo } from "./compraConSaldo.ts";
 import { aFilaPedidoSolicitado, aFilaTransferenciaCancelada, aFilaTransferenciaEnviada } from "./pedidosEnviosCancelaciones.ts";
 import { aFilaEvento, type FilaEvento } from "./transferenciaRecibida.ts";
 
@@ -87,10 +93,19 @@ export const INGESTA_CANCELACIONES: DefinicionIngesta<
   aFila: aFilaTransferenciaCancelada,
 });
 
+/** compras_saldo_eventos (ERP fd1bca1): del local de la respuesta, el dueño de la compra. */
+export const INGESTA_COMPRAS_SALDO: DefinicionIngesta<typeof CAPACIDAD_COMPRAS_SALDO_EVENTOS, EventoCompraConSaldo, CursorComprasSaldo> =
+  Object.freeze({
+    contrato: CONTRATO_COMPRAS_SALDO_EVENTOS,
+    tipo: TipoEvento.COMPRA_CON_SALDO,
+    aFila: aFilaCompraConSaldo,
+  });
+
 /** El tipo de Evento de cada capacidad. Es lo que una persona puede ver de un local si `mi_alcance` le anuncia esa capacidad. */
 export const TIPO_DE_CAPACIDAD: Readonly<Record<CapacidadEventos, TipoEvento>> = Object.freeze({
   [CAPACIDAD_TRANSFERENCIAS_EVENTOS]: TipoEvento.TRANSFERENCIA_RECIBIDA,
   [CAPACIDAD_PEDIDOS_EVENTOS]: TipoEvento.PEDIDO_SOLICITADO,
   [CAPACIDAD_ENVIOS_EVENTOS]: TipoEvento.TRANSFERENCIA_ENVIADA,
   [CAPACIDAD_CANCELACIONES_EVENTOS]: TipoEvento.TRANSFERENCIA_CANCELADA,
+  [CAPACIDAD_COMPRAS_SALDO_EVENTOS]: TipoEvento.COMPRA_CON_SALDO,
 });

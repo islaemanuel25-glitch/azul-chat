@@ -1,0 +1,506 @@
+{
+  "_origen": "Generado por scripts/generar-fixture-compras-saldo.mjs ejecutando el código de erpmanual en fd1bca1ef4cf27e6d4da82c488e6df40e98770f2: atenderSolicitud (firma, cuerpo canónico, parámetros, autorización) con los ejecutores reales comprasSaldoEventos y miAlcance, y aRespuestaPublica. Las filas de la base del ERP tienen la forma de sus select y están en el script. finanzas.ver en un rol propio (ningún rol por defecto lo trae), CAJERO real y admin (*). No editar a mano: regenerar.",
+  "ahora": "2026-10-15T12:00:00.000Z",
+  "compras_saldo_eventos": {
+    "pagina1": {
+      "pedido": {
+        "capacidad": "compras_saldo_eventos",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 3
+        },
+        "parametros": {
+          "limite": 2
+        }
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "compras_saldo_eventos",
+            "version": 1,
+            "local": {
+              "id": 3,
+              "nombre": "Casiano"
+            },
+            "grupoId": 1,
+            "hasta": "2026-10-15T11:59:00.000Z",
+            "eventos": [
+              {
+                "tipo": "COMPRA_CON_SALDO",
+                "eventoId": "COMPRA_CON_SALDO:11:2026-10-15T09:00:00.000Z",
+                "compraConSaldoId": 11,
+                "confirmadoEn": "2026-10-15T09:00:00.000Z",
+                "pedidoId": 501,
+                "proveedor": {
+                  "id": 41,
+                  "nombre": "Lácteos del Sur"
+                },
+                "total": 150000,
+                "pagado": 100000,
+                "saldo": 50000,
+                "texto": "Lácteos del Sur: pedido $150.000,00 · pagado $100.000,00 · quedan $50.000,00 a deber"
+              },
+              {
+                "tipo": "COMPRA_CON_SALDO",
+                "eventoId": "COMPRA_CON_SALDO:12:2026-10-15T10:30:15.250Z",
+                "compraConSaldoId": 12,
+                "confirmadoEn": "2026-10-15T10:30:15.250Z",
+                "pedidoId": 502,
+                "proveedor": {
+                  "id": 42,
+                  "nombre": "Bebidas Norte"
+                },
+                "total": 80250.5,
+                "pagado": 30000,
+                "saldo": 50250.5,
+                "texto": "Bebidas Norte: pedido $80.250,50 · pagado $30.000,00 · quedan $50.250,50 a deber"
+              }
+            ],
+            "siguiente": {
+              "confirmadoEn": "2026-10-15T10:30:15.250Z",
+              "compraConSaldoId": 12
+            },
+            "hayMas": true
+          }
+        }
+      }
+    },
+    "pagina2": {
+      "pedido": {
+        "capacidad": "compras_saldo_eventos",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 3
+        },
+        "parametros": {
+          "desde": {
+            "confirmadoEn": "2026-10-15T10:30:15.250Z",
+            "compraConSaldoId": 12
+          },
+          "limite": 2
+        }
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "compras_saldo_eventos",
+            "version": 1,
+            "local": {
+              "id": 3,
+              "nombre": "Casiano"
+            },
+            "grupoId": 1,
+            "hasta": "2026-10-15T11:59:00.000Z",
+            "eventos": [
+              {
+                "tipo": "COMPRA_CON_SALDO",
+                "eventoId": "COMPRA_CON_SALDO:13:2026-10-15T10:30:15.250Z",
+                "compraConSaldoId": 13,
+                "confirmadoEn": "2026-10-15T10:30:15.250Z",
+                "pedidoId": 503,
+                "proveedor": {
+                  "id": 41,
+                  "nombre": "Lácteos del Sur"
+                },
+                "total": 42000,
+                "pagado": 2000,
+                "saldo": 40000,
+                "texto": "Lácteos del Sur: pedido $42.000,00 · pagado $2.000,00 · quedan $40.000,00 a deber"
+              }
+            ],
+            "siguiente": {
+              "confirmadoEn": "2026-10-15T10:30:15.250Z",
+              "compraConSaldoId": 13
+            },
+            "hayMas": false
+          }
+        }
+      }
+    },
+    "vacia": {
+      "pedido": {
+        "capacidad": "compras_saldo_eventos",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 3
+        },
+        "parametros": {
+          "desde": {
+            "confirmadoEn": "2026-10-15T10:30:15.250Z",
+            "compraConSaldoId": 13
+          },
+          "limite": 2
+        }
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "compras_saldo_eventos",
+            "version": 1,
+            "local": {
+              "id": 3,
+              "nombre": "Casiano"
+            },
+            "grupoId": 1,
+            "hasta": "2026-10-15T11:59:00.000Z",
+            "eventos": [],
+            "siguiente": {
+              "confirmadoEn": "2026-10-15T10:30:15.250Z",
+              "compraConSaldoId": 13
+            },
+            "hayMas": false
+          }
+        }
+      }
+    },
+    "completa": {
+      "pedido": {
+        "capacidad": "compras_saldo_eventos",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 3
+        },
+        "parametros": {}
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "compras_saldo_eventos",
+            "version": 1,
+            "local": {
+              "id": 3,
+              "nombre": "Casiano"
+            },
+            "grupoId": 1,
+            "hasta": "2026-10-15T11:59:00.000Z",
+            "eventos": [
+              {
+                "tipo": "COMPRA_CON_SALDO",
+                "eventoId": "COMPRA_CON_SALDO:11:2026-10-15T09:00:00.000Z",
+                "compraConSaldoId": 11,
+                "confirmadoEn": "2026-10-15T09:00:00.000Z",
+                "pedidoId": 501,
+                "proveedor": {
+                  "id": 41,
+                  "nombre": "Lácteos del Sur"
+                },
+                "total": 150000,
+                "pagado": 100000,
+                "saldo": 50000,
+                "texto": "Lácteos del Sur: pedido $150.000,00 · pagado $100.000,00 · quedan $50.000,00 a deber"
+              },
+              {
+                "tipo": "COMPRA_CON_SALDO",
+                "eventoId": "COMPRA_CON_SALDO:12:2026-10-15T10:30:15.250Z",
+                "compraConSaldoId": 12,
+                "confirmadoEn": "2026-10-15T10:30:15.250Z",
+                "pedidoId": 502,
+                "proveedor": {
+                  "id": 42,
+                  "nombre": "Bebidas Norte"
+                },
+                "total": 80250.5,
+                "pagado": 30000,
+                "saldo": 50250.5,
+                "texto": "Bebidas Norte: pedido $80.250,50 · pagado $30.000,00 · quedan $50.250,50 a deber"
+              },
+              {
+                "tipo": "COMPRA_CON_SALDO",
+                "eventoId": "COMPRA_CON_SALDO:13:2026-10-15T10:30:15.250Z",
+                "compraConSaldoId": 13,
+                "confirmadoEn": "2026-10-15T10:30:15.250Z",
+                "pedidoId": 503,
+                "proveedor": {
+                  "id": 41,
+                  "nombre": "Lácteos del Sur"
+                },
+                "total": 42000,
+                "pagado": 2000,
+                "saldo": 40000,
+                "texto": "Lácteos del Sur: pedido $42.000,00 · pagado $2.000,00 · quedan $40.000,00 a deber"
+              }
+            ],
+            "siguiente": {
+              "confirmadoEn": "2026-10-15T10:30:15.250Z",
+              "compraConSaldoId": 13
+            },
+            "hayMas": false
+          }
+        }
+      }
+    },
+    "deCentro": {
+      "pedido": {
+        "capacidad": "compras_saldo_eventos",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 2,
+          "localId": 20
+        },
+        "parametros": {}
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "compras_saldo_eventos",
+            "version": 1,
+            "local": {
+              "id": 20,
+              "nombre": "Centro"
+            },
+            "grupoId": 2,
+            "hasta": "2026-10-15T11:59:00.000Z",
+            "eventos": [
+              {
+                "tipo": "COMPRA_CON_SALDO",
+                "eventoId": "COMPRA_CON_SALDO:14:2026-10-15T10:45:00.000Z",
+                "compraConSaldoId": 14,
+                "confirmadoEn": "2026-10-15T10:45:00.000Z",
+                "pedidoId": 504,
+                "proveedor": {
+                  "id": 42,
+                  "nombre": "Bebidas Norte"
+                },
+                "total": 99000,
+                "pagado": 9000,
+                "saldo": 90000,
+                "texto": "Bebidas Norte: pedido $99.000,00 · pagado $9.000,00 · quedan $90.000,00 a deber"
+              }
+            ],
+            "siguiente": {
+              "confirmadoEn": "2026-10-15T10:45:00.000Z",
+              "compraConSaldoId": 14
+            },
+            "hayMas": false
+          }
+        }
+      }
+    },
+    "sinPermiso": {
+      "pedido": {
+        "capacidad": "compras_saldo_eventos",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 3
+        },
+        "parametros": {}
+      },
+      "respuesta": {
+        "status": 403,
+        "cuerpo": {
+          "ok": false,
+          "codigo": "NO_AUTORIZADO",
+          "error": "El usuario no está autorizado para esta consulta."
+        }
+      }
+    },
+    "limiteFueraDeRango": {
+      "pedido": {
+        "capacidad": "compras_saldo_eventos",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "alcance": {
+          "grupoId": 1,
+          "localId": 3
+        },
+        "parametros": {
+          "limite": 101
+        }
+      },
+      "respuesta": {
+        "status": 400,
+        "cuerpo": {
+          "ok": false,
+          "codigo": "SOLICITUD_INVALIDA",
+          "error": "La solicitud no tiene la forma esperada."
+        }
+      }
+    }
+  },
+  "miAlcance": {
+    "tesoreria": {
+      "pedido": {
+        "capacidad": "mi_alcance",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "parametros": {}
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "mi_alcance",
+            "version": 1,
+            "usuario": {
+              "id": 7,
+              "nombre": "Tesorería Casiano"
+            },
+            "alcance": {
+              "modo": "LOCAL"
+            },
+            "locales": [
+              {
+                "id": 3,
+                "nombre": "Casiano",
+                "grupoId": 1,
+                "esDeposito": false,
+                "activo": true,
+                "capacidades": [
+                  "compras_saldo_eventos"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    "cajero": {
+      "pedido": {
+        "capacidad": "mi_alcance",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "parametros": {}
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "mi_alcance",
+            "version": 1,
+            "usuario": {
+              "id": 8,
+              "nombre": "Cajero Casiano"
+            },
+            "alcance": {
+              "modo": "LOCAL"
+            },
+            "locales": [
+              {
+                "id": 3,
+                "nombre": "Casiano",
+                "grupoId": 1,
+                "esDeposito": false,
+                "activo": true,
+                "capacidades": []
+              }
+            ]
+          }
+        }
+      }
+    },
+    "adminGlobal": {
+      "pedido": {
+        "capacidad": "mi_alcance",
+        "delegacion": {
+          "token": "<token>"
+        },
+        "parametros": {}
+      },
+      "respuesta": {
+        "status": 200,
+        "cuerpo": {
+          "ok": true,
+          "datos": {
+            "capacidad": "mi_alcance",
+            "version": 1,
+            "usuario": {
+              "id": 9,
+              "nombre": "Emanuel"
+            },
+            "alcance": {
+              "modo": "GLOBAL"
+            },
+            "locales": [
+              {
+                "id": 3,
+                "nombre": "Casiano",
+                "grupoId": 1,
+                "esDeposito": false,
+                "activo": true,
+                "capacidades": [
+                  "ventas_resumen",
+                  "transferencias_eventos",
+                  "pedidos_eventos",
+                  "envios_eventos",
+                  "cancelaciones_eventos",
+                  "cajas_resumen",
+                  "stock_consulta",
+                  "pedidos_pendientes",
+                  "compras_saldo_eventos"
+                ]
+              },
+              {
+                "id": 9,
+                "nombre": "Depósito Central",
+                "grupoId": 1,
+                "esDeposito": true,
+                "activo": true,
+                "capacidades": [
+                  "ventas_resumen",
+                  "transferencias_eventos",
+                  "pedidos_eventos",
+                  "envios_eventos",
+                  "cancelaciones_eventos",
+                  "cajas_resumen",
+                  "stock_consulta",
+                  "pedidos_pendientes",
+                  "compras_saldo_eventos"
+                ]
+              },
+              {
+                "id": 20,
+                "nombre": "Centro",
+                "grupoId": 2,
+                "esDeposito": false,
+                "activo": true,
+                "capacidades": [
+                  "ventas_resumen",
+                  "transferencias_eventos",
+                  "pedidos_eventos",
+                  "envios_eventos",
+                  "cancelaciones_eventos",
+                  "cajas_resumen",
+                  "stock_consulta",
+                  "pedidos_pendientes",
+                  "compras_saldo_eventos"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

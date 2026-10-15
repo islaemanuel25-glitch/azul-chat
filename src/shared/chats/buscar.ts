@@ -30,7 +30,7 @@ export type FiltroBusqueda = (typeof FILTROS_BUSQUEDA)[number];
 
 /** Qué tipos de evento entran en cada filtro. "preguntas" no trae eventos. */
 export const TIPOS_DE_FILTRO: Readonly<Record<FiltroBusqueda, readonly EventoPublico["tipo"][]>> = Object.freeze({
-  todos: ["TRANSFERENCIA_RECIBIDA", "TRANSFERENCIA_ENVIADA", "TRANSFERENCIA_CANCELADA", "PEDIDO_SOLICITADO"],
+  todos: ["TRANSFERENCIA_RECIBIDA", "TRANSFERENCIA_ENVIADA", "TRANSFERENCIA_CANCELADA", "PEDIDO_SOLICITADO", "COMPRA_CON_SALDO"],
   transferencias: ["TRANSFERENCIA_RECIBIDA", "TRANSFERENCIA_ENVIADA", "TRANSFERENCIA_CANCELADA"],
   pedidos: ["PEDIDO_SOLICITADO"],
   preguntas: [],

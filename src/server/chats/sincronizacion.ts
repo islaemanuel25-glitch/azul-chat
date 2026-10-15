@@ -88,6 +88,7 @@ import type { PrismaClient } from "@prisma/client";
 
 import {
   CAPACIDAD_CANCELACIONES_EVENTOS,
+  CAPACIDAD_COMPRAS_SALDO_EVENTOS,
   CAPACIDAD_ENVIOS_EVENTOS,
   CAPACIDAD_PEDIDOS_EVENTOS,
   CAPACIDAD_TRANSFERENCIAS_EVENTOS,
@@ -97,7 +98,7 @@ import {
   type ResultadoConsulta,
 } from "../../shared/erp/contrato.ts";
 import type { EstadoSincronizacion } from "../../shared/chats/api.ts";
-import { INGESTA_CANCELACIONES, INGESTA_ENVIOS, INGESTA_PEDIDOS } from "../eventos/capacidades.ts";
+import { INGESTA_CANCELACIONES, INGESTA_COMPRAS_SALDO, INGESTA_ENVIOS, INGESTA_PEDIDOS } from "../eventos/capacidades.ts";
 import { MAX_PAGINAS_POR_SINCRONIZACION, sincronizarEventosLocal, sincronizarTransferenciasLocal, type ResultadoSincronizacion } from "../eventos/ingesta.ts";
 import type { DependenciasSesion } from "../sesion/dependencias.ts";
 import type { Autorizacion, LocalDeEventos } from "./autorizacion.ts";
@@ -314,6 +315,8 @@ function sincronizarCapacidad(
       return sincronizarEventosLocal(INGESTA_ENVIOS, { ...base, consultar: contada(deps.erp.enviosEventos) });
     case CAPACIDAD_CANCELACIONES_EVENTOS:
       return sincronizarEventosLocal(INGESTA_CANCELACIONES, { ...base, consultar: contada(deps.erp.cancelacionesEventos) });
+    case CAPACIDAD_COMPRAS_SALDO_EVENTOS:
+      return sincronizarEventosLocal(INGESTA_COMPRAS_SALDO, { ...base, consultar: contada(deps.erp.comprasSaldoEventos) });
   }
 }
 

@@ -26,6 +26,8 @@
 //     4B): como el ERP 76b9a71, el mismo portón por capacidad (si el local no
 //     la anuncia, el NO_AUTORIZADO real de `sinPermiso` del fixture
 //     erp-76b9a71.json) y la misma paginación sobre lo que cargó el test;
+//     `compras_saldo_eventos` (ERP fd1bca1), igual, con el `sinPermiso` de
+//     erp-fd1bca1.json;
 //   · `cajas_resumen` (Tanda 7B): como el ERP 14ae247, el portón (si el
 //     local no la anuncia, el NO_AUTORIZADO real de `sinPermiso` del fixture
 //     erp-14ae247.json) y el día del fixture con el local y el grupo pedidos;
@@ -61,6 +63,7 @@ import {
   FIXTURES_ERP_41F702B,
   FIXTURES_ERP_76B9A71,
   FIXTURES_ERP_CCF2894,
+  FIXTURES_ERP_FD1BCA1,
   SECRETO_PRUEBA,
   levantarServidorErp,
   responderErrorErp,
@@ -274,7 +277,12 @@ export async function levantarErpConEstado(): Promise<ErpConEstado> {
         });
         return responderJson(res, 200, { ok: true, datos });
       }
-      if (cuerpo.capacidad === "pedidos_eventos" || cuerpo.capacidad === "envios_eventos" || cuerpo.capacidad === "cancelaciones_eventos") {
+      if (
+        cuerpo.capacidad === "pedidos_eventos" ||
+        cuerpo.capacidad === "envios_eventos" ||
+        cuerpo.capacidad === "cancelaciones_eventos" ||
+        cuerpo.capacidad === "compras_saldo_eventos"
+      ) {
         // Tanda 4B: lo mismo que el ERP 76b9a71 para las tres. Una respuesta
         // fija para (capacidad, local) va primero; si no, el portón —el local
         // tiene que anunciar ESA capacidad— y la paginación sobre lo cargado.
@@ -286,7 +294,7 @@ export async function levantarErpConEstado(): Promise<ErpConEstado> {
         const locales = (alcances.get(v.usuarioId)?.locales ?? []) as { id: number; nombre: string; grupoId: number; capacidades?: unknown }[];
         const local = locales.find((l) => l.id === pedido?.localId && l.grupoId === pedido?.grupoId);
         if (!local || !Array.isArray(local.capacidades) || !local.capacidades.includes(capacidad)) {
-          const negado = FIXTURES_ERP_76B9A71[capacidad].sinPermiso.respuesta;
+          const negado = (capacidad === "compras_saldo_eventos" ? FIXTURES_ERP_FD1BCA1.compras_saldo_eventos : FIXTURES_ERP_76B9A71[capacidad]).sinPermiso.respuesta;
           return responderJson(res, negado.status, negado.cuerpo);
         }
         const datos = paginarEventos4a(capacidad, {

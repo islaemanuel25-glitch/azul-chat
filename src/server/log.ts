@@ -22,6 +22,7 @@ export type RegistroConsultaErp = {
     | "pedidos_eventos"
     | "envios_eventos"
     | "cancelaciones_eventos"
+    | "compras_saldo_eventos"
     | "cajas_resumen"
     | "stock_consulta"
     | "pedidos_pendientes";

@@ -122,6 +122,8 @@ enum TipoEvento {
   TRANSFERENCIA_ENVIADA
   /// Tanda 4B: capacidad `cancelaciones_eventos`, del local destino.
   TRANSFERENCIA_CANCELADA
+  /// 2026-10-15: capacidad `compras_saldo_eventos`, del local dueño de la compra.
+  COMPRA_CON_SALDO
 }
 
 /// UN HECHO DEL ERP, guardado UNA vez. No es de una persona ni de una
@@ -167,7 +169,8 @@ model CursorIngesta {
   instalacionId          String
   erpLocalId             Int
   /// La capacidad del ERP que se pagina: transferencias_eventos,
-  /// pedidos_eventos, envios_eventos o cancelaciones_eventos (CHECK en la base).
+  /// pedidos_eventos, envios_eventos, cancelaciones_eventos o
+  /// compras_saldo_eventos (CHECK en la base).
   capacidad              String
   /// El `siguiente` del ERP, tal cual lo devolvió. Null antes de la primera página.
   cursor                 Json?

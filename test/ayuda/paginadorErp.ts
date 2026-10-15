@@ -10,6 +10,7 @@ import {
   claveDeEvento,
   claveDeTransferenciaRecibida,
   CONTRATO_CANCELACIONES_EVENTOS,
+  CONTRATO_COMPRAS_SALDO_EVENTOS,
   CONTRATO_ENVIOS_EVENTOS,
   CONTRATO_PEDIDOS_EVENTOS,
   cursorAnterior,
@@ -19,6 +20,8 @@ import {
   type ContratoEventos,
   type CursorTransferencias,
   type DatosCancelacionesEventos,
+  type DatosComprasSaldoEventos,
+  type EventoCompraConSaldo,
   type DatosEnviosEventos,
   type DatosPedidosEventos,
   type DatosTransferenciasEventos,
@@ -27,7 +30,7 @@ import {
   type EventoTransferenciaEnviada,
   type EventoTransferenciaRecibida,
 } from "../../src/shared/erp/contrato.ts";
-import { FIXTURES_ERP_25172FE, FIXTURES_ERP_76B9A71 } from "./servidorErp.ts";
+import { FIXTURES_ERP_25172FE, FIXTURES_ERP_76B9A71, FIXTURES_ERP_FD1BCA1 } from "./servidorErp.ts";
 
 /** La plantilla de `datos`: la respuesta real `sinDesde` del ERP. */
 const PLANTILLA = FIXTURES_ERP_25172FE.transferenciasEventos.sinDesde.respuesta.cuerpo.datos as DatosTransferenciasEventos;
@@ -71,19 +74,25 @@ export function paginarEventos(o: {
 // test/fixtures/erp-76b9a71.json. test/db/eventosTanda4b.test.ts comprueba que
 // esto da EXACTAMENTE las páginas que dio el ERP.
 
-type CapacidadTanda4a = "pedidos_eventos" | "envios_eventos" | "cancelaciones_eventos";
+// `compras_saldo_eventos` (ERP fd1bca1) usa el mismo cursor compartido: entra
+// acá con su propia plantilla, la respuesta real `completa` de erp-fd1bca1.json.
+type CapacidadTanda4a = "pedidos_eventos" | "envios_eventos" | "cancelaciones_eventos" | "compras_saldo_eventos";
 const PLANTILLAS_4A = {
   pedidos_eventos: FIXTURES_ERP_76B9A71.pedidos_eventos.completa.respuesta.cuerpo.datos as DatosPedidosEventos,
   envios_eventos: FIXTURES_ERP_76B9A71.envios_eventos.completa.respuesta.cuerpo.datos as DatosEnviosEventos,
   cancelaciones_eventos: FIXTURES_ERP_76B9A71.cancelaciones_eventos.completa.respuesta.cuerpo.datos as DatosCancelacionesEventos,
+  compras_saldo_eventos: FIXTURES_ERP_FD1BCA1.compras_saldo_eventos.completa.respuesta.cuerpo.datos as DatosComprasSaldoEventos,
 };
 const CONTRATOS_4A = {
   pedidos_eventos: CONTRATO_PEDIDOS_EVENTOS,
   envios_eventos: CONTRATO_ENVIOS_EVENTOS,
   cancelaciones_eventos: CONTRATO_CANCELACIONES_EVENTOS,
+  compras_saldo_eventos: CONTRATO_COMPRAS_SALDO_EVENTOS,
 } as const;
-/** El `hasta` de las respuestas reales: todos los eventos de esos fixtures son anteriores. */
+/** El `hasta` de las respuestas reales de la Tanda 4A: todos los eventos de esos fixtures son anteriores. */
 export const HASTA_FIXTURE_4A = PLANTILLAS_4A.pedidos_eventos.hasta;
+/** El `hasta` de la respuesta real de compras_saldo_eventos (fd1bca1). */
+export const HASTA_FIXTURE_COMPRAS = PLANTILLAS_4A.compras_saldo_eventos.hasta;
 
 /** Una página de una capacidad de la Tanda 4A, con las reglas del contrato. */
 export function paginarEventos4a<K extends CapacidadTanda4a>(
@@ -109,7 +118,7 @@ export function paginarEventos4a<K extends CapacidadTanda4a>(
     ...PLANTILLAS_4A[capacidad],
     local: o.local,
     grupoId: o.grupoId,
-    hasta: o.hasta ?? HASTA_FIXTURE_4A,
+    hasta: o.hasta ?? PLANTILLAS_4A[capacidad].hasta,
     eventos,
     siguiente: ultimo ? cursorDe(c, ultimo) : desde,
     hayMas: despues.length > limite,
@@ -119,6 +128,16 @@ export function paginarEventos4a<K extends CapacidadTanda4a>(
 const MOLDE_PEDIDO = PLANTILLAS_4A.pedidos_eventos.eventos[0]!;
 const MOLDE_ENVIO = PLANTILLAS_4A.envios_eventos.eventos[0]!;
 const MOLDE_CANCELACION = PLANTILLAS_4A.cancelaciones_eventos.eventos[0]!;
+/**
+ * Las compras con saldo REALES del fixture fd1bca1, tal cual las devolvió el
+ * ERP: las tres de Casiano (3) y la de Centro (20). No hay un armador de
+ * compras a mano a propósito: el texto lo arma el ERP con los tres números, y
+ * una compra inventada podría traer un texto que no corresponde a sus números.
+ */
+export const COMPRAS_DE_CASIANO: readonly EventoCompraConSaldo[] = PLANTILLAS_4A.compras_saldo_eventos.eventos;
+export const COMPRAS_DE_CENTRO: readonly EventoCompraConSaldo[] = (
+  FIXTURES_ERP_FD1BCA1.compras_saldo_eventos.deCentro.respuesta.cuerpo.datos as DatosComprasSaldoEventos
+).eventos;
 
 /** Un pedido solicitado con la forma de uno real del fixture y su clave armada como la arma el ERP. */
 export function pedido(o: { pedidoId: number; fecha: string; origen?: { id: number; nombre: string }; lineas?: number }): EventoPedidoSolicitado {
