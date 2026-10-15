@@ -25,11 +25,12 @@ Cada solicitud de chats —las tres de lectura y la de marcar leído— pide
 `mi_alcance` al ERP con el token de la persona, UNA vez, y se queda con los
 locales cuyo `capacidades` incluye al menos una capacidad de eventos:
 `transferencias_eventos` y, desde la Tanda 4B, `pedidos_eventos`,
-`envios_eventos` o `cancelaciones_eventos` (`localesAutorizadosAhora`, en
+`envios_eventos` o `cancelaciones_eventos`, y desde el 2026-10-15
+`compras_saldo_eventos` (`localesAutorizadosAhora`, en
 `autorizacion.ts`). De cada local se queda también CUÁLES anuncia: de ese
 local, la persona ve solo los tipos de evento de esas capacidades
 (`TRANSFERENCIA_RECIBIDA`, `PEDIDO_SOLICITADO`, `TRANSFERENCIA_ENVIADA`,
-`TRANSFERENCIA_CANCELADA`), y solo esas se ingieren. Todo lo demás —historial,
+`TRANSFERENCIA_CANCELADA`, `COMPRA_CON_SALDO`), y solo esas se ingieren. Todo lo demás —historial,
 último evento, no leídos, General— se restringe a ese conjunto, por local Y
 por tipo.
 
@@ -586,6 +587,10 @@ Común a los cuatro tipos: `{ id, tipo, fecha, historico }`. Además, según `ti
 - `PEDIDO_SOLICITADO` (Tanda 4B): `pedidoId, origen: { id, nombre }, lineas`.
 - `TRANSFERENCIA_ENVIADA` (Tanda 4B): `transferenciaId, origen: { id, nombre }, lineas`.
 - `TRANSFERENCIA_CANCELADA` (Tanda 4B): `transferenciaId, origen: { id, nombre }`.
+- `COMPRA_CON_SALDO` (2026-10-15, `compras_saldo_eventos`): `pedidoId,
+  proveedor: { id, nombre } | null, texto`. `texto` es el del ERP, tal cual, y
+  es el título de la tarjeta; abajo, "Pago parcial al proveedor · Pedido #N ·
+  hora".
 
 `id` es el `Evento.id` en texto y `fecha` es la `fechaOperacion` (cuándo pasó
 en el ERP: recepción, solicitud, envío o cancelación). `historico` (Tanda 4B)

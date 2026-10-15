@@ -12,6 +12,8 @@ leído) están en `docs/CHATS.md`, y la interfaz que las usa en `docs/INTERFAZ.m
   `TRANSFERENCIA_RECIBIDA` (`transferencias_eventos`, Tanda 2) y, desde la
   Tanda 4B, `PEDIDO_SOLICITADO` (`pedidos_eventos`), `TRANSFERENCIA_ENVIADA`
   (`envios_eventos`) y `TRANSFERENCIA_CANCELADA` (`cancelaciones_eventos`).
+  Desde el 2026-10-15, un quinto: `COMPRA_CON_SALDO`
+  (`compras_saldo_eventos`), el aviso de pago parcial al proveedor.
 - **Visibilidad.** Quién puede ver los hechos de un local. NO se guarda: la
   decide el ERP en cada consulta, con `mi_alcance` vivo, que anuncia en cada
   local las capacidades que la persona puede usar hoy (`capacidades`, ERP
@@ -91,6 +93,29 @@ nombres de las claves del cursor y la forma del evento:
 Ninguno de los tres trae `destino`: el local del evento es el de la respuesta,
 que se comprueba igual al pedido.
 
+### compras_saldo_eventos (2026-10-15)
+
+Copiada del ERP en fd1bca1 (`lib/integraciones/azul-chat/comprasSaldoEventos.js`,
+mismo cursor compartido `cursorDeEventos.js`). El fixture
+`test/fixtures/erp-fd1bca1.json` lo genera `scripts/generar-fixture-compras-saldo.mjs`
+ejecutando la puerta del ERP (`atenderSolicitud` con el ejecutor real
+`comprasSaldoEventos` y `miAlcance`) sobre los bytes de Azul Chat; no se edita
+a mano.
+
+- `compras_saldo_eventos` → `COMPRA_CON_SALDO`: `compraConSaldoId`,
+  `confirmadoEn`, `pedidoId`, `proveedor { id, nombre }` (obligatorio en el
+  ERP; el contrato admite null porque el código del ERP lo contempla),
+  `total`, `pagado`, `saldo` (pesos con dos decimales, los de la
+  confirmación) y `texto`. Cursor `{ confirmadoEn, compraConSaldoId }`.
+  Permiso `finanzas.ver`, que ningún rol por defecto del ERP trae. Es del
+  local DUEÑO de la compra, el que debe (el de la respuesta).
+- `texto` lo arma el ERP con la misma pieza que el aviso de la recepción:
+  "{proveedor}: pedido $X · pagado $Y · quedan $Z a deber". Azul Chat lo
+  guarda y lo muestra tal cual: no recalcula ni reformatea montos.
+- El ERP no empuja nada: Chat pregunta en la corrida de fondo de siempre (cada
+  2 minutos, el timer de `docs/DEPLOY.md`), con el mismo cupo y las mismas
+  reglas por código que las otras cuatro.
+
 ## Validación antes de guardar
 
 Una página se valida ENTERA antes de tocar la base. Si falla una sola cosa, es
@@ -135,6 +160,15 @@ tres valores al enum `TipoEvento`, amplía el CHECK de `CursorIngesta.capacidad`
 a las cuatro capacidades y exige, como para las recepciones, que la clave de
 cada tipo nuevo sea exactamente `<TIPO>:<id>:<fecha ISO>`. No toca filas
 existentes.
+
+`COMPRA_CON_SALDO` (`src/server/eventos/compraConSaldo.ts`), con el local de la
+respuesta como `erpLocalId`: referencia = `compraConSaldoId`, fecha =
+`confirmadoEn`, payload v1 `{ pedidoId, proveedor { id, nombre } | null, total,
+pagado, saldo, texto }`, armado de cero (ni quién confirmó ni productos). Una
+clave repetida con otro número u otro texto es otra foto (se conserva la
+primera). La migración `20261017120000_compras_saldo_eventos` agrega el valor
+al enum, amplía el CHECK de `CursorIngesta.capacidad` a las cinco capacidades
+y exige la clave `COMPRA_CON_SALDO:<id>:<fecha ISO>`. No toca filas.
 
 **Identidad y foto.** La `claveExterna` identifica el hecho. Lo que está
 guardado de un evento son dos cosas distintas:
@@ -335,7 +369,12 @@ activar las notificaciones no trae una avalancha de lo anterior.
 interfaz (`src/shared/chats/textos.ts`): un evento, "Casiano: Transferencia
 #404 recibida con diferencias"; dos o más, "Casiano: 3 novedades". Título
 "Azul Chat". Tocarlo abre `/?vista=local&localId=N`. Sin montos, productos ni
-ids técnicos fuera del número del título.
+ids técnicos fuera del número del título, con UNA excepción pedida: el título
+de un `COMPRA_CON_SALDO` es el texto del ERP, con sus tres montos ("Casiano:
+Lácteos del Sur: pedido $150.000,00 · pagado $100.000,00 · quedan $50.000,00 a
+deber"), porque el aviso de pago parcial ES esos números. Lo recibe solo quien
+tiene `compras_saldo_eventos` anunciada en ese local (`finanzas.ver`), y el
+horario de silencio vale igual que para los demás.
 
 **El envío** (`src/server/push/`): Web Push estándar. El cifrado (RFC 8291,
 aes128gcm) y la firma VAPID (RFC 8292) los arma la librería `web-push`; el POST
